@@ -1,5 +1,7 @@
 # JanSetu AI Blueprint v1.0 — Adjudication and Enforcement Design
 
+> Original adjudication companion. Implementation uses the [v3 PRD clock interpretation](docs/spec/PRD.md#clocks-and-calendars) and [backend transition contracts](docs/spec/BACKEND_IMPLEMENTATION.md#operational-state-transitions). The deadlines below are illustrative until a pilot agreement defines signed anchors, calendars and durations; transfers preserve case age and historical breaches.
+
 ## Focused gap
 
 **Disputed or delayed administrative handoffs that leave a public problem without an accountable owner.**

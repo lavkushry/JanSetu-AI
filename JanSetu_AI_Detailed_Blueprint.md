@@ -1,6 +1,8 @@
 # JanSetu AI — Detailed Product and Implementation Blueprint
 
-**Version:** 2.0  
+> Historical design snapshot. The [v3 specification suite](docs/spec/README.md) supersedes this document. Use its PRD, UI and backend contracts for implementation; earlier limits, examples and timelines here may differ. Preserved for design history.
+
+**Version:** 2.2\
 **Date:** 3 October 2026  
 **Status:** Design for implementation; software and integrations have not been built by this document.  
 **Deliverables covered:** BRD, PRD, mobile and website UI specification, system architecture, AI design, database model, API contracts, backend algorithms, operations, and delivery plan.
@@ -22,6 +24,8 @@ Build JanSetu as a civic social network connected to an accountable case-managem
 The social product brings people together. The operational product preserves responsibility. Neither a popular post nor a moderator's decision establishes that an allegation is true, an agency has accepted responsibility, or a repair has happened.
 
 This version replaces the earlier master blueprint's general social-feed and implementation sections with explicit product behavior. The existing **JanSetu AI Blueprint v1.0 — Adjudication and Enforcement Design** remains the companion specification for disputed handoffs. Its pilot agreement must be adapted and signed; this document does not confer enforcement powers.
+
+The [social experience, OCR, and image recognition plan](docs/PRODUCT_EXPERIENCE_PLAN.md) expands the user's Reddit + X direction into visual, screen, and scenario requirements. The [reference research](docs/REFERENCE_RESEARCH.md) traces the original CampusFix idea and four supplied AI projects to their source code. OCR means reading text from images; it does not select a cloud provider. These documents add implementation requirements, not evidence of completed software.
 
 ### 1.1 What “like Reddit and X” means here
 
@@ -413,6 +417,14 @@ Use “Agency account” for verified affiliation, “Reported observation” fo
 
 Do not label a citizen as a verified witness because they passed phone verification. Avoid “AI verified,” “criminal,” “fake reporter,” and “FIR filed” unless the exact authorized, independently recorded fact supports the wording.
 
+### 8.4 Theme, density, and social presentation
+
+Provide light, dark, and system themes through semantic tokens for surfaces, text, dividers, focus, actions, and statuses. Provide comfortable and compact feed density without reducing touch targets or hiding action labels. Validate both themes and densities using realistic long content, translated labels, mixed scripts, and actual media loading states.
+
+Use a readable social stream with inline dividers, clear community context, short updates, and readily accessible reply/repost/bookmark actions. Discussion detail provides nested, collapsible replies with bounded mobile indentation. Case receipts retain their separate responsibility and evidence hierarchy. Preserve the selected feed, query, filters, and visible anchor within the session when a reader opens and returns from a detail screen.
+
+The [experience plan](docs/PRODUCT_EXPERIENCE_PLAN.md) defines card anatomy and screen review requirements. Design reviews must cover loading, empty, review-pending, partial upload, offline, permission, stale revision, removal, and failure states alongside populated screens.
+
 ## 9. UI specification — Screen-level implementation
 
 ### 9.1 Home and Unresolved
@@ -483,6 +495,12 @@ Every screen must implement loading, empty, offline, unauthorized, removed, revi
 
 For account-sensitive or protected screens, safe exit immediately replaces the screen and clears app-owned transient state. It cannot guarantee deletion of browser history, OS records, screenshots, or third-party telemetry; interface wording must not promise that.
 
+### 9.9 Photo analysis review
+
+The service report supports OCR and image-recognition suggestions for an uploaded, authorized media revision. Show extracted text, optional region overlays, candidate categories, quality warnings, and any partial result. The resident can correct or reject suggestions and continue manually when analysis fails. Confirm location and category separately; photographed text and model scores are not proof of jurisdiction or event truth.
+
+Keep the current description and upload when retrying a failed analysis task. A completed result for replaced or deleted media cannot overwrite the active report. Public preview shows the reviewed derivative separately from the private evidence. Screen-level behavior and UX-01–37 are specified in the [experience plan](docs/PRODUCT_EXPERIENCE_PLAN.md).
+
 ## 10. System architecture and module ownership
 
 ### 10.1 Chosen stack
@@ -491,18 +509,18 @@ For account-sensitive or protected screens, safe exit immediately replaces the s
 |---|---|---|
 | Website | Next.js App Router, React, TypeScript | Public rendering, accessible web UI, staff console |
 | Mobile | React Native with Expo Router | Shared TypeScript contracts, native media and notifications |
-| API | Java 21, Spring Boot 4.1 line, Spring Security | Typed domain services, transactions, established operations |
+| API | Go, standard-library `net/http`, explicit authentication and authorization middleware | Typed domain services, context-aware requests, compiled API binaries |
 | Persistence | PostgreSQL 18 with compatible PostGIS | Relational constraints, spatial routing, durable events |
-| Database access | Spring JDBC and explicit SQL for core writes | Visible locking and permission-sensitive queries |
-| Migrations | Flyway | Ordered, reviewed schema changes |
+| Database access | `pgx` v5, `sqlc`, and explicit SQL for core writes | Generated typed queries, visible locking, permission-sensitive transactions |
+| Migrations | Goose SQL migrations | Ordered, reviewed schema changes |
 | Cache and quotas | Redis | Disposable feed caches and distributed counters |
 | Media | S3-compatible private object storage | Upload quarantine and controlled derivatives |
-| Background work | PostgreSQL outbox and leased workers | Durable work without a pilot-scale streaming cluster |
-| AI adapter | Separate Python service behind versioned contracts | Model isolation and independent resource limits |
+| Background work | Go workers with PostgreSQL outbox and leases | Durable work with bounded concurrency and explicit cancellation |
+| AI adapter | Separate Python service behind versioned contracts; FastAPI proposed for HTTP | Model isolation, validated task contracts, independent resource limits |
 | Identity | Managed or self-hosted OIDC provider with MFA/passkeys | Avoid custom credential handling |
 | Monitoring | OpenTelemetry plus metrics, logs, and alerts | Cross-request traceability with data redaction |
 
-Pin exact tested package and container digests in the implementation repository. Spring's current requirements support the chosen Java baseline; recheck dependencies at build time [S4]. Next.js and Expo documentation provide the selected routing foundations [S5–S6].
+Go is the user's selected backend language. Pin a supported Go toolchain, exact tested dependency/tool versions, and container digests when the implementation is created. Use Go's HTTP server foundation [S4], `pgx` for PostgreSQL [S17], transaction-bound `sqlc` queries [S18], and Goose for SQL migrations [S19]. Next.js and Expo documentation provide the selected routing foundations [S5–S6].
 
 Use one repository and explicit module boundaries. Deploy a public API, an operations API, and worker processes with distinct runtime credentials. They can share libraries and release tooling. Protected intake, if enabled, runs in a separate trust environment. Do not introduce a microservice for every table.
 
@@ -544,7 +562,13 @@ The operations database stores reports and assignments. The public API cannot qu
 | `audit` | Access and state-change receipts | Append-only records |
 | `protected` | Separate optional product/service boundary | Approved specialist pathways only |
 
-Controllers validate transport fields, application services enforce policy and transitions, repositories perform scoped persistence, and outbox events trigger asynchronous work. Controllers cannot call another module's repository.
+HTTP handlers validate transport fields, application services enforce policy and transitions, repositories perform scoped persistence, and outbox events trigger asynchronous work. Handlers cannot call another module's repository. Domain modules live under the Go module's `internal/domain` tree and expose explicit service interfaces; process entry points only assemble dependencies.
+
+Use `net/http` handlers and middleware for identity resolution, object authorization, CSRF/origin checks where cookie-authenticated, request limits, error mapping, and redacted tracing. Use an OIDC client such as `go-oidc` with `golang.org/x/oauth2` for login integration [S20]. API access-token validation must follow the selected provider's token format, issuer, and audience rules; an ID token is not automatically an API access token. Case/community/organization permissions remain explicit application policy.
+
+Each command owns an explicit `pgx` transaction. Bind every participating repository and generated query to that transaction using `sqlc`'s `WithTx`; return success only after commit succeeds [S17–S18]. Do not accidentally issue command writes through the pool outside that transaction. Apply RLS request context transaction-locally and pass `context.Context` through handlers, queries, and external adapters. External calls run after the authoritative commit through outbox workers.
+
+Bound HTTP body sizes, request and external-call deadlines, database pools, worker concurrency, and shutdown time. Use separate runtime credentials per API/worker role. Retry only the whole eligible command under its idempotency/locking contract, never an arbitrary partial transaction. Measure memory, latency, contention, and throughput against section 11 before making scaling or cost claims.
 
 ### 10.4 Request and event consistency
 
@@ -1314,18 +1338,24 @@ The response cannot claim that an external authority accepted or registered the 
 | `apps/mobile` | Expo app with shared navigation contracts |
 | `packages/api-client` | OpenAPI-generated TypeScript client |
 | `packages/design-tokens` | Colors, spacing, typography, status terminology |
-| `services/backend/public-app` | Public social HTTP entry points |
-| `services/backend/operations-app` | Intake and staff HTTP entry points |
-| `services/backend/domain/*` | Domain modules with owned tables |
-| `services/backend/workers` | Projection, moderation, media, and delivery consumers |
+| `services/backend/go.mod`, `go.sum` | Backend Go module and dependency checksums |
+| `services/backend/cmd/public-api` | Public social API binary and dependency assembly |
+| `services/backend/cmd/operations-api` | Intake/staff API binary and dependency assembly |
+| `services/backend/cmd/worker` | Projection, moderation, media, and delivery worker binary |
+| `services/backend/internal/domain/*` | Domain modules with owned tables, services, and scoped repositories |
+| `services/backend/internal/platform/*` | HTTP middleware, database pools, identity adapters, telemetry, worker lifecycle |
+| `services/backend/internal/domain/*/sql` | Module-owned SQL queries and `sqlc` configuration |
+| `services/backend/internal/domain/*/dbgen` | Generated typed queries; core transactions use `WithTx` |
 | `services/ai-adapter` | Versioned inference adapters and evaluation harness |
 | `contracts/openapi` | Public and operations API definitions |
 | `contracts/events` | Versioned event JSON schemas |
-| `db/migration` | Flyway migrations, grants, triggers, seed reference data |
+| `db/migrations` | Goose SQL migrations, grants, triggers, seed reference data |
 | `infra` | Environment definitions and deployment configuration |
 | `tests/contract` | Consumer/provider and schema compatibility tests |
 
 Share tokens and API types, not every rendered component. Native accessibility, keyboard behavior, uploads, and navigation need native implementations. Server rendering and staff tables remain web concerns.
+
+Pin the Go toolchain, `sqlc`, and Goose independently. CI checks formatting with `gofmt`, static issues with `go vet`, unit/integration behavior with `go test`, race behavior on concurrency-sensitive packages, and reproducible query generation. Build the three entry-point binaries from the shared Go module. Run migrations under a separate migration role before deployment; API and worker runtime roles cannot migrate their own schema. The paths above describe the intended implementation layout, not directories already created.
 
 ### 15.2 Create and publish a post
 
@@ -1348,57 +1378,64 @@ Keep ordinary social creation-key receipts for a documented retry window, initia
 
 ### 15.3 Reference vote service
 
-This Java excerpt illustrates the domain logic. Repository and policy interfaces are implementation contracts; the snippet is not a complete deployable service.
+This Go excerpt illustrates the domain logic and explicit commit boundary. `CurrentActor`, `VoteScope`, `VoteResult`, and `ErrInvalidVote` are application contracts to implement. `NewScope` binds the policy and all participating repositories to the supplied transaction, including generated queries through `WithTx`. The snippet is not a complete deployable service.
 
-```java
-@Service
-public final class VoteService {
-    private final CurrentActor actors;
-    private final PostRepository posts;
-    private final VoteRepository votes;
-    private final InteractionPolicy policy;
-    private final OutboxRepository outbox;
+```go
+type VoteService struct {
+	Pool     *pgxpool.Pool
+	Actors   CurrentActor
+	NewScope func(pgx.Tx) VoteScope
+}
 
-    public VoteService(CurrentActor actors, PostRepository posts,
-                       VoteRepository votes, InteractionPolicy policy,
-                       OutboxRepository outbox) {
-        this.actors = actors;
-        this.posts = posts;
-        this.votes = votes;
-        this.policy = policy;
-        this.outbox = outbox;
-    }
+func (s *VoteService) SetPostVote(
+	ctx context.Context, postID pgtype.UUID, desiredValue int,
+) (VoteResult, error) {
+	if desiredValue < -1 || desiredValue > 1 {
+		return VoteResult{}, ErrInvalidVote
+	}
+	actor, err := s.Actors.RequireActiveProfile(ctx)
+	if err != nil {
+		return VoteResult{}, err
+	}
 
-    @Transactional
-    public VoteResult setPostVote(UUID postId, int desiredValue) {
-        if (desiredValue < -1 || desiredValue > 1) {
-            throw new ValidationException("value must be -1, 0, or 1");
-        }
-
-        Actor actor = actors.requireActiveProfile();
-        // Acquires the common authorization locks before the post lock.
-        policy.lockInteractionContext(actor.profileId(), postId);
-        Post post = posts.requireForUpdate(postId);
-        policy.requireCanVote(actor, post);
-
-        int previous = votes.findValue(actor.profileId(), postId).orElse(0);
-        if (previous == desiredValue) {
-            return new VoteResult(desiredValue);
-        }
-
-        if (desiredValue == 0) {
-            votes.delete(actor.profileId(), postId);
-        } else {
-            votes.upsert(actor.profileId(), postId, desiredValue);
-        }
-
-        outbox.appendVoteChanged(
-            UUID.randomUUID(), postId, actor.profileId(), desiredValue
-        );
-        return new VoteResult(desiredValue);
-    }
+	err = pgx.BeginTxFunc(ctx, s.Pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		scope := s.NewScope(tx)
+		// Lock authorization context before the target post.
+		if err := scope.Policy.LockInteractionContext(ctx, actor.ProfileID, postID); err != nil {
+			return err
+		}
+		post, err := scope.Posts.RequireForUpdate(ctx, postID)
+		if err != nil {
+			return err
+		}
+		if err := scope.Policy.RequireCanVote(ctx, actor, post); err != nil {
+			return err
+		}
+		previous, err := scope.Votes.FindValue(ctx, actor.ProfileID, postID)
+		if err != nil {
+			return err
+		}
+		if previous == desiredValue {
+			return nil
+		}
+		if desiredValue == 0 {
+			err = scope.Votes.Delete(ctx, actor.ProfileID, postID)
+		} else {
+			err = scope.Votes.Upsert(ctx, actor.ProfileID, postID, desiredValue)
+		}
+		if err != nil {
+			return err
+		}
+		return scope.Outbox.AppendVoteChanged(ctx, postID, actor.ProfileID, desiredValue)
+	})
+	if err != nil {
+		return VoteResult{}, err
+	}
+	return VoteResult{Value: desiredValue}, nil
 }
 ```
+
+The excerpt assumes imports for `context`, `github.com/jackc/pgx/v5`, `pgtype`, and `pgxpool`. `FindValue` returns zero for no vote, and outbox insertion creates a random event ID in the same transaction. `RequireCanVote` rechecks actor state and permissions under the acquired authorization locks. `BeginTxFunc` handles commit/rollback; a commit error returns no successful vote result [S17].
 
 The pilot serializes votes on the target post for simple correctness. At measured high contention, replace this with per-interaction locking plus a rigorously tested visibility-revocation protocol. Do not introduce an unlocked optimization first.
 
@@ -1413,16 +1450,19 @@ For a reply, lock the post and relevant parent, validate current comment permiss
 Edits use a version condition:
 
 ```sql
+-- name: EditComment :one
 UPDATE social.comment
-SET body = :body,
+SET body = sqlc.arg(body),
     state = 'PENDING',
     version = version + 1,
     updated_at = now()
-WHERE id = :comment_id
-  AND author_id = :actor_profile_id
-  AND version = :expected_version
+WHERE id = sqlc.arg(comment_id)
+  AND author_id = sqlc.arg(actor_profile_id)
+  AND version = sqlc.arg(expected_version)
 RETURNING id, version;
 ```
+
+`sqlc.arg` names are generation directives; `sqlc` emits PostgreSQL parameter placeholders and typed Go arguments. Execute the generated query through the transaction-bound query instance.
 
 Authorization checks and the insertion into `comment_revision` happen in the same transaction. Zero rows after an authorized lookup means an edit conflict; the UI offers the latest version and preserves the local draft. Do not silently overwrite another device's changes.
 
@@ -1523,6 +1563,8 @@ Filter unauthorized candidates before returning titles, snippets, result counts,
 
 AI is valuable where language, imagery, and institutional terminology are messy. It is not needed to decide whether a vote is unique, a reviewer has permission, a deadline elapsed, or an agency accepted an obligation. Those are deterministic system responsibilities.
 
+Unavailable or unclear transcription must remain explicitly unavailable or uncertain. Allow transcript correction and manual text input; never substitute a predefined complaint, placeholder observation, or invented transcript into the resident's report.
+
 ### 17.2 Inference pipeline
 
 ```mermaid
@@ -1593,6 +1635,20 @@ The pilot may call contracted hosted models through the adapter; deployment regi
 | Evidence comparison | Realistic before/after and misleading examples | Never independently marks a case restored |
 
 Zero failures in a finite test set is not a guarantee of zero production failures. Monitor drift, reviewer disagreement, model costs, and safety incidents. Roll back model and prompt versions independently from the application release. Record model ID, prompt/template version, source set, policy version, latency, and decision disposition without dumping sensitive prompts into logs.
+
+### 17.6 OCR and image-recognition task contracts
+
+Implement OCR, issue detection, scene description, redaction assistance, and before/after comparison as separately versioned tasks. A photo attachment alone does not prove image analysis is implemented. Each enabled task must have an adapter, usable model/provider, validated output, failure behavior, and evaluation evidence. Candidate engines and reference limitations are recorded in [reference research](docs/REFERENCE_RESEARCH.md).
+
+Analyze only media admitted through the upload quarantine and authorized for the task's purpose. Workers resolve private storage references; an input URL must not permit arbitrary server-side fetching. Decode and scan before inference, with bounds on file size, decoded dimensions, time, cost, and worker resources.
+
+Results bind to the exact media revision and preprocessing version. Record OCR text regions, script/language candidates, uncertain spans, issue category candidates, quality warnings, and source references. Preserve the crop, resize, and orientation transforms so overlays map back to the submitted image. Distinguish raw model scores from calibrated confidence and user/reviewer acceptance. Unknown categories and invented evidence references fail validation.
+
+Track queued, running, succeeded, partial, failed, and cancelled results per task. OCR may succeed when detection fails. Allow targeted retry, user correction, and manual reporting without reuploading evidence. Cancel or discard stale results when the source revision changes, is deleted, or access is revoked. A reviewed, sanitized derivative is required for public presentation.
+
+Choose engines using labeled pilot examples covering the supported languages/scripts, small print, rotation, glare, handwriting where in scope, multiple defects, unsupported categories, and misleading before/after pairs. Set per-task release thresholds from measured error costs. No claim about universal language support, production accuracy, or AMD acceleration follows from a reference repository alone. Hardware compatibility and model/code/data licensing must be established for the chosen deployment.
+
+OCR text and image contents remain untrusted input. They cannot alter permissions, supply executable workflow instructions, trigger agency actions, or independently establish restoration. The full processing flow and user states are defined in the [experience plan](docs/PRODUCT_EXPERIENCE_PLAN.md).
 
 ## 18. Media, evidence, and low-connectivity implementation
 
@@ -1862,6 +1918,15 @@ These tests are required implementation work. They have not been executed merely
 | AC-26: Withdraw a publication while notification waits | Notification does not reveal withdrawn text |
 | AC-27: Attempt self-approval of identity disclosure | Denied; separate authorized approval required |
 | AC-28: Complete data deletion with a documented legal hold | Non-held data removed; held scope and access remain explicit |
+| AC-29: OCR succeeds while issue detection fails | Completed text retained; targeted retry or manual reporting without reupload |
+| AC-30: OCR returns incorrect or mixed-script text | Resident can correct/reject selected spans before applying to the report |
+| AC-31: A delayed analysis targets replaced/deleted media | No findings applied to a different active revision; stale result cancelled/discarded |
+| AC-32: Cropped/resized/rotated evidence gets a region overlay | Coordinate transforms map regions to the correct submitted image |
+| AC-33: OCR reads instructions embedded in an image | No permission, remote-fetch, case-status, or agency-action side effect |
+| AC-34: Image quality or model/provider availability is insufficient | Explicit warning/failure; preserved draft and manual submission option |
+| AC-35: Return from thread or search with new feed items waiting | Chosen filters and stable reading anchor restored; explicit refresh affordance |
+| AC-36: Use light/dark themes and both feed densities | Core tasks remain accessible at large text/zoom with reachable labeled controls |
+| AC-37: Transcription is unavailable, empty, or unclear | No fabricated report content; manual text and correction remain usable |
 
 ### 21.6 Data lifecycle and recovery
 
@@ -1956,6 +2021,9 @@ Parallel stages require named dependencies and sufficient staffing. Native relea
 | B-10 Native client | Navigation, media, low-bandwidth, push | Stable API contracts | Critical tasks pass on pilot devices |
 | B-11 Operations | Delivery retries, monitoring, backup, incident response | All enabled services | Recovery objectives measured |
 | B-12 Protected lane | Separate vault, safe contact, specialist workflow | All protected-category gates | Independent security and safeguarding review |
+| B-13 Media understanding | Versioned OCR/vision jobs, preprocessing transforms, correction UI, task retries, evaluation | B-03, B-05, approved taxonomy and model/provider | AC-29–34 and labeled per-task release thresholds pass |
+
+All user-facing packages include the [experience plan's](docs/PRODUCT_EXPERIENCE_PLAN.md) relevant UX-01–37 scenarios and theme/density/state review. B-13 is required for enabled OCR/image-recognition features; the B-05 manual text/photo intake remains usable during analysis failures.
 
 ### 23.4 Requirement traceability
 
@@ -1967,7 +2035,9 @@ Parallel stages require named dependencies and sufficient staffing. Native relea
 | Reporter protection | FR-02, FR-19; protected boundary | Private help; safe publication preview | Vault, grants, separate credentials | AC-11–13, AC-27 |
 | Continuous responsibility | FR-20; adjudication supplement | Authority queue and dispute view | Obligations, clocks, route decisions | AC-14–18 |
 | User control | FR-13–15; feed preferences | Settings and Activity | Blocks, mutes, deletion tasks | AC-07–09, AC-23, AC-26 |
-| Accessible service | Voice intake and UI requirements | Web/native forms and threads | Transcript review, resumable intake | AC-20, AC-24 |
+| Accessible service | Voice intake and UI requirements | Web/native forms and threads | Transcript review, resumable intake | AC-20, AC-24, AC-37 |
+| Understandable photo reporting | OCR/vision task contracts | Analysis review and editable suggestions | Media-bound jobs, transforms, evaluations | AC-29–34; UX-18–26, UX-29 |
+| Consistent social experience | Theme, density, and social presentation | Feed, thread, composer, search | Session navigation state and authoritative social actions | AC-35–36; UX-01–17 |
 | Sustainable operation | BR-04; reliability requirements | Queue and capacity indicators | Metrics, recovery, integration adapters | AC-19, AC-25, AC-28 |
 
 ## 24. Architecture decisions and handoff
@@ -1976,6 +2046,7 @@ Parallel stages require named dependencies and sufficient staffing. Native relea
 
 | Decision | Consequence |
 |---|---|
+| Go backend selected by the user | `net/http` APIs and workers, `pgx`/`sqlc` persistence, Goose migrations, explicit transaction and authorization boundaries |
 | Public posts, reports, cases, obligations, and receipts are distinct | Social popularity cannot mutate operational truth |
 | One voting model, no redundant like counter | Clearer semantics and simpler interaction consistency |
 | No open direct messaging in the pilot | Fewer private harassment and moderation surfaces |
@@ -1993,8 +2064,10 @@ Parallel stages require named dependencies and sufficient staffing. Native relea
 The development team should produce the following repository artifacts from this specification:
 
 - OpenAPI contracts with role, validation, version, and idempotency behavior for every enabled endpoint.
-- Complete Flyway migrations, grants, triggers, and seed data matching the reference schema and additional table contracts.
+- Complete Goose SQL migrations, grants, triggers, and seed data matching the reference schema and additional table contracts.
 - UI component library, screen prototypes, local-language copy, and web/native accessibility test cases.
+- Light/dark/system themes, feed densities, card anatomy, and screen/state coverage matching the social experience plan.
+- Evaluated OCR/vision adapters, model assets or approved provider configuration, media-coordinate transforms, correction UI, and per-task failure handling.
 - Versioned routing rules and source manifests for the selected pilot geography.
 - Event schemas, worker retry policies, projection rebuild commands, and deletion/revocation procedures.
 - Threat-model review, scoped authorization tests, restore evidence, and operational runbooks.
@@ -2011,7 +2084,7 @@ Primary sources were checked on 3 October 2026 unless noted. Product choices, sc
 | S1 | [Reddit — Reddiquette](https://support.reddithelp.com/hc/en-us/articles/205926439-Reddiquette) | Public discussion and voting conventions |
 | S2 | [X — Repost FAQs](https://help.x.com/en/using-x/repost-faqs) | Repost and quote interaction reference |
 | S3 | [W3C — WCAG 2.2](https://www.w3.org/TR/WCAG22/) | Accessibility target |
-| S4 | [Spring Boot — System requirements](https://docs.spring.io/spring-boot/system-requirements.html) | Java/Spring baseline compatibility |
+| S4 | [Go — net/http](https://pkg.go.dev/net/http) | Go HTTP server and handler foundation |
 | S5 | [Next.js — App Router documentation](https://nextjs.org/docs/app) | Website routing foundation |
 | S6 | [Expo — Router introduction](https://docs.expo.dev/router/introduction/) | Native routing foundation |
 | S7 | [Government of India — Local Government Directory](https://lgdirectory.gov.in/) | Administrative identifiers and source inventory |
@@ -2024,5 +2097,9 @@ Primary sources were checked on 3 October 2026 unless noted. Product choices, sc
 | S14 | [MeitY — Intermediary Rules consolidated text with 2026 amendments](https://www.meity.gov.in/static/uploads/2026/02/550681ab908f8afb135b0ad42816a1c9.pdf) | Social-platform legal review input |
 | S15 | [MHA — Parliamentary response on BNSS and e-Zero FIR, 28 July 2026](https://www.mha.gov.in/MHA1/Par2017/pdfs/par2026-pdfs/LS28072026/135.pdf) | Counsel's official-channel and terminology review |
 | S16 | [CVC — Complaint Handling Policy](https://cvc.gov.in/uploads/pdfs/pdf-1772375911000-530170809.pdf) | Jurisdiction and PIDPI review starting point; document indicates a 2019 revision, so counsel must verify current procedure |
+| S17 | [pgx v5 documentation](https://pkg.go.dev/github.com/jackc/pgx/v5) | PostgreSQL driver and explicit transaction helpers |
+| S18 | [sqlc — Using transactions](https://docs.sqlc.dev/en/v1.31.1/howto/transactions.html) | Generated queries bound to the command transaction |
+| S19 | [Goose](https://github.com/pressly/goose) | SQL migration tooling |
+| S20 | [go-oidc](https://github.com/coreos/go-oidc) | OIDC login integration; application authorization remains explicit |
 
 The adjudication companion supplied with the earlier blueprint remains an internal design source. Its proposed timelines and draft clause are contractual design inputs requiring completed schedules and authorized signatures.
