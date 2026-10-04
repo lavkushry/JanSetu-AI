@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.7.0
+  version: 0.8.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -825,6 +825,77 @@ paths:
         '422':
           $ref: '#/components/responses/Problem'
         '503':
+          $ref: '#/components/responses/Problem'
+  /me/activity:
+    get:
+      operationId: get_activity
+      description: Owner-only in-app alerts. Each page rechecks publication, blocks, mutes, channel preferences and current case follows. Twenty items per signed viewer/filter-bound page; five-minute cursor deadline.
+      parameters:
+        - name: filter
+          in: query
+          schema:
+            type: string
+            enum: [ALL, SOCIAL, CASES]
+            default: ALL
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 1000
+      responses:
+        '200':
+          description: Current visible activity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /me/activity/summary:
+    get:
+      operationId: get_activity_summary
+      responses:
+        '200':
+          description: Unread count using the same visibility rules as the inbox
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivitySummary'
+        '401':
+          $ref: '#/components/responses/Problem'
+  /me/activity/{id}/read:
+    put:
+      operationId: set_activity_read
+      description: Desired-state presentation control. Cannot acknowledge agency receipt, work or verification. Unavailable and other-owner IDs return the same 404. Repeating read=true retains the original read time.
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [read]
+              properties:
+                read:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated read state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivityRead'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '422':
           $ref: '#/components/responses/Problem'
   /me/blocks:
     get:
@@ -1737,6 +1808,86 @@ components:
           type: string
         version:
           type: integer
+    ActivityRead:
+      type: object
+      additionalProperties: false
+      required: [id, readAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        readAt:
+          type: [string, 'null']
+          format: date-time
+    Activity:
+      type: object
+      additionalProperties: false
+      required: [id, kind, createdAt, readAt, actor, message, target]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [REPLY, CASE_PROGRESS]
+        createdAt:
+          type: string
+          format: date-time
+        readAt:
+          type: [string, 'null']
+          format: date-time
+        actor:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [id, displayName, handle]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                displayName:
+                  type: string
+                handle:
+                  type: string
+            - type: 'null'
+        message:
+          type: string
+        target:
+          type: object
+          additionalProperties: false
+          required: [kind, id, title]
+          properties:
+            kind:
+              type: string
+              enum: [POST, RECEIPT]
+            id:
+              type: string
+              format: uuid
+            title:
+              type: string
+    ActivityPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor, expiresAt]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Activity'
+        nextCursor:
+          type: [string, 'null']
+        expiresAt:
+          type: string
+          format: date-time
+    ActivitySummary:
+      type: object
+      additionalProperties: false
+      required: [unreadCount]
+      properties:
+        unreadCount:
+          type: integer
+          format: int64
+          minimum: 0
     PublicProfile:
       type: object
       additionalProperties: false

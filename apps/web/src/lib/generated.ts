@@ -611,6 +611,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Owner-only in-app alerts. Each page rechecks publication, blocks, mutes, channel preferences and current case follows. Twenty items per signed viewer/filter-bound page; five-minute cursor deadline. */
+        get: operations["get_activity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/activity/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_activity_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/activity/{id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Desired-state presentation control. Cannot acknowledge agency receipt, work or verification. Unavailable and other-owner IDs return the same 404. Repeating read=true retains the original read time. */
+        put: operations["set_activity_read"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/blocks": {
         parameters: {
             query?: never;
@@ -1055,6 +1105,46 @@ export interface components {
             displayName: string;
             bio?: string;
             version?: number;
+        };
+        ActivityRead: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            readAt: string | null;
+        };
+        Activity: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "REPLY" | "CASE_PROGRESS";
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            readAt: string | null;
+            actor: {
+                /** Format: uuid */
+                id: string;
+                displayName: string;
+                handle: string;
+            } | null;
+            message: string;
+            target: {
+                /** @enum {string} */
+                kind: "POST" | "RECEIPT";
+                /** Format: uuid */
+                id: string;
+                title: string;
+            };
+        };
+        ActivityPage: {
+            items: components["schemas"]["Activity"][];
+            nextCursor: string | null;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        ActivitySummary: {
+            /** Format: int64 */
+            unreadCount: number;
         };
         PublicProfile: {
             /** Format: uuid */
@@ -2505,6 +2595,84 @@ export interface operations {
             410: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
+        };
+    };
+    get_activity: {
+        parameters: {
+            query?: {
+                filter?: "ALL" | "SOCIAL" | "CASES";
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current visible activity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    get_activity_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unread count using the same visibility rules as the inbox */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivitySummary"];
+                };
+            };
+            401: components["responses"]["Problem"];
+        };
+    };
+    set_activity_read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    read: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated read state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivityRead"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
         };
     };
     get_blocked_people: {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -37,7 +38,8 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 		if e != nil && !errors.Is(e, pgx.ErrNoRows) {
 			return e
 		}
-		if e == nil && claimed.AggregateType == "POST" {
+		fresh := e == nil
+		if fresh && claimed.AggregateType == "POST" {
 			// Lock the aggregate before taking the count snapshot so two workers
 			// cannot publish counts computed on opposite sides of a mutation.
 			if _, e = q.LockPost(ctx, claimed.AggregateID); e != nil {
@@ -45,6 +47,37 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 			}
 			if e = q.RebuildPostStats(ctx, claimed.AggregateID); e != nil {
 				return e
+			}
+		}
+		if fresh {
+			switch claimed.EventType {
+			case "CommentPublished":
+				var payload struct {
+					CommentID uuid.UUID `json:"commentId"`
+					Revision  int64     `json:"revision"`
+				}
+				if e = json.Unmarshal(claimed.Payload, &payload); e != nil {
+					return e
+				}
+				if payload.CommentID == uuid.Nil || payload.Revision < 1 {
+					return errors.New("invalid reply event")
+				}
+				if e = q.DeliverReplyActivity(ctx, dbgen.DeliverReplyActivityParams{EventID: claimed.ID, CommentID: payload.CommentID, SourceVersion: pgtype.Int8{Int64: payload.Revision, Valid: true}, EventTime: claimed.CreatedAt}); e != nil {
+					return e
+				}
+			case "SafeReceiptPublished":
+				var payload struct {
+					ReceiptID uuid.UUID `json:"receiptId"`
+				}
+				if e = json.Unmarshal(claimed.Payload, &payload); e != nil {
+					return e
+				}
+				if payload.ReceiptID == uuid.Nil {
+					return errors.New("invalid receipt event")
+				}
+				if e = q.DeliverCaseActivity(ctx, dbgen.DeliverCaseActivityParams{EventID: claimed.ID, ReceiptID: payload.ReceiptID, SourceVersion: pgtype.Int8{Int64: claimed.AggregateVersion, Valid: true}, EventTime: claimed.CreatedAt}); e != nil {
+					return e
+				}
 			}
 		}
 		return q.CompleteEvent(ctx, dbgen.CompleteEventParams{ID: event.ID, LeaseToken: &token, LeaseOwner: leaseOwner})
