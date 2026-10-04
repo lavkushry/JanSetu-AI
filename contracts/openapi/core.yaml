@@ -1,0 +1,2044 @@
+openapi: 3.1.0
+info:
+  title: JanSetu local core API
+  version: 0.1.0
+  description:
+    Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
+    creations require Idempotency-Key; versioned changes require If-Match. Production identity and real
+    intake are disabled.
+servers:
+  - url: /api
+paths:
+  /me:
+    get:
+      responses:
+        '200':
+          description: Session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_me
+  /dev/accounts:
+    get:
+      responses:
+        '200':
+          description: Synthetic identities
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Accounts'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_dev_accounts
+  /dev/session:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - principalId
+              properties:
+                principalId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: post_dev_session
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+  /me/logout:
+    post:
+      responses:
+        '204':
+          description: Signed out
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: post_me_logout
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+  /capabilities:
+    get:
+      responses:
+        '200':
+          description: Enabled capabilities
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capabilities'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_capabilities
+  /feed:
+    get:
+      parameters:
+        - name: mode
+          in: query
+          schema:
+            type: string
+            enum:
+              - HOME
+              - FOLLOWING
+              - NEARBY
+              - UNRESOLVED
+              - RESOLVED
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum:
+              - new
+              - top
+        - name: communityId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/Feed'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_feed
+  /search:
+    get:
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 120
+      responses:
+        '200':
+          description: Typed search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Search'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_search
+  /me/bookmarks:
+    get:
+      responses:
+        '200':
+          $ref: '#/components/responses/Feed'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_me_bookmarks
+  /communities:
+    get:
+      responses:
+        '200':
+          description: Communities
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Community'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_communities
+  /communities/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      responses:
+        '200':
+          description: Community
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Community'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_communities_by_id
+  /posts:
+    post:
+      parameters:
+        - $ref: '#/components/parameters/Idempotency'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostInput'
+      responses:
+        '201':
+          $ref: '#/components/responses/Post'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: post_posts
+  /posts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      responses:
+        '200':
+          $ref: '#/components/responses/Post'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_posts_by_id
+    patch:
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostEdit'
+      responses:
+        '200':
+          $ref: '#/components/responses/Post'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: patch_posts_by_id
+    delete:
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      responses:
+        '204':
+          description: Tombstone retained
+        '412':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: delete_posts_by_id
+  /posts/{id}/comments:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      responses:
+        '200':
+          description: At most 200 visible comments
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                  - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Comment'
+                  nextCursor:
+                    type: 'null'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_posts_by_id_comments
+    post:
+      parameters:
+        - $ref: '#/components/parameters/Idempotency'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentInput'
+      responses:
+        '201':
+          $ref: '#/components/responses/Command'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: post_posts_by_id_comments
+  /service-reports:
+    post:
+      parameters:
+        - $ref: '#/components/parameters/Idempotency'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportInput'
+      responses:
+        '201':
+          description: Platform acknowledgement only
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportAck'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: post_service_reports
+  /my-reports:
+    get:
+      responses:
+        '200':
+          description: Own report progress
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReportProgress'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_my_reports
+  /my-reports/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      responses:
+        '200':
+          description: Owner only
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportProgress'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_my_reports_by_id
+  /case-receipts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      responses:
+        '200':
+          description: Safe public projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Receipt'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_case_receipts_by_id
+  /moderation:
+    get:
+      responses:
+        '200':
+          description: Reviewer only
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Review'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_moderation
+  /authority/intake:
+    get:
+      responses:
+        '200':
+          description: Coordinator only
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Intake'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_authority_intake
+  /authority/agencies:
+    get:
+      responses:
+        '200':
+          description: Active synthetic mandates
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Agency'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_authority_agencies
+  /authority/cases:
+    get:
+      responses:
+        '200':
+          description: Scoped staff queue
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StaffCase'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_authority_cases
+  /authority/cases/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      responses:
+        '200':
+          description: Scoped workflow detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseDetail'
+        '503':
+          $ref: '#/components/responses/Problem'
+      operationId: get_authority_cases_by_id
+  /communities/{id}/membership:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    put:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipInput'
+      operationId: put_communities_by_id_membership
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+  /communities/{id}/follow:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    put:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FollowingInput'
+      operationId: put_communities_by_id_follow
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+  /posts/{id}/vote:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    put:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VoteInput'
+      operationId: put_posts_by_id_vote
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+  /posts/{id}/bookmark:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    put:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlagInput'
+      operationId: put_posts_by_id_bookmark
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+  /posts/{id}/repost:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    put:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlagInput'
+      operationId: put_posts_by_id_repost
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+  /me/blocks/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    put:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlagInput'
+      operationId: put_me_blocks_by_id
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+  /me/following/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    put:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlagInput'
+      operationId: put_me_following_by_id
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+  /comments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    patch:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentEdit'
+      operationId: patch_comments_by_id
+    delete:
+      responses:
+        '204':
+          description: Removed
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      operationId: delete_comments_by_id
+  /moderation/{id}/decisions:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModerationDecisionInput'
+      operationId: post_moderation_by_id_decisions
+  /case-receipts/{id}/follow:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    put:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FollowingInput'
+      operationId: put_case_receipts_by_id_follow
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+  /authority/reports/{id}/triage:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      responses:
+        '201':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriageInput'
+      operationId: post_authority_reports_by_id_triage
+  /authority/obligations/{id}/accept:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkInput'
+      operationId: post_authority_obligations_by_id_accept
+  /authority/obligations/{id}/start:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkInput'
+      operationId: post_authority_obligations_by_id_start
+  /authority/obligations/{id}/completion-claims:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkInput'
+      operationId: post_authority_obligations_by_id_completion_claims
+  /authority/cases/{id}/verification-decisions:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerificationInput'
+      operationId: post_authority_cases_by_id_verification_decisions
+  /authority/cases/{id}/publications:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicationInput'
+      operationId: post_authority_cases_by_id_publications
+components:
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Idempotency:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+    Version:
+      name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+        description: Quoted positive aggregate version
+  responses:
+    Problem:
+      description: Safe error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Command:
+      description: Command applied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Command'
+    Post:
+      description: Visible post revision
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Post'
+    Feed:
+      description: Snapshot feed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Feed'
+  schemas:
+    Problem:
+      type: object
+      required:
+        - status
+        - code
+        - title
+        - retryable
+      properties:
+        status:
+          type: integer
+        code:
+          type: string
+        title:
+          type: string
+        retryable:
+          type: boolean
+        requestId:
+          type: string
+    Command:
+      type: object
+      properties:
+        id:
+          type: string
+        state:
+          type: string
+        version:
+          type: integer
+        caseId:
+          type: string
+        caseVersion:
+          type: integer
+        receiptId:
+          type: string
+        value:
+          type: integer
+        enabled:
+          type: boolean
+        following:
+          type: boolean
+        joined:
+          type: boolean
+        decision:
+          type: string
+        signedIn:
+          type: boolean
+    Profile:
+      type: object
+      required:
+        - id
+        - handle
+        - displayName
+      properties:
+        id:
+          type: string
+          format: uuid
+        handle:
+          type: string
+        displayName:
+          type: string
+        bio:
+          type: string
+        version:
+          type: integer
+    Agency:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+    Me:
+      type: object
+      required:
+        - profile
+        - roles
+        - agencies
+        - synthetic
+      properties:
+        profile:
+          $ref: '#/components/schemas/Profile'
+        roles:
+          type: array
+          items:
+            type: string
+        agencies:
+          type: array
+          items:
+            type: object
+            required:
+              - agency_id
+              - role
+              - name
+            properties:
+              agency_id:
+                type: string
+              role:
+                type: string
+              name:
+                type: string
+        synthetic:
+          const: true
+    Accounts:
+      type: object
+      required:
+        - items
+        - synthetic
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              - id
+              - profile
+              - role
+            properties:
+              id:
+                type: string
+              profile:
+                $ref: '#/components/schemas/Profile'
+              role:
+                type: string
+        synthetic:
+          const: true
+    Capabilities:
+      type: object
+      required:
+        - synthetic
+        - mediaUpload
+        - ocr
+        - voice
+        - protectedIntake
+        - uiLanguages
+        - textLanguages
+      properties:
+        synthetic:
+          const: true
+        mediaUpload:
+          type: boolean
+        ocr:
+          type: boolean
+        voice:
+          type: boolean
+        protectedIntake:
+          type: boolean
+        uiLanguages:
+          type: array
+          items:
+            type: string
+        textLanguages:
+          type: string
+    Community:
+      type: object
+      required:
+        - id
+        - slug
+        - title
+        - description
+        - languageTag
+        - visibility
+        - state
+        - rules
+        - rulesRevision
+        - members
+        - following
+        - membershipState
+        - version
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        languageTag:
+          type: string
+        visibility:
+          type: string
+        state:
+          type: string
+        rules:
+          type: string
+        rulesRevision:
+          type: integer
+        members:
+          type: integer
+        following:
+          type: boolean
+        membershipState:
+          type: string
+        version:
+          type: integer
+    Post:
+      type: object
+      required:
+        - id
+        - kind
+        - state
+        - version
+        - currentRevision
+        - publishedRevision
+        - title
+        - body
+        - languageTag
+        - createdAt
+        - publishedAt
+        - author
+        - community
+        - media
+        - stats
+        - viewer
+        - candidate
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum:
+            - SHORT
+            - DISCUSSION
+            - QUESTION
+        state:
+          type: string
+        version:
+          type: integer
+        currentRevision:
+          type: integer
+        publishedRevision:
+          type:
+            - integer
+            - 'null'
+        title:
+          type:
+            - string
+            - 'null'
+        body:
+          type:
+            - string
+            - 'null'
+        languageTag:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        publishedAt:
+          type:
+            - string
+            - 'null'
+        author:
+          oneOf:
+            - $ref: '#/components/schemas/Profile'
+            - type: 'null'
+        community:
+          oneOf:
+            - type: object
+              required:
+                - id
+                - slug
+                - title
+              properties:
+                id:
+                  type: string
+                slug:
+                  type: string
+                title:
+                  type: string
+            - type: 'null'
+        media:
+          type: array
+          items:
+            type: object
+        stats:
+          type: object
+          required:
+            - score
+            - comments
+            - reposts
+            - asOf
+          properties:
+            score:
+              type: integer
+            comments:
+              type: integer
+            reposts:
+              type: integer
+            asOf:
+              type: string
+        viewer:
+          type: object
+          required:
+            - vote
+            - bookmarked
+            - reposted
+            - canEdit
+            - canDelete
+            - canReply
+          properties:
+            vote:
+              type: integer
+            bookmarked:
+              type: boolean
+            reposted:
+              type: boolean
+            canEdit:
+              type: boolean
+            canDelete:
+              type: boolean
+            canReply:
+              type: boolean
+        candidate:
+          oneOf:
+            - type: object
+              required:
+                - title
+                - body
+                - revision
+                - reviewState
+              properties:
+                title:
+                  type:
+                    - string
+                    - 'null'
+                body:
+                  type: string
+                revision:
+                  type: integer
+                reviewState:
+                  type: string
+            - type: 'null'
+    PostInput:
+      type: object
+      required:
+        - kind
+        - body
+        - languageTag
+        - mediaIds
+        - submitForReview
+      properties:
+        kind:
+          type: string
+          enum:
+            - SHORT
+            - DISCUSSION
+            - QUESTION
+        communityId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        title:
+          type:
+            - string
+            - 'null'
+          maxLength: 180
+        body:
+          type: string
+          maxLength: 8000
+        languageTag:
+          type: string
+          maxLength: 40
+        mediaIds:
+          type: array
+          maxItems: 0
+          items:
+            type: string
+        submitForReview:
+          const: true
+    PostEdit:
+      type: object
+      required:
+        - body
+        - languageTag
+        - mediaIds
+        - submitForReview
+      properties:
+        title:
+          type:
+            - string
+            - 'null'
+        body:
+          type: string
+          maxLength: 8000
+        languageTag:
+          type: string
+        mediaIds:
+          type: array
+          maxItems: 0
+          items:
+            type: string
+        submitForReview:
+          const: true
+    CommentInput:
+      type: object
+      required:
+        - body
+        - languageTag
+      properties:
+        body:
+          type: string
+          maxLength: 4000
+        languageTag:
+          type: string
+        parentId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+    Comment:
+      type: object
+      required:
+        - id
+        - postId
+        - parentId
+        - depth
+        - state
+        - version
+        - currentRevision
+        - publishedVersion
+        - createdAt
+        - body
+        - author
+        - viewer
+        - candidate
+      properties:
+        id:
+          type: string
+        postId:
+          type: string
+        parentId:
+          type:
+            - string
+            - 'null'
+        depth:
+          type: integer
+        state:
+          type: string
+        version:
+          type: integer
+        currentRevision:
+          type: integer
+        publishedVersion:
+          type:
+            - integer
+            - 'null'
+        createdAt:
+          type: string
+        body:
+          type:
+            - string
+            - 'null'
+        author:
+          oneOf:
+            - $ref: '#/components/schemas/Profile'
+            - type: 'null'
+        viewer:
+          type: object
+          required:
+            - canEdit
+            - canDelete
+          properties:
+            canEdit:
+              type: boolean
+            canDelete:
+              type: boolean
+        candidate:
+          oneOf:
+            - type: object
+              required:
+                - body
+                - reviewState
+              properties:
+                body:
+                  type: string
+                reviewState:
+                  type: string
+            - type: 'null'
+    Responsibility:
+      type: object
+      required:
+        - agency
+        - state
+      properties:
+        agency:
+          type: string
+        state:
+          type: string
+        dueAt:
+          type:
+            - string
+            - 'null'
+    Receipt:
+      type: object
+      required:
+        - id
+        - title
+        - summary
+        - area
+        - state
+        - urgencyTier
+        - firstReportedAt
+        - updatedAt
+        - nextUpdateDueAt
+        - responsibilities
+        - version
+        - following
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        area:
+          type: string
+        state:
+          type: string
+        urgencyTier:
+          type: integer
+        firstReportedAt:
+          type: string
+        updatedAt:
+          type: string
+        nextUpdateDueAt:
+          type:
+            - string
+            - 'null'
+        responsibilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Responsibility'
+        version:
+          type: integer
+        following:
+          type: boolean
+        events:
+          type: array
+          items:
+            type: object
+            required:
+              - sequence
+              - type
+              - text
+              - actorType
+              - at
+            properties:
+              sequence:
+                type: integer
+              type:
+                type: string
+              text:
+                type: string
+              actorType:
+                type: string
+              at:
+                type: string
+    FeedItem:
+      oneOf:
+        - type: object
+          required:
+            - type
+            - post
+          properties:
+            type:
+              const: POST
+            post:
+              $ref: '#/components/schemas/Post'
+        - type: object
+          required:
+            - type
+            - receipt
+          properties:
+            type:
+              const: CASE_RECEIPT
+            receipt:
+              $ref: '#/components/schemas/Receipt'
+    Feed:
+      type: object
+      required:
+        - items
+        - nextCursor
+        - expiresAt
+        - mode
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedItem'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+        expiresAt:
+          type: string
+        mode:
+          type: string
+    Search:
+      type: object
+      required:
+        - items
+        - communities
+        - nextCursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedItem'
+        communities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Community'
+        nextCursor:
+          type: 'null'
+    ReportInput:
+      type: object
+      required:
+        - clientSubmissionId
+        - statement
+        - languageTag
+        - category
+        - locationLabel
+        - publicationPreference
+      properties:
+        clientSubmissionId:
+          type: string
+          format: uuid
+        statement:
+          type: string
+          minLength: 10
+          maxLength: 8000
+        languageTag:
+          type: string
+        category:
+          type: string
+          enum:
+            - FOOTPATH
+            - LIGHT
+            - WASTE
+            - WATER
+            - OTHER
+        locationLabel:
+          type: string
+          minLength: 3
+          maxLength: 180
+        publicationPreference:
+          type: string
+          enum:
+            - PRIVATE
+            - SANITIZED_RECEIPT
+    ReportAck:
+      type: object
+      required:
+        - id
+        - receivedAt
+        - state
+        - message
+      properties:
+        id:
+          type: string
+        receivedAt:
+          type: string
+        state:
+          const: PLATFORM_RECEIVED
+        message:
+          type: string
+    ReportProgress:
+      type: object
+      required:
+        - id
+        - statement
+        - languageTag
+        - receivedAt
+        - state
+        - receiptId
+        - responsibilities
+      properties:
+        id:
+          type: string
+        statement:
+          type: string
+        languageTag:
+          type: string
+        receivedAt:
+          type: string
+        state:
+          type: string
+        receiptId:
+          type:
+            - string
+            - 'null'
+        responsibilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Responsibility'
+    Review:
+      type: object
+      required:
+        - id
+        - version
+        - targetRevision
+        - postId
+        - commentId
+        - createdAt
+      properties:
+        id:
+          type: string
+        version:
+          type: integer
+        targetRevision:
+          type: integer
+        postId:
+          type:
+            - string
+            - 'null'
+        commentId:
+          type:
+            - string
+            - 'null'
+        createdAt:
+          type: string
+        post:
+          $ref: '#/components/schemas/Post'
+        body:
+          type: string
+    Intake:
+      type: object
+      required:
+        - id
+        - statement
+        - languageTag
+        - publicationPreference
+        - metadata
+        - receivedAt
+        - version
+      properties:
+        id:
+          type: string
+        statement:
+          type: string
+        languageTag:
+          type: string
+        publicationPreference:
+          type: string
+        metadata:
+          type: object
+          required:
+            - category
+            - locationLabel
+          properties:
+            category:
+              type: string
+            locationLabel:
+              type: string
+        receivedAt:
+          type: string
+        version:
+          type: integer
+    StaffCase:
+      type: object
+      required:
+        - id
+        - title
+        - state
+        - category
+        - urgencyTier
+        - firstReportedAt
+        - version
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        state:
+          type: string
+        category:
+          type: string
+        urgencyTier:
+          type: integer
+        firstReportedAt:
+          type: string
+        version:
+          type: integer
+    Obligation:
+      type: object
+      required:
+        - id
+        - agencyId
+        - agency
+        - state
+        - version
+        - dueAt
+        - workSummary
+        - acceptedAt
+        - completedAt
+        - canVerify
+      properties:
+        id:
+          type: string
+        agencyId:
+          type:
+            - string
+            - 'null'
+        agency:
+          type: string
+        state:
+          type: string
+        version:
+          type: integer
+        dueAt:
+          type:
+            - string
+            - 'null'
+        workSummary:
+          type: string
+        acceptedAt:
+          type:
+            - string
+            - 'null'
+        completedAt:
+          type:
+            - string
+            - 'null'
+        canVerify:
+          type: boolean
+    CaseDetail:
+      type: object
+      required:
+        - id
+        - category
+        - state
+        - urgencyTier
+        - version
+        - firstReportedAt
+        - obligations
+        - events
+        - receiptId
+      properties:
+        id:
+          type: string
+        category:
+          type: string
+        state:
+          type: string
+        urgencyTier:
+          type: integer
+        version:
+          type: integer
+        firstReportedAt:
+          type: string
+        obligations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Obligation'
+        events:
+          type: array
+          items:
+            type: object
+            required:
+              - sequence
+              - type
+              - role
+              - at
+              - detail
+            properties:
+              sequence:
+                type: integer
+              type:
+                type: string
+              role:
+                type: string
+              at:
+                type: string
+              detail:
+                type: object
+                additionalProperties: true
+        receiptId:
+          type:
+            - string
+            - 'null'
+    VoteInput:
+      type: object
+      additionalProperties: false
+      required:
+        - value
+      properties:
+        value:
+          type: integer
+          enum:
+            - -1
+            - 0
+            - 1
+    FlagInput:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+    FollowingInput:
+      type: object
+      additionalProperties: false
+      required:
+        - following
+      properties:
+        following:
+          type: boolean
+    MembershipInput:
+      type: object
+      additionalProperties: false
+      required:
+        - joined
+        - rulesRevision
+      properties:
+        joined:
+          type: boolean
+        rulesRevision:
+          type: integer
+          minimum: 1
+    CommentEdit:
+      type: object
+      additionalProperties: false
+      required:
+        - body
+        - languageTag
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 4000
+        languageTag:
+          type: string
+    ModerationDecisionInput:
+      type: object
+      additionalProperties: false
+      required:
+        - action
+        - reason
+        - targetRevision
+      properties:
+        action:
+          type: string
+          enum:
+            - ALLOW
+            - RESTRICT
+        reason:
+          type: string
+          minLength: 5
+          maxLength: 1000
+        targetRevision:
+          type: integer
+          minimum: 1
+    TriageInput:
+      type: object
+      additionalProperties: false
+      required:
+        - agencyId
+        - category
+        - urgencyTier
+        - reason
+      properties:
+        agencyId:
+          type: string
+          format: uuid
+        category:
+          type: string
+          enum:
+            - FOOTPATH
+            - LIGHT
+            - WASTE
+            - WATER
+            - OTHER
+        urgencyTier:
+          type: integer
+          minimum: 0
+          maximum: 3
+        reason:
+          type: string
+          minLength: 5
+          maxLength: 1000
+    WorkInput:
+      type: object
+      additionalProperties: false
+      required:
+        - summary
+      properties:
+        summary:
+          type: string
+          minLength: 5
+          maxLength: 2000
+    VerificationInput:
+      type: object
+      additionalProperties: false
+      required:
+        - obligationId
+        - result
+        - reason
+      properties:
+        obligationId:
+          type: string
+          format: uuid
+        result:
+          type: string
+          enum:
+            - VERIFIED
+            - NOT_RESTORED
+            - INSUFFICIENT
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 2000
+    PublicationInput:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+        - summary
+        - area
+        - reviewed
+      properties:
+        title:
+          type: string
+          minLength: 5
+          maxLength: 180
+        summary:
+          type: string
+          minLength: 10
+          maxLength: 1500
+        area:
+          type: string
+          minLength: 3
+          maxLength: 80
+        reviewed:
+          const: true
