@@ -2,9 +2,19 @@
 
 JanSetu AI combines local communities and social discussion with accountable civic reporting, case ownership, evidence, and progress tracking. The planned interface draws on Reddit communities and conversations and X-style updates and timelines, with OCR and image recognition to assist reporting.
 
-This repository currently contains product and implementation specifications. Application code, trained models, integrations, and production validation are still to be built.
+The repository now includes a runnable first-release core: a responsive community web app, persistent Go API, PostgreSQL/PostGIS migrations, review queues, private service reports, and an agency-to-verifier workflow. This milestone runs with explicitly synthetic local accounts and agencies. It does not enable real public intake or claim full P0 completion.
 
-The selected stack is Next.js/React/TypeScript for web, React Native/Expo for mobile, **Go** for APIs and workers, PostgreSQL/PostGIS with `pgx`/`sqlc` and Goose migrations, Redis, private S3-compatible storage, and a separate Python/FastAPI AI service. Exact tool versions and deployment providers will be pinned during implementation.
+Implemented stack: **Go 1.26**, Next.js 16.3.8, React 19.3, TypeScript, TanStack Query, PostgreSQL 18/PostGIS, `pgx` v5, `sqlc`, Goose, and a durable Go projection worker. React Native/Expo, Redis, private object storage, and the separate Python/FastAPI AI service remain planned modules.
+
+Run the local application with Docker Compose:
+
+```bash
+docker compose up --build -d
+```
+
+Open [JanSetu locally](http://localhost:3100), then choose a demo account from the avatar menu. Ananya and Rohan are residents; Kiran reviews posts and triages reports; City Works accepts and performs tasks; Neha independently verifies completion. Kiran publishes reviewed public progress separately.
+
+The database uses a named volume. `docker compose down` stops the application while preserving its data. See the [implementation runbook](docs/IMPLEMENTATION_STATUS.md) for development commands, checks, workflow details, and remaining work.
 
 Start with the [specification suite](docs/spec/README.md) and [domain glossary](CONTEXT.md).
 

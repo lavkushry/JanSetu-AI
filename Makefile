@@ -1,0 +1,27 @@
+.PHONY: dev db migrate seed api worker web test test-integration check generate
+db:
+	docker compose up -d --build db
+migrate:
+	cd services/backend && go run ./cmd/migrate -dir ../../db/migrations
+seed:
+	cd services/backend && go run ./cmd/migrate -dir ../../db/migrations -seed ../../db/seed/local.sql
+api:
+	cd services/backend && go run ./cmd/public-api
+worker:
+	cd services/backend && go run ./cmd/worker
+web:
+	npm run dev
+dev:
+	docker compose up --build
+test:
+	cd services/backend && go test ./...
+test-integration:
+	cd services/backend && JANSETU_INTEGRATION=1 go test -race ./...
+check:
+	python3 scripts/validate_specs.py
+	cd services/backend && go vet ./... && go test ./...
+	npm run typecheck
+	npm run build
+generate:
+	cd services/backend && go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
+	npm run contracts

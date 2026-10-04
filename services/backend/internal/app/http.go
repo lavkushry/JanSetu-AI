@@ -1,0 +1,400 @@
+package app
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/platform"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
+)
+
+type App struct {
+	DB, Vault *pgxpool.Pool
+	Config    platform.Config
+	cursorKey []byte
+}
+type Actor struct {
+	PrincipalID, ProfileID uuid.UUID
+	Roles                  []string
+	Agencies               []dbgen.AgencyGrantsRow
+	Profile                dbgen.ProfileRow
+}
+type Problem struct {
+	Status    int    `json:"status"`
+	Code      string `json:"code"`
+	Title     string `json:"title"`
+	Retryable bool   `json:"retryable"`
+	RequestID string `json:"requestId,omitempty"`
+}
+
+func (p *Problem) Error() string { return p.Code }
+func failure(status int, code, title string) error {
+	return &Problem{Status: status, Code: code, Title: title}
+}
+func invalid(title string) error { return failure(422, "VALIDATION_FAILED", title) }
+func unavailable() error         { return failure(404, "UNAVAILABLE", "This item is unavailable") }
+func forbidden() error {
+	return failure(403, "POLICY_DENIED", "This action is not allowed for your account")
+}
+func conflict() error {
+	return failure(412, "VERSION_CONFLICT", "This item changed. Refresh before trying again")
+}
+func (a *Actor) Has(role string) bool {
+	if a == nil {
+		return false
+	}
+	for _, r := range a.Roles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+func (a *Actor) Agency(id uuid.UUID, role string) bool {
+	if a == nil {
+		return false
+	}
+	for _, g := range a.Agencies {
+		if g.AgencyID == id && (role == "" || g.Role == role) {
+			return true
+		}
+	}
+	return false
+}
+func actorID(a *Actor) uuid.UUID {
+	if a == nil {
+		return uuid.Nil
+	}
+	return a.ProfileID
+}
+func timestamp(v pgtype.Timestamptz) any {
+	if !v.Valid {
+		return nil
+	}
+	return v.Time.UTC().Format(time.RFC3339Nano)
+}
+func nullableUUID(v *uuid.UUID) any {
+	if v == nil {
+		return nil
+	}
+	return v.String()
+}
+func ptr[T any](v T) *T { return &v }
+
+func New(db, vault *pgxpool.Pool, c platform.Config) *App {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		panic(err)
+	}
+	return &App{DB: db, Vault: vault, Config: c, cursorKey: key}
+}
+
+type endpoint func(http.ResponseWriter, *http.Request, *Actor) (any, int, error)
+
+func (a *App) route(fn endpoint) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		requestID := uuid.NewString()
+		w.Header().Set("X-Request-ID", requestID)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		defer func() {
+			if recover() != nil {
+				slog.Error("request failed", "requestId", requestID)
+				writeJSON(w, 500, &Problem{Status: 500, Code: "INTERNAL_ERROR", Title: "The request could not be completed", RequestID: requestID})
+			}
+		}()
+		if r.Method != "GET" && r.Method != "HEAD" {
+			if r.Header.Get("X-JanSetu-CSRF") != "1" || (r.Header.Get("Origin") != "" && r.Header.Get("Origin") != a.Config.WebOrigin) {
+				writeJSON(w, 403, &Problem{Status: 403, Code: "ORIGIN_DENIED", Title: "Invalid request origin", RequestID: requestID})
+				return
+			}
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		r = r.WithContext(ctx)
+		actor, err := a.actor(r)
+		if err != nil {
+			a.respondError(w, err, requestID)
+			return
+		}
+		result, status, err := fn(w, r, actor)
+		if err != nil {
+			a.respondError(w, err, requestID)
+			return
+		}
+		if status == 0 {
+			status = 200
+		}
+		if status == 204 {
+			w.WriteHeader(204)
+			return
+		}
+		writeJSON(w, status, result)
+	}
+}
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+func (a *App) respondError(w http.ResponseWriter, err error, id string) {
+	var problem *Problem
+	if !errors.As(err, &problem) {
+		if errors.Is(err, pgx.ErrNoRows) {
+			problem = &Problem{Status: 404, Code: "UNAVAILABLE", Title: "This item is unavailable"}
+		} else {
+			var databaseError *pgconn.PgError
+			if errors.As(err, &databaseError) {
+				slog.Error("database operation failed", "requestId", id, "code", databaseError.Code, "constraint", databaseError.ConstraintName)
+			} else {
+				slog.Error("request failed", "requestId", id, "errorType", fmt.Sprintf("%T", err))
+			}
+			problem = &Problem{Status: 503, Code: "DEPENDENCY_UNAVAILABLE", Title: "Please try again. Your draft is preserved", Retryable: true}
+		}
+	}
+	copy := *problem
+	copy.RequestID = id
+	writeJSON(w, copy.Status, &copy)
+}
+func decode(r *http.Request, v any) error {
+	d := json.NewDecoder(io.LimitReader(r.Body, 65537))
+	d.DisallowUnknownFields()
+	if err := d.Decode(v); err != nil {
+		return failure(400, "INVALID_REQUEST", "Check the request fields")
+	}
+	var more any
+	if err := d.Decode(&more); err != io.EOF {
+		return failure(400, "INVALID_REQUEST", "Send one JSON object")
+	}
+	return nil
+}
+
+// Desired-state commands must distinguish an explicit false/zero from an
+// omitted field, otherwise a malformed request could remove a relationship.
+func decodeRequired(r *http.Request, v any, fields ...string) error {
+	var raw json.RawMessage
+	if e := decode(r, &raw); e != nil {
+		return e
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(raw, &object) != nil || object == nil {
+		return invalid("Provide a JSON object with all required fields")
+	}
+	for _, field := range fields {
+		value, ok := object[field]
+		if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return invalid("Provide all required fields")
+		}
+	}
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.DisallowUnknownFields()
+	if e := d.Decode(v); e != nil {
+		return failure(400, "INVALID_REQUEST", "Check the request fields")
+	}
+	return nil
+}
+func id(r *http.Request, key string) (uuid.UUID, error) {
+	v, e := uuid.Parse(r.PathValue(key))
+	if e != nil {
+		return uuid.Nil, unavailable()
+	}
+	return v, nil
+}
+func expected(r *http.Request) (int64, error) {
+	v := strings.Trim(r.Header.Get("If-Match"), "\"")
+	if v == "" {
+		return 0, failure(428, "PRECONDITION_REQUIRED", "Refresh this item before changing it")
+	}
+	n, e := strconv.ParseInt(v, 10, 64)
+	if e != nil || n < 1 {
+		return 0, invalid("Invalid version")
+	}
+	return n, nil
+}
+func require(a *Actor) error {
+	if a == nil {
+		return failure(401, "AUTH_REQUIRED", "Sign in to continue")
+	}
+	return nil
+}
+func profileJSON(p dbgen.ProfileRow) map[string]any {
+	return map[string]any{"id": p.ID, "handle": p.Handle, "displayName": p.DisplayName, "bio": p.Bio, "version": p.Version}
+}
+func (a *App) actor(r *http.Request) (*Actor, error) {
+	c, e := r.Cookie("jansetu_session")
+	if e == http.ErrNoCookie {
+		return nil, nil
+	}
+	if e != nil {
+		return nil, nil
+	}
+	hash := sha256.Sum256([]byte(c.Value))
+	q := dbgen.New(a.DB)
+	s, e := q.SessionActor(r.Context(), hash[:])
+	if errors.Is(e, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if e != nil {
+		return nil, e
+	}
+	if s.ProfileID == nil {
+		return nil, nil
+	}
+	p, e := q.Profile(r.Context(), *s.ProfileID)
+	if e != nil {
+		return nil, e
+	}
+	roles, e := q.PlatformRoles(r.Context(), s.PrincipalID)
+	if e != nil {
+		return nil, e
+	}
+	agencies, e := q.AgencyGrants(r.Context(), s.PrincipalID)
+	if e != nil {
+		return nil, e
+	}
+	return &Actor{PrincipalID: s.PrincipalID, ProfileID: *s.ProfileID, Roles: roles, Agencies: agencies, Profile: p}, nil
+}
+
+var DemoPrincipals = []uuid.UUID{
+	uuid.MustParse("10000000-0000-4000-8000-000000000001"), uuid.MustParse("10000000-0000-4000-8000-000000000002"),
+	uuid.MustParse("10000000-0000-4000-8000-000000000004"), uuid.MustParse("10000000-0000-4000-8000-000000000005"), uuid.MustParse("10000000-0000-4000-8000-000000000006"),
+}
+
+func (a *App) accounts(w http.ResponseWriter, r *http.Request, _ *Actor) (any, int, error) {
+	items := []map[string]any{}
+	q := dbgen.New(a.DB)
+	for _, pid := range DemoPrincipals {
+		var profileID uuid.UUID
+		err := a.DB.QueryRow(r.Context(), "SELECT profile_id FROM identity.principal WHERE id=$1 AND state='ACTIVE'", pid).Scan(&profileID)
+		if err != nil {
+			return nil, 0, err
+		}
+		p, err := q.Profile(r.Context(), profileID)
+		if err != nil {
+			return nil, 0, err
+		}
+		roles, err := q.PlatformRoles(r.Context(), pid)
+		if err != nil {
+			return nil, 0, err
+		}
+		agencies, err := q.AgencyGrants(r.Context(), pid)
+		if err != nil {
+			return nil, 0, err
+		}
+		role := "Resident"
+		if len(roles) > 0 {
+			role = "Coordinator & moderator"
+		}
+		if len(agencies) > 0 {
+			if agencies[0].Role == "VERIFIER" {
+				role = "Independent verifier"
+			} else {
+				role = "Agency officer"
+			}
+		}
+		items = append(items, map[string]any{"id": pid, "profile": profileJSON(p), "role": role})
+	}
+	return map[string]any{"items": items, "synthetic": true}, 200, nil
+}
+func (a *App) signIn(w http.ResponseWriter, r *http.Request, _ *Actor) (any, int, error) {
+	var body struct {
+		PrincipalID uuid.UUID `json:"principalId"`
+	}
+	if err := decode(r, &body); err != nil {
+		return nil, 0, err
+	}
+	allowed := false
+	for _, p := range DemoPrincipals {
+		if p == body.PrincipalID {
+			allowed = true
+		}
+	}
+	if !allowed {
+		return nil, 0, forbidden()
+	}
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return nil, 0, err
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	hash := sha256.Sum256([]byte(token))
+	expires := time.Now().Add(24 * time.Hour)
+	err := dbgen.New(a.DB).InsertSession(r.Context(), dbgen.InsertSessionParams{ID: uuid.New(), PrincipalID: body.PrincipalID, TokenHash: hash[:], ExpiresAt: pgtype.Timestamptz{Time: expires, Valid: true}})
+	if err != nil {
+		return nil, 0, err
+	}
+	http.SetCookie(w, &http.Cookie{Name: "jansetu_session", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 86400})
+	return map[string]any{"signedIn": true}, 200, nil
+}
+func (a *App) logout(w http.ResponseWriter, r *http.Request, _ *Actor) (any, int, error) {
+	if c, e := r.Cookie("jansetu_session"); e == nil {
+		hash := sha256.Sum256([]byte(c.Value))
+		if e = dbgen.New(a.DB).RevokeSession(r.Context(), hash[:]); e != nil {
+			return nil, 0, e
+		}
+	}
+	http.SetCookie(w, &http.Cookie{Name: "jansetu_session", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	return nil, 204, nil
+}
+func (a *App) me(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
+	if err := require(actor); err != nil {
+		return nil, 0, err
+	}
+	return map[string]any{"profile": profileJSON(actor.Profile), "roles": actor.Roles, "agencies": actor.Agencies, "synthetic": true}, 200, nil
+}
+
+func (a *App) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]bool{"ok": true}) })
+	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if a.DB.Ping(ctx) != nil || a.Vault.Ping(ctx) != nil {
+			writeJSON(w, 503, map[string]bool{"ok": false})
+			return
+		}
+		writeJSON(w, 200, map[string]bool{"ok": true})
+	})
+	for pattern, fn := range map[string]endpoint{
+		"GET /v1/dev/accounts": a.accounts, "POST /v1/dev/session": a.signIn, "POST /v1/me/logout": a.logout, "GET /v1/me": a.me,
+		"GET /v1/capabilities": a.capabilities, "GET /v1/communities": a.communities, "GET /v1/communities/{id}": a.community,
+		"PUT /v1/communities/{id}/membership": a.membership, "PUT /v1/communities/{id}/follow": a.communityFollow,
+		"GET /v1/feed": a.feed, "GET /v1/search": a.search, "GET /v1/me/bookmarks": a.bookmarks,
+		"GET /v1/posts/{id}": a.getPost, "POST /v1/posts": a.createPost, "PATCH /v1/posts/{id}": a.editPost, "DELETE /v1/posts/{id}": a.deletePost,
+		"GET /v1/posts/{id}/comments": a.comments, "POST /v1/posts/{id}/comments": a.createComment, "PATCH /v1/comments/{id}": a.editComment, "DELETE /v1/comments/{id}": a.deleteComment,
+		"PUT /v1/posts/{id}/vote": a.vote, "PUT /v1/posts/{id}/bookmark": a.bookmark, "PUT /v1/posts/{id}/repost": a.repost,
+		"PUT /v1/me/blocks/{id}": a.block, "PUT /v1/me/following/{id}": a.follow,
+		"GET /v1/moderation": a.moderationQueue, "POST /v1/moderation/{id}/decisions": a.moderationDecision,
+		"GET /v1/case-receipts/{id}": a.getReceipt, "PUT /v1/case-receipts/{id}/follow": a.caseFollow,
+		"POST /v1/service-reports": a.submitReport, "GET /v1/my-reports": a.myReports, "GET /v1/my-reports/{id}": a.myReport,
+		"GET /v1/authority/intake": a.intakeQueue, "GET /v1/authority/agencies": a.agencies, "POST /v1/authority/reports/{id}/triage": a.triage,
+		"GET /v1/authority/cases": a.cases, "GET /v1/authority/cases/{id}": a.caseDetail,
+		"POST /v1/authority/obligations/{id}/accept": a.acceptObligation, "POST /v1/authority/obligations/{id}/start": a.startWork,
+		"POST /v1/authority/obligations/{id}/completion-claims": a.claimCompletion,
+		"POST /v1/authority/cases/{id}/verification-decisions":  a.verify,
+		"POST /v1/authority/cases/{id}/publications":            a.publishReceipt,
+	} {
+		mux.HandleFunc(pattern, a.route(fn))
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 65536)
+		mux.ServeHTTP(w, r)
+	})
+}
