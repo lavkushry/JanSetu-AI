@@ -588,7 +588,9 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
   );
   const loadedCount = tree.byId.size;
   const [body, setBody] = useState('');
-  const [parent, setParent] = useState<Schema['Comment'] | null>(null);
+  const [parent, setParent] = useState<string | null>(null);
+  const replyTarget = parent ? tree.byId.get(parent) : null;
+  const replyAvailable = !parent || replyTarget?.state === 'PUBLISHED';
   const key = useRef(crypto.randomUUID());
   const send = useMutation({
     mutationFn: () =>
@@ -597,7 +599,7 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
         body: {
           body,
           languageTag: 'en-IN',
-          parentId: parent?.id || null,
+          parentId: parent,
         } satisfies Schema['CommentInput'],
         key: key.current,
       }),
@@ -627,7 +629,7 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
       await qc.invalidateQueries();
       setEdit(null);
       setDeletion(null);
-      if (remove && parent?.id === c.id) setParent(null);
+      if (remove && parent === c.id) setParent(null);
       notify(remove ? 'Comment deleted' : 'Edit submitted for review');
     } catch (e) {
       setError(e instanceof Error ? e : new Error('Please try again'));
@@ -650,18 +652,26 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
               className="reply-composer"
               onSubmit={(e) => {
                 e.preventDefault();
-                send.mutate();
+                if (replyAvailable) send.mutate();
               }}
             >
               {parent && (
                 <div className="reply-context">
                   <p>
-                    Replying to {parent.author?.displayName}
+                    {replyAvailable
+                      ? `Replying to ${replyTarget?.author?.displayName || 'this comment'}`
+                      : 'Reply context unavailable'}
                     <button type="button" className="text-button" onClick={() => setParent(null)}>
                       Cancel reply
                     </button>
                   </p>
-                  <blockquote>{parent.body}</blockquote>
+                  {replyAvailable ? (
+                    <blockquote>{replyTarget?.body}</blockquote>
+                  ) : (
+                    <small>
+                      Load this comment again or cancel the reply to start a new comment.
+                    </small>
+                  )}
                 </div>
               )}
               <label htmlFor="reply">Add to the conversation</label>
@@ -679,7 +689,7 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
               />
               <div className="form-actions">
                 <small>Comments are reviewed before publication.</small>
-                <button className="primary small" disabled={send.isPending}>
+                <button className="primary small" disabled={send.isPending || !replyAvailable}>
                   {send.isPending ? 'Submitting…' : 'Submit comment'}
                 </button>
               </div>
@@ -777,7 +787,7 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
                         signIn();
                         return;
                       }
-                      setParent(c);
+                      setParent(c.id);
                       const composer = document.getElementById('reply');
                       composer?.focus({ preventScroll: true });
                       composer?.closest('form')?.scrollIntoView({ block: 'start' });

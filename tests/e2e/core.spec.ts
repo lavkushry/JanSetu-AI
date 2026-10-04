@@ -236,7 +236,11 @@ test('conversation pages, reply context and collapse controls survive refresh', 
   const childId = await comment(neighbour, childBody, rootId);
   const grandBody = `A nested constructive reply ${Date.now()}`;
   const grandId = await comment(page, grandBody, childId);
-  for (let i = 0; i < 3; i++) await comment(page, `Fictional later conversation entry ${i}`);
+  let lateParent = '';
+  for (let i = 0; i < 3; i++) {
+    const id = await comment(i === 2 ? neighbour : page, `Fictional later conversation entry ${i}`);
+    if (i === 2) lateParent = id;
+  }
   await page.goto(`/posts/${post.id}`);
   await expect(page.locator('article.comment')).toHaveCount(20);
   await expect(page.getByText(childBody, { exact: true })).toHaveCount(0);
@@ -295,6 +299,37 @@ test('conversation pages, reply context and collapse controls survive refresh', 
   );
   await page.getByRole('button', { name: 'Load more comments', exact: true }).click();
   await expect(page.locator('article.comment')).toHaveCount(25);
+  await page
+    .getByTestId(`comment-${lateParent}`)
+    .getByRole('button', { name: 'Reply', exact: true })
+    .click();
+  await expect(page.locator('.reply-context blockquote')).toHaveText(
+    'Fictional later conversation entry 2',
+  );
+  await page.getByRole('button', { name: 'Refresh conversation', exact: true }).click();
+  await expect(page.locator('article.comment')).toHaveCount(20);
+  await expect(page.locator('.reply-context')).toContainText('Reply context unavailable');
+  await expect(page.locator('.reply-context blockquote')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Submit comment', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Load more comments', exact: true }).click();
+  await expect(page.locator('.reply-context blockquote')).toHaveText(
+    'Fictional later conversation entry 2',
+  );
+  await expect(page.getByRole('button', { name: 'Submit comment', exact: true })).toBeEnabled();
+  expect(
+    (
+      await neighbour.request.delete(`/api/comments/${lateParent}`, {
+        headers: { 'x-jansetu-csrf': '1', 'if-match': '"2"' },
+      })
+    ).status(),
+  ).toBe(204);
+  await page.getByRole('button', { name: 'Refresh conversation', exact: true }).click();
+  await page.getByRole('button', { name: 'Load more comments', exact: true }).click();
+  await expect(page.locator('article.comment')).toHaveCount(25);
+  await expect(page.locator('.reply-context blockquote')).toHaveCount(0);
+  await expect(page.locator('.reply-context')).toContainText('Reply context unavailable');
+  await expect(page.getByRole('button', { name: 'Submit comment', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Cancel reply', exact: true }).click();
   await root.getByRole('button', { name: 'Reply', exact: true }).click();
   await root.getByRole('button', { name: 'Delete', exact: true }).click();
   await page

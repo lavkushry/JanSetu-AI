@@ -12,6 +12,8 @@ A reply's context link scrolls to its loaded parent. A missing or blocked parent
 
 **Refresh conversation** starts from the first page and retains unsent composer text. It recovers from an expired cursor or API restart. Successful submission shows an acknowledgement even when the new pending comment lies beyond the loaded pages.
 
+Reply selection stores only a comment ID; its excerpt comes from the current loaded data. If a refresh leaves that target unloaded or unavailable, the excerpt disappears and submission is disabled. Loading an eligible target restores the context. Cancel reply explicitly returns to a new top-level comment without losing the draft. A selected target deleted from another browser never keeps its old excerpt after refresh.
+
 ## Contract and privacy
 
 The [OpenAPI 0.7.0 contract](../contracts/openapi/core.yaml) defines `GET /v1/posts/{id}/comments?cursor=…` as a `CommentPage` with `items`, nullable `nextCursor` and `expiresAt`. Each SQL query selects at most twenty-one rows and returns twenty; there is no total-row cap.
