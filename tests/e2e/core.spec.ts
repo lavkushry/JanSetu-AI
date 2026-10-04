@@ -397,6 +397,72 @@ test('private photo upload, real OCR correction, draft restore, and report attac
   await otherContext.close();
 });
 
+test('private object candidates have regions and preserve manual decisions', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.locator('main').getByRole('button', { name: 'Report an issue', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  const description = 'A fictional manual observation for an image recognition test.';
+  await dialog.getByLabel('Describe the issue').fill(description);
+  await dialog.getByLabel('Location or landmark').fill('Fictional image test court');
+  await dialog.getByRole('combobox', { name: /Service category/ }).selectOption('OTHER');
+  await dialog.getByLabel('Text language').selectOption('hi-IN');
+  await dialog.getByLabel('Choose report photos').setInputFiles('tests/fixtures/vision-people.png');
+  await expect(
+    dialog.getByRole('img', { name: 'Private report photo 1', exact: true }),
+  ).toBeVisible();
+  await dialog.getByLabel('Include experimental object recognition').check();
+  const analyzed = page.waitForResponse(
+    (r) => r.url().endsWith('/analyses') && r.request().method() === 'POST',
+  );
+  await dialog.getByRole('button', { name: 'Analyze text and objects', exact: true }).click();
+  const job = (await (await analyzed).json()) as Schema['Analysis'];
+  const recognition = dialog.getByRole('region', { name: 'Object recognition review' });
+  await expect(
+    recognition.getByRole('listitem').filter({ hasText: 'Region 1: person' }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByText('OCR for this language is not enabled.', { exact: false }),
+  ).toBeVisible();
+  await expect(recognition.getByRole('img', { name: 'Object candidate regions' })).toBeVisible();
+  expect(await recognition.locator('svg polygon').count()).toBeGreaterThan(0);
+  await recognition.getByLabel('Show object regions').uncheck();
+  await expect(recognition.locator('svg polygon')).toHaveCount(0);
+  await expect(
+    recognition.getByRole('listitem').filter({ hasText: 'Region 1: person' }),
+  ).toBeVisible();
+  await recognition.getByLabel('Show object regions').check();
+  await expect(dialog.getByLabel('Describe the issue')).toHaveValue(description);
+  await expect(dialog.getByRole('combobox', { name: /Service category/ })).toHaveValue('OTHER');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await recognition.getByRole('img', { name: 'Object candidate regions' }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/private-recognition-mobile.png' });
+  const result = (await (
+    await page.request.get(`/api/analyses/${job.id}`)
+  ).json()) as Schema['Analysis'];
+  expect(result.state).toBe('PARTIAL');
+  const task = result.tasks.find((t) => t.kind === 'ISSUE_DETECTION')!;
+  expect(task.state).toBe('SUCCEEDED');
+  expect(task.result!.modelVersion).toContain('sha256:');
+  expect(task.result!.regions.every((r) => r.confidence === null)).toBe(true);
+  const otherContext = await browser.newContext();
+  const other = await otherContext.newPage();
+  await other.goto('/');
+  await signIn(other, 'Ananya Rao');
+  expect((await other.request.get(`/api/analyses/${job.id}`)).status()).toBe(404);
+  await otherContext.close();
+  await dialog.getByRole('button', { name: 'Review report', exact: true }).click();
+  await dialog.getByLabel('I have reviewed this fictional report.').check();
+  await dialog.getByRole('button', { name: 'Submit report', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Your report was received', exact: true }),
+  ).toBeVisible();
+});
+
 test('invalid photo removal and unsupported OCR preserve manual reporting', async ({ page }) => {
   await page.goto('/');
   await signIn(page, 'Rohan Mehta');

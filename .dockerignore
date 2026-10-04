@@ -12,3 +12,8 @@ playwright-report
 **/.env
 **/.env.*
 !**/.env.example
+services/vision/.venv
+services/vision/*.onnx
+services/vision/*.tmp
+**/__pycache__
+**/*.pyc

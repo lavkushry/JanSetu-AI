@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.3.0
+  version: 0.4.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -2831,6 +2831,38 @@ components:
           type:
             - number
             - 'null'
+    DetectionRegion:
+      type: object
+      required: [id, label, polygon, confidence]
+      properties:
+        id: *id003
+        label:
+          type: string
+          enum:
+            [
+              person,
+              bicycle,
+              car,
+              motorcycle,
+              bus,
+              truck,
+              traffic light,
+              fire hydrant,
+              stop sign,
+              bench,
+            ]
+        polygon:
+          type: array
+          minItems: 4
+          maxItems: 4
+          items:
+            type: array
+            items: *id004
+            minItems: 2
+            maxItems: 2
+        confidence:
+          type: 'null'
+          description: Uncalibrated engine scores are not probabilities and are not exposed.
     ImageAnalysisResult:
       type: object
       required:
@@ -2859,7 +2891,9 @@ components:
         regions:
           type: array
           items:
-            $ref: '#/components/schemas/OCRRegion'
+            oneOf:
+              - $ref: '#/components/schemas/OCRRegion'
+              - $ref: '#/components/schemas/DetectionRegion'
           maxItems: 500
         codes:
           type: array

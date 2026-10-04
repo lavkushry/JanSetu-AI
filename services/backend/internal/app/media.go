@@ -485,7 +485,7 @@ func (a *App) analysis(r *http.Request, jid uuid.UUID) (AnalysisView, error) {
 			rows.Close()
 			return v, e
 		}
-		t.Retryable = t.State == "FAILED" && attempt < 3 && t.ErrorCode != nil && (*t.ErrorCode == "OCR_TIMEOUT" || *t.ErrorCode == "OCR_FAILED" || *t.ErrorCode == "FILE_UNAVAILABLE")
+		t.Retryable = t.State == "FAILED" && attempt < 3 && t.ErrorCode != nil && (*t.ErrorCode == "OCR_TIMEOUT" || *t.ErrorCode == "OCR_FAILED" || *t.ErrorCode == "VISION_TIMEOUT" || *t.ErrorCode == "VISION_FAILED" || *t.ErrorCode == "FILE_UNAVAILABLE")
 		v.Tasks = append(v.Tasks, t)
 	}
 	rows.Close()
@@ -546,7 +546,7 @@ func (a *App) createAnalysis(w http.ResponseWriter, r *http.Request, actor *Acto
 	}
 	for _, kind := range b.Tasks {
 		state, code := "QUEUED", ""
-		if kind != "OCR" && kind != "QUALITY" {
+		if kind != "OCR" && kind != "QUALITY" && !(kind == "ISSUE_DETECTION" && a.Config.VisionBinary != "") {
 			state, code = "UNSUPPORTED", "CAPABILITY_UNAVAILABLE"
 		}
 		if kind == "OCR" && b.Language != "en" && b.Language != "en-IN" && b.Language != "en-US" && b.Language != "en-GB" {
@@ -635,7 +635,7 @@ func (a *App) changeAnalysis(w http.ResponseWriter, r *http.Request, actor *Acto
 				return nil, 0, invalid("Choose distinct tasks")
 			}
 			seen[kind] = true
-			tag, err := tx.Exec(r.Context(), `UPDATE infra.analysis_task SET state='QUEUED',result=NULL,error_code=NULL,completed_at=NULL WHERE job_id=$1 AND task_kind=$2 AND state='FAILED' AND attempt<3 AND error_code IN ('OCR_TIMEOUT','OCR_FAILED','FILE_UNAVAILABLE')`, jid, kind)
+			tag, err := tx.Exec(r.Context(), `UPDATE infra.analysis_task SET state='QUEUED',result=NULL,error_code=NULL,completed_at=NULL WHERE job_id=$1 AND task_kind=$2 AND state='FAILED' AND attempt<3 AND error_code IN ('OCR_TIMEOUT','OCR_FAILED','VISION_TIMEOUT','VISION_FAILED','FILE_UNAVAILABLE')`, jid, kind)
 			if err != nil {
 				return nil, 0, err
 			}
