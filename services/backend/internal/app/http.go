@@ -422,6 +422,7 @@ func (a *App) Handler() http.Handler {
 		"GET /v1/posts/{id}/comments": a.comments, "POST /v1/posts/{id}/comments": a.createComment, "PATCH /v1/comments/{id}": a.editComment, "DELETE /v1/comments/{id}": a.deleteComment,
 		"PUT /v1/posts/{id}/vote": a.vote, "PUT /v1/posts/{id}/bookmark": a.bookmark, "PUT /v1/posts/{id}/repost": a.repost,
 		"PUT /v1/me/blocks/{id}": a.block, "PUT /v1/me/following/{id}": a.follow,
+		"GET /v1/profiles/{id}": a.publicProfile, "GET /v1/profiles/{id}/posts": a.profilePosts, "GET /v1/me/blocks": a.blockedPeople,
 		"GET /v1/moderation": a.moderationQueue, "POST /v1/moderation/{id}/decisions": a.moderationDecision,
 		"GET /v1/case-receipts/{id}": a.getReceipt, "PUT /v1/case-receipts/{id}/follow": a.caseFollow,
 		"POST /v1/service-reports": a.submitReport, "GET /v1/my-reports": a.myReports, "GET /v1/my-reports/{id}": a.myReport,

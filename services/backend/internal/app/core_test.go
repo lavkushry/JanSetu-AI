@@ -43,3 +43,30 @@ func TestCursorBinding(t *testing.T) {
 		t.Fatal("accepted expired cursor")
 	}
 }
+
+func TestProfileCursorScopeDeadlineAndIntegrity(t *testing.T) {
+	a := &App{cursorKey: []byte("a-secret-test-key-with-enough-entropy")}
+	viewer, target := uuid.New(), uuid.New()
+	c := profileCursor{Viewer: viewer, Target: target, Kind: "profile-posts", Expires: time.Now().Add(time.Minute).Unix(), Before: time.Now(), ID: uuid.New()}
+	token := a.encodeProfileCursor(c)
+	if _, e := a.profilePageCursor(token, c.Kind, viewer, target); e != nil {
+		t.Fatal(e)
+	}
+	for _, s := range []struct {
+		raw, kind      string
+		viewer, target uuid.UUID
+	}{{token + "x", c.Kind, viewer, target}, {token, "blocks", viewer, target}, {token, c.Kind, uuid.New(), target}, {token, c.Kind, viewer, uuid.New()}, {strings.Repeat("x", 1001), c.Kind, viewer, target}} {
+		if _, e := a.profilePageCursor(s.raw, s.kind, s.viewer, s.target); e == nil {
+			t.Fatal("accepted cursor outside scope")
+		}
+	}
+	c.Expires = time.Now().Add(-time.Second).Unix()
+	if _, e := a.profilePageCursor(a.encodeProfileCursor(c), c.Kind, viewer, target); e == nil {
+		t.Fatal("expired cursor accepted")
+	}
+	c.Expires = time.Now().Add(time.Minute).Unix()
+	c.Before = time.Time{}
+	if _, e := a.profilePageCursor(a.encodeProfileCursor(c), c.Kind, viewer, target); e == nil {
+		t.Fatal("unbounded cursor accepted")
+	}
+}

@@ -37,6 +37,7 @@ import { PostCard, ReceiptCard, Composer, Thread, Communities, CommunityCard } f
 import { ReportWizard, MyReports, ReceiptDetail } from './reports';
 import { Studio } from './studio';
 import { Accounts, AccountSecurity } from './accounts';
+import { PublicProfilePage, PeopleResults } from './profiles';
 
 export default function JanSetu() {
   const [client] = useState(
@@ -517,6 +518,8 @@ function Page({
   if (pathname === '/my-reports') return <MyReports onReport={onReport} />;
   if (pathname === '/studio') return <Studio />;
   if (pathname === '/account') return <AccountSecurity />;
+  if (parts[0] === 'profiles' && parts[1])
+    return <PublicProfilePage key={parts[1]} id={parts[1]} onEdit={onEdit} />;
   if (pathname === '/communities')
     return (
       <>
@@ -782,7 +785,7 @@ function SearchPage({
       <div className="section-intro">
         <span className="eyebrow">DISCOVER WHAT MATTERS</span>
         <h1>{term ? `Results for “${term}”` : 'Search your city'}</h1>
-        <p>Conversations, communities, and reviewed service progress.</p>
+        <p>People, conversations, communities, and reviewed service progress.</p>
       </div>
       {term.trim().length < 2 ? (
         <Empty title="Start with a word or a place">Use the search box above.</Empty>
@@ -790,10 +793,11 @@ function SearchPage({
         <Loading />
       ) : q.error ? (
         <ErrorState error={q.error} retry={() => q.refetch()} />
-      ) : !q.data.items.length && !q.data.communities.length ? (
+      ) : !q.data.items.length && !q.data.communities.length && !q.data.profiles.length ? (
         <Empty title="No results yet">Try another phrase or a community name.</Empty>
       ) : (
         <>
+          <PeopleResults profiles={q.data.profiles} />
           {q.data.communities.map((c) => (
             <CommunityCard c={c} key={c.id} onCompose={onCompose} />
           ))}

@@ -337,5 +337,20 @@ func (a *App) search(w http.ResponseWriter, r *http.Request, actor *Actor) (any,
 			matches = append(matches, communityJSON(c))
 		}
 	}
-	return map[string]any{"items": items, "communities": matches, "nextCursor": nil}, 200, nil
+	profileIDs, e := q.SearchProfiles(r.Context(), dbgen.SearchProfilesParams{ViewerID: actorID(actor), SearchText: strings.TrimPrefix(term, "@")})
+	if e != nil {
+		return nil, 0, e
+	}
+	profiles := []any{}
+	for _, pid := range profileIDs {
+		p, err := q.PublicProfile(r.Context(), dbgen.PublicProfileParams{ProfileID: pid, ViewerID: actorID(actor)})
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, 0, err
+		}
+		profiles = append(profiles, publicProfileViewOf(p))
+	}
+	return map[string]any{"items": items, "communities": matches, "profiles": profiles, "nextCursor": nil}, 200, nil
 }

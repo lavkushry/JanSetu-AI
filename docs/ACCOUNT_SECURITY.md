@@ -61,6 +61,8 @@ First sign-in serializes on that identity pair, then creates one principal, an i
 
 Principal/profile suspension, binding revocation, and live app grants are checked on requests. Commands also check session validity after taking the principal lock, so a session revoked while a command waits cannot subsequently authorize that command. Staff grant administration remains outside this UI; no self-service staff enrollment has been introduced.
 
+The [public profile guide](PUBLIC_PROFILES.md) describes UUID-based author pages and people search, with chosen public details and approved posts only. Account links to the public view and provides an owner-only **Blocked people** list. Unblocking remains available for an inactive account and does not restore previous follows. Provider/session details and private report/evidence data are excluded from public profiles.
+
 ## Sessions and audit
 
 App sessions contain a hash of a random 256-bit cookie, their owner, authentication method, exact OIDC binding, timestamps, and revocation state. Provider access/refresh/ID tokens are discarded after sign-in. Sessions expire after 30 minutes without application requests or after an absolute 12 hours. A loaded page periodically refreshes its session state, so the absolute lifetime still applies to an open page. Accounts are limited to 20 active sessions; a new sign-in revokes the oldest excess sessions.

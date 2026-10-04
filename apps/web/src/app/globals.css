@@ -2395,6 +2395,137 @@ textarea {
   gap: 8px;
   margin: 0 0 12px;
 }
+.profile-name:hover {
+  color: var(--blue);
+  text-decoration: underline;
+}
+.public-profile {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.profile-cover {
+  height: 100px;
+  background: linear-gradient(120deg, var(--blue-soft), var(--green-soft));
+  border-bottom: 1px solid var(--line);
+}
+.profile-details {
+  padding: 24px;
+}
+.profile-heading {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.profile-heading .avatar {
+  width: 64px;
+  height: 64px;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.profile-heading > div,
+.person-card > div,
+.blocked-person > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.profile-heading h1 {
+  font-size: 28px;
+}
+.profile-bio {
+  margin: 18px 0 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.profile-joined,
+.profile-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.profile-joined {
+  margin-top: 12px;
+  font-size: 12px;
+}
+.profile-controls {
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+.profile-post-heading {
+  margin: 24px 0 14px;
+}
+.profile-post-heading h2,
+.people-results h2 {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+.people-results {
+  margin-bottom: 24px;
+}
+.people-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 10px;
+}
+.person-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.person-card:hover {
+  border-color: var(--blue);
+}
+.person-card > div,
+.blocked-person > div {
+  flex: 1;
+}
+.person-card span,
+.blocked-person span,
+.blocked-person small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.blocked-people {
+  scroll-margin-top: 90px;
+}
+.blocked-person {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.blocked-person:last-of-type {
+  border-bottom: 0;
+}
+.blocks-empty {
+  margin-top: 18px;
+}
+@media (max-width: 420px) {
+  .profile-details {
+    padding: 16px;
+  }
+  .profile-heading h1 {
+    font-size: 22px;
+  }
+  .profile-heading .avatar {
+    width: 48px;
+    height: 48px;
+    font-size: 18px;
+  }
+  .blocked-person {
+    flex-wrap: wrap;
+  }
+  .blocked-person > div {
+    flex-basis: calc(100% - 60px);
+  }
+}
 .account-panel .muted {
   font-size: 13px;
   line-height: 1.6;

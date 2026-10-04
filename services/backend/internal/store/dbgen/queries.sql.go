@@ -153,6 +153,62 @@ func (q *Queries) AttachReportMedia(ctx context.Context, arg AttachReportMediaPa
 	return err
 }
 
+const blockedPeoplePage = `-- name: BlockedPeoplePage :many
+SELECT b.blocked_id,b.created_at,p.state='ACTIVE' AS available,
+ CASE WHEN p.state='ACTIVE' THEN p.handle::text ELSE '' END AS handle,
+ CASE WHEN p.state='ACTIVE' THEN p.display_name ELSE '' END AS display_name
+FROM social.profile_block b JOIN social.profile p ON p.id=b.blocked_id
+WHERE b.blocker_id=$1
+ AND (NOT $2::boolean OR (b.created_at,b.blocked_id)<($3::timestamptz,$4::uuid))
+ORDER BY b.created_at DESC,b.blocked_id DESC LIMIT 21
+`
+
+type BlockedPeoplePageParams struct {
+	ViewerID   uuid.UUID          `json:"viewer_id"`
+	HasCursor  bool               `json:"has_cursor"`
+	BeforeTime pgtype.Timestamptz `json:"before_time"`
+	BeforeID   uuid.UUID          `json:"before_id"`
+}
+
+type BlockedPeoplePageRow struct {
+	BlockedID   uuid.UUID          `json:"blocked_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	Available   bool               `json:"available"`
+	Handle      string             `json:"handle"`
+	DisplayName string             `json:"display_name"`
+}
+
+func (q *Queries) BlockedPeoplePage(ctx context.Context, arg BlockedPeoplePageParams) ([]BlockedPeoplePageRow, error) {
+	rows, err := q.db.Query(ctx, blockedPeoplePage,
+		arg.ViewerID,
+		arg.HasCursor,
+		arg.BeforeTime,
+		arg.BeforeID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BlockedPeoplePageRow{}
+	for rows.Next() {
+		var i BlockedPeoplePageRow
+		if err := rows.Scan(
+			&i.BlockedID,
+			&i.CreatedAt,
+			&i.Available,
+			&i.Handle,
+			&i.DisplayName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const candidateComment = `-- name: CandidateComment :one
 SELECT body FROM social.comment_revision WHERE comment_id=$1 AND version=$2
 `
@@ -1741,6 +1797,94 @@ func (q *Queries) Profile(ctx context.Context, id uuid.UUID) (ProfileRow, error)
 	return i, err
 }
 
+const profilePostPage = `-- name: ProfilePostPage :many
+SELECT p.id,p.published_at FROM social.post p
+JOIN social.profile author ON author.id=p.author_id AND author.state='ACTIVE'
+JOIN social.post_revision pub ON pub.post_id=p.id AND pub.revision=p.published_revision AND pub.review_state='APPROVED'
+LEFT JOIN social.community c ON c.id=p.community_id
+WHERE p.author_id=$1 AND p.state='PUBLISHED'
+ AND (c.id IS NULL OR (c.state='ACTIVE' AND c.visibility IN ('PUBLIC','RESTRICTED')))
+ AND (NOT $2::boolean OR (p.published_at,p.id)<($3::timestamptz,$4::uuid))
+ AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=$5 AND b.blocked_id=p.author_id) OR (b.blocked_id=$5 AND b.blocker_id=p.author_id))
+ORDER BY p.published_at DESC,p.id DESC LIMIT 21
+`
+
+type ProfilePostPageParams struct {
+	ProfileID  *uuid.UUID         `json:"profile_id"`
+	HasCursor  bool               `json:"has_cursor"`
+	BeforeTime pgtype.Timestamptz `json:"before_time"`
+	BeforeID   uuid.UUID          `json:"before_id"`
+	ViewerID   uuid.UUID          `json:"viewer_id"`
+}
+
+type ProfilePostPageRow struct {
+	ID          uuid.UUID          `json:"id"`
+	PublishedAt pgtype.Timestamptz `json:"published_at"`
+}
+
+func (q *Queries) ProfilePostPage(ctx context.Context, arg ProfilePostPageParams) ([]ProfilePostPageRow, error) {
+	rows, err := q.db.Query(ctx, profilePostPage,
+		arg.ProfileID,
+		arg.HasCursor,
+		arg.BeforeTime,
+		arg.BeforeID,
+		arg.ViewerID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProfilePostPageRow{}
+	for rows.Next() {
+		var i ProfilePostPageRow
+		if err := rows.Scan(&i.ID, &i.PublishedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const publicProfile = `-- name: PublicProfile :one
+SELECT p.id,p.handle::text AS handle,p.display_name,p.bio,p.created_at,
+ EXISTS(SELECT FROM social.profile_follow f WHERE f.follower_id=$1 AND f.followed_id=p.id) AS following
+FROM social.profile p WHERE p.id=$2 AND p.state='ACTIVE'
+ AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=$1 AND b.blocked_id=p.id) OR (b.blocked_id=$1 AND b.blocker_id=p.id))
+`
+
+type PublicProfileParams struct {
+	ViewerID  uuid.UUID `json:"viewer_id"`
+	ProfileID uuid.UUID `json:"profile_id"`
+}
+
+type PublicProfileRow struct {
+	ID          uuid.UUID          `json:"id"`
+	Handle      string             `json:"handle"`
+	DisplayName string             `json:"display_name"`
+	Bio         string             `json:"bio"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	Following   bool               `json:"following"`
+}
+
+func (q *Queries) PublicProfile(ctx context.Context, arg PublicProfileParams) (PublicProfileRow, error) {
+	row := q.db.QueryRow(ctx, publicProfile, arg.ViewerID, arg.ProfileID)
+	var i PublicProfileRow
+	err := row.Scan(
+		&i.ID,
+		&i.Handle,
+		&i.DisplayName,
+		&i.Bio,
+		&i.CreatedAt,
+		&i.Following,
+	)
+	return i, err
+}
+
 const publicationAllowed = `-- name: PublicationAllowed :one
 SELECT NOT EXISTS(SELECT 1 FROM ops.case_observation o JOIN ops.report r ON r.id=o.report_id WHERE o.case_id=$1 AND r.publication_preference='PRIVATE')
 `
@@ -2087,6 +2231,39 @@ func (q *Queries) SaveReceipt(ctx context.Context, arg SaveReceiptParams) error 
 		arg.ProjectionVersion,
 	)
 	return err
+}
+
+const searchProfiles = `-- name: SearchProfiles :many
+SELECT p.id FROM social.profile p WHERE p.state='ACTIVE'
+ AND strpos(lower(p.handle::text||' '||p.display_name),lower($1))>0
+ AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=$2 AND b.blocked_id=p.id) OR (b.blocked_id=$2 AND b.blocker_id=p.id))
+ORDER BY p.handle,p.id LIMIT 20
+`
+
+type SearchProfilesParams struct {
+	SearchText string    `json:"search_text"`
+	ViewerID   uuid.UUID `json:"viewer_id"`
+}
+
+func (q *Queries) SearchProfiles(ctx context.Context, arg SearchProfilesParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, searchProfiles, arg.SearchText, arg.ViewerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const sessionActor = `-- name: SessionActor :one

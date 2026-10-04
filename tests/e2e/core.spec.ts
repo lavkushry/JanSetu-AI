@@ -690,3 +690,159 @@ test('a committed part with a lost acknowledgement completes after reload withou
   await expect(dialog.getByRole('article', { name: 'Photo 1' })).toHaveCount(0);
   await dialog.getByLabel('Save this private draft on this device').uncheck();
 });
+
+test('public profiles, people search, follows, blocks and unblocks survive navigation', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  const ownerContext = await browser.newContext();
+  const owner = await ownerContext.newPage();
+  await owner.goto('/');
+  await signIn(owner, 'Ananya Rao');
+  const me = (await (await owner.request.get('/api/me')).json()) as Schema['Me'];
+  const profileURL = `/profiles/${me.profile.id}`;
+  // The named author link is a real route rather than a decorative byline.
+  const feed = (await (await page.request.get('/api/feed')).json()) as Schema['Feed'];
+  const ownPost = feed.items.find(
+    (item) => item.type === 'POST' && item.post.author?.id === me.profile.id,
+  );
+  expect(ownPost?.type).toBe('POST');
+  if (ownPost?.type !== 'POST') throw new Error('Published author fixture missing');
+  await page.goto(`/posts/${ownPost.post.id}`);
+  await page
+    .getByTestId(`post-${ownPost.post.id}`)
+    .getByRole('link', { name: me.profile.displayName, exact: true })
+    .click();
+  await expect(page).toHaveURL(profileURL);
+  await expect(
+    page.getByRole('heading', { name: me.profile.displayName, exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(me.profile.bio!, { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Follow person', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Unfollow person', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Unfollow person', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Unfollow person', exact: true }).click();
+  await page.getByRole('button', { name: 'Follow person', exact: true }).click();
+  await page.goto(`/search?q=${encodeURIComponent('@' + me.profile.handle)}`);
+  await page
+    .getByRole('region', { name: 'People search results' })
+    .getByRole('link')
+    .filter({ hasText: me.profile.displayName })
+    .click();
+  await page.getByRole('button', { name: 'Block person', exact: true }).click();
+  const confirmation = page.getByRole('dialog', { name: 'Block this person?' });
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: me.profile.displayName, exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Block person', exact: true }).click();
+  await confirmation.getByRole('button', { name: 'Block person', exact: true }).click();
+  await expect(page).toHaveURL('/account#blocked-people');
+  const blocks = page.getByRole('region', { name: 'Blocked people', exact: true });
+  await expect(blocks.getByText(me.profile.displayName, { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 720 });
+  await blocks.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/blocked-people-mobile.png' });
+  await page.goto(profileURL);
+  await expect(
+    page.getByRole('heading', { name: 'Profile unavailable', exact: true }),
+  ).toBeVisible();
+  await page.goto(`/search?q=${encodeURIComponent('@' + me.profile.handle)}`);
+  await expect(page.getByRole('region', { name: 'People search results' })).toHaveCount(0);
+  const viewer = (await (await page.request.get('/api/me')).json()) as Schema['Me'];
+  expect((await owner.request.get(`/api/profiles/${viewer.profile.id}`)).status()).toBe(404);
+  await page.goto('/account');
+  await page.reload();
+  await blocks
+    .getByRole('button', { name: `Unblock ${me.profile.displayName}`, exact: true })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Unblock this person?' })
+    .getByRole('button', { name: 'Unblock person', exact: true })
+    .click();
+  await expect(blocks.getByText(me.profile.displayName, { exact: true })).toHaveCount(0);
+  await page.goto(profileURL);
+  await expect(
+    page.getByRole('heading', { name: me.profile.displayName, exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Follow person', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/public-profile-mobile.png' });
+  await ownerContext.close();
+});
+
+test('public profile excludes pending content and opens the latest private revision for editing', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const me = (await (await page.request.get('/api/me')).json()) as Schema['Me'];
+  const profileURL = `/profiles/${me.profile.id}`;
+  const publicBody = `Fictional public profile update ${Date.now()}`;
+  const privateBody = `Unpublished private profile revision ${Date.now()}`;
+  const response = await page.request.post('/api/posts', {
+    headers: { 'x-jansetu-csrf': '1', 'idempotency-key': crypto.randomUUID() },
+    data: {
+      kind: 'SHORT',
+      body: publicBody,
+      languageTag: 'en-IN',
+      mediaIds: [],
+      submitForReview: true,
+    },
+  });
+  expect(response.status()).toBe(201);
+  const post = (await response.json()) as Schema['Post'];
+  await page.goto('/account');
+  await page.getByRole('link', { name: 'View public profile', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: me.profile.displayName, exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(publicBody, { exact: true })).toHaveCount(0);
+  const staff = await staffPage(browser, 'Kiran Shah');
+  const review = staff.page.getByTestId('review-card').filter({ hasText: publicBody });
+  await review.getByLabel('Review reason').fill('Constructive fictional profile update');
+  await review.getByRole('button', { name: 'Approve & publish' }).click();
+  await expect(review).not.toBeVisible();
+  await page.reload();
+  await expect(page.getByText(publicBody, { exact: true })).toBeVisible();
+  const current = (await (
+    await page.request.get(`/api/posts/${post.id}`)
+  ).json()) as Schema['Post'];
+  const edited = await page.request.patch(`/api/posts/${post.id}`, {
+    headers: { 'x-jansetu-csrf': '1', 'if-match': `"${current.version}"` },
+    data: { body: privateBody, languageTag: 'en-IN', mediaIds: [], submitForReview: true },
+  });
+  expect(edited.status()).toBe(200);
+  await page.reload();
+  await expect(page.getByText(publicBody, { exact: true })).toBeVisible();
+  await expect(page.getByText(privateBody, { exact: true })).toHaveCount(0);
+  const anonymous = await browser.newContext();
+  const visitor = await anonymous.newPage();
+  await visitor.goto(profileURL);
+  await expect(visitor.getByText(publicBody, { exact: true })).toBeVisible();
+  await expect(visitor.getByText(privateBody, { exact: true })).toHaveCount(0);
+  const card = page.getByTestId(`post-${post.id}`);
+  await card.getByLabel('Post options').click();
+  await card.getByRole('button', { name: 'Edit post', exact: true }).click();
+  await expect(
+    page.getByRole('dialog', { name: 'Edit your post' }).getByLabel('What’s on your mind?'),
+  ).toHaveValue(privateBody);
+  await page
+    .getByRole('dialog', { name: 'Edit your post' })
+    .getByRole('button', { name: 'Close dialog', exact: true })
+    .click();
+  await card.getByLabel('Post options').click();
+  await card.getByRole('button', { name: 'Delete post', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete this post?' })
+    .getByRole('button', { name: 'Delete post', exact: true })
+    .click();
+  await expect(page.getByTestId(`post-${post.id}`)).toHaveCount(0);
+  await anonymous.close();
+  await staff.context.close();
+});

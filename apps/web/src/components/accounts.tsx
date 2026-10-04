@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ShieldCheck, LogOut, Check, KeyRound } from 'lucide-react';
 import { api, type Schema, type Me } from '@/lib/api';
 import { Avatar, Modal, Loading, ErrorState, Empty, FormError, useSession } from './ui';
+import { BlockedPeopleSettings } from './profiles';
 
 export function Accounts({ onClose }: { onClose: () => void }) {
   const q = useQuery({
@@ -195,9 +196,13 @@ export function AccountSecurity() {
       <div className="section-intro">
         <span className="eyebrow">YOUR ACCOUNT</span>
         <h1>Feel at home. Stay in control.</h1>
-        <p>Your public profile and the places where you are signed in.</p>
+        <p>Your public profile, blocked people, and the places where you are signed in.</p>
+        <Link className="text-button" href={`/profiles/${me.profile.id}`}>
+          View public profile
+        </Link>
       </div>
       <ProfileEditor key={me.profile.version} me={me} />
+      <BlockedPeopleSettings />
       <Sessions />
     </div>
   );

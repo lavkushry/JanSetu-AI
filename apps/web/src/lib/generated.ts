@@ -572,6 +572,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profiles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /** @description Chosen public details of an active profile. Either-direction blocks return the same 404 as an unavailable profile. No principal, provider, report or staff-grant data. */
+        get: operations["get_public_profile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/{id}/posts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /** @description Latest approved published posts only, including on the author's own profile. Twenty per keyset page, with current block/community/publication checks and no private edit candidates. Cursor binds viewer, target and five-minute deadline. */
+        get: operations["get_profile_posts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/blocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Current resident's own blocks, twenty per keyset page. An inactive target has a null profile and can still be unblocked. No incoming-block list or counts are exposed. */
+        get: operations["get_blocked_people"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/blocks/{id}": {
         parameters: {
             query?: never;
@@ -1000,6 +1055,46 @@ export interface components {
             bio?: string;
             version?: number;
         };
+        PublicProfile: {
+            /** Format: uuid */
+            id: string;
+            handle: string;
+            displayName: string;
+            bio: string;
+            /** Format: date-time */
+            joinedAt: string;
+        };
+        ProfileDetail: {
+            profile: components["schemas"]["PublicProfile"];
+            viewer: {
+                self: boolean;
+                following: boolean;
+            };
+        };
+        ProfilePosts: {
+            items: components["schemas"]["Post"][];
+            nextCursor: string | null;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        BlockedPerson: {
+            /** Format: uuid */
+            profileId: string;
+            profile: {
+                /** Format: uuid */
+                id: string;
+                handle: string;
+                displayName: string;
+            } | null;
+            /** Format: date-time */
+            blockedAt: string;
+        };
+        BlockedPeople: {
+            items: components["schemas"]["BlockedPerson"][];
+            nextCursor: string | null;
+            /** Format: date-time */
+            expiresAt: string;
+        };
         Agency: {
             id: string;
             name: string;
@@ -1201,6 +1296,7 @@ export interface components {
         Search: {
             items: components["schemas"]["FeedItem"][];
             communities: components["schemas"]["Community"][];
+            profiles: components["schemas"]["PublicProfile"][];
             nextCursor: null;
         };
         ReportInput: {
@@ -2346,6 +2442,84 @@ export interface operations {
         responses: {
             200: components["responses"]["Command"];
             403: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_public_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public profile and current viewer relationship */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileDetail"];
+                };
+            };
+            404: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_profile_posts: {
+        parameters: {
+            query?: {
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized published posts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfilePosts"];
+                };
+            };
+            404: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_blocked_people: {
+        parameters: {
+            query?: {
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Owner's block settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlockedPeople"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
