@@ -43,7 +43,9 @@ def main():
     parser.add_argument("--extract-dir", type=Path)
     args = parser.parse_args()
     files = sorted(ROOT.rglob("*.md"))
-    files = [p for p in files if ".git" not in p.parts and "node_modules" not in p.parts]
+    # Installed packages and generated reports are not repository documentation.
+    excluded = {".git", "node_modules", ".venv", ".next", "test-results", "playwright-report"}
+    files = [p for p in files if not excluded.intersection(p.relative_to(ROOT).parts)]
     texts = {p.resolve(): p.read_text() for p in files}
     ids = {p: anchors(body) for p, body in texts.items()}
     errors, counts = [], {"links": 0, "json": 0, "mermaid": 0, "sql": 0, "go": 0}
