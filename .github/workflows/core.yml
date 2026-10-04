@@ -1,0 +1,45 @@
+name: Runnable core
+on: [push, pull_request]
+permissions:
+  contents: read
+concurrency:
+  group: core-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.0'
+          cache-dependency-path: services/backend/go.sum
+      - run: npm ci
+      - run: make db
+      - run: make seed
+      - run: make check
+      - run: make test-integration
+      - run: make generate
+      - run: git diff --exit-code -- services/backend/internal/store/dbgen apps/web/src/lib/generated.ts
+      - run: npx playwright install --with-deps chromium
+      - name: Start API, worker, and production web
+        run: |
+          (cd services/backend && go run ./cmd/public-api) > /tmp/jansetu-api.log 2>&1 &
+          (cd services/backend && go run ./cmd/worker) > /tmp/jansetu-worker.log 2>&1 &
+          npm run start --workspace @jansetu/web > /tmp/jansetu-web.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8081/health/ready && curl -fsS http://localhost:3100/api/capabilities; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - run: npm run test:e2e
+      - name: Local service diagnostics
+        if: failure()
+        run: |
+          docker compose logs --tail=40 db
+          cat /tmp/jansetu-api.log /tmp/jansetu-worker.log /tmp/jansetu-web.log 2>/dev/null || true
