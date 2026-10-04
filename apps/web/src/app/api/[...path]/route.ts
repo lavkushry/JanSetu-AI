@@ -34,7 +34,7 @@ async function forward(request: NextRequest, { params }: { params: Promise<{ pat
     path.length === 4 &&
     path[0] === 'media' &&
     path[2] === 'parts' &&
-    path[3] === '1';
+    /^[1-5]$/.test(path[3]);
   const maxBody = binaryUpload ? 10 * 1024 * 1024 : 65536;
   try {
     let body: ArrayBuffer | undefined;

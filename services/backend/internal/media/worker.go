@@ -44,6 +44,9 @@ func (w *Worker) Once(ctx context.Context) error {
 	if e = rows.Err(); e != nil {
 		return e
 	}
+	if _, e = w.DB.Exec(ctx, `UPDATE infra.upload_part p SET token_hash=NULL FROM infra.upload_session u WHERE p.upload_id=u.id AND u.state IN ('EXPIRED','ABORTED','COMPLETE') AND p.token_hash IS NOT NULL`); e != nil {
+		return e
+	}
 	for _, id := range ids {
 		if _, e = w.DB.Exec(ctx, `UPDATE social.media_asset SET state='REJECTED',rejection_code='UPLOAD_EXPIRED',authorization_version=authorization_version+1 WHERE id=$1 AND state='UPLOADING'`, id); e != nil {
 			return e
@@ -66,6 +69,10 @@ func (w *Worker) Once(ctx context.Context) error {
 			cleanup.Close()
 			return e
 		}
+		if e = w.removeUploadParts(ctx, id); e != nil {
+			cleanup.Close()
+			return e
+		}
 		if state == "REVOKED" && derivative != nil {
 			if e = w.Files.Remove(*derivative); e != nil {
 				cleanup.Close()
@@ -85,6 +92,18 @@ func (w *Worker) Once(ctx context.Context) error {
 		return e
 	}
 	return w.analyzeOne(ctx)
+}
+
+func (w *Worker) removeUploadParts(ctx context.Context, mid uuid.UUID) error {
+	var uploadID uuid.UUID
+	err := w.DB.QueryRow(ctx, `SELECT id FROM infra.upload_session WHERE media_id=$1`, mid).Scan(&uploadID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return w.Files.RemoveParts(uploadID)
 }
 
 // Retention is rechecked in a fresh statement after acquiring the media lock.

@@ -6,9 +6,15 @@ import { api, readable, APIError, type Schema } from '@/lib/api';
 import { FormError, useSession } from './ui';
 
 type Correction = Schema['OCRCorrection'];
-async function putPhoto(url: string, file: File): Promise<Schema['CompletedPart']> {
+async function fingerprint(file: File): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+type PendingPhoto = { key: string; file: File; hash: string; error?: Error };
+type UploadProgress = { done: number; total: number };
+async function putPhoto(url: string, file: Blob): Promise<Schema['CompletedPart']> {
   // Only the local same-origin upload route is accepted; capabilities are never saved in drafts.
-  if (!/^\/api\/media\/[a-f0-9-]+\/parts\/1\?token=[\w-]+$/.test(url))
+  if (!/^\/api\/media\/[a-f0-9-]+\/parts\/[1-5]\?token=[\w-]+$/.test(url))
     throw new Error('Invalid photo upload address');
   const r = await fetch(url, {
     method: 'PUT',
@@ -45,40 +51,103 @@ export function ReportPhotos({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [failures, setFailures] = useState<Record<string, Error>>({});
+  const [pending, setPending] = useState<PendingPhoto[]>([]);
+  const [progress, setProgress] = useState<Record<string, UploadProgress>>({});
   const currentIds = useRef(ids);
   currentIds.current = ids;
-  async function finish(id: string, file: File) {
-    const session = await api<Schema['UploadSession']>(`media/${id}/upload`);
-    if (session.state === 'COMPLETE') {
-      setFailures((f) => {
-        const next = { ...f };
-        delete next[id];
-        return next;
-      });
-      return;
-    }
-    if (session.state !== 'OPEN')
-      throw new Error('This upload expired. Remove the photo and choose it again.');
-    let part = session.completedParts[0];
-    if (!part) {
-      const renewed = await api<Schema['UploadSession']>(`media/${id}/upload-parts`, {
-        method: 'POST',
-        version: session.version,
-        body: { partNumbers: [1] },
-      });
-      part = await putPhoto(renewed.parts[0].url, file);
-    }
-    await api(`media/${id}/complete`, { method: 'POST', body: { parts: [part] } });
+  function clearFailure(id: string) {
     setFailures((f) => {
       const next = { ...f };
       delete next[id];
       return next;
     });
   }
+  async function finish(id: string, file?: File) {
+    const session = await api<Schema['UploadSession']>(`media/${id}/upload`);
+    if (session.state === 'COMPLETE') {
+      clearFailure(id);
+      return;
+    }
+    if (session.state !== 'OPEN')
+      throw new Error('This upload expired. Remove the photo and choose it again.');
+    const total = Math.ceil(session.byteCount / session.partSize);
+    const completed = new Map(session.completedParts.map((p) => [p.number, p]));
+    const missing = Array.from({ length: total }, (_, i) => i + 1).filter((n) => !completed.has(n));
+    setProgress((p) => ({ ...p, [id]: { done: completed.size, total } }));
+    if (missing.length) {
+      if (!file) throw new Error('Choose the same photo to resume this upload.');
+      if (
+        file.size !== session.byteCount ||
+        file.type !== session.mimeType ||
+        !session.sourceSha256 ||
+        (await fingerprint(file)) !== session.sourceSha256
+      )
+        throw new Error('This is a different photo. Choose the original photo to resume.');
+      files.current.set(id, file);
+      const renewed = await api<Schema['UploadSession']>(`media/${id}/upload-parts`, {
+        method: 'POST',
+        version: session.version,
+        body: { partNumbers: missing },
+      });
+      for (const part of renewed.parts) {
+        const offset = (part.number - 1) * session.partSize;
+        completed.set(
+          part.number,
+          await putPhoto(part.url, file.slice(offset, offset + session.partSize)),
+        );
+        setProgress((p) => ({ ...p, [id]: { done: completed.size, total } }));
+      }
+    }
+    await api(`media/${id}/complete`, {
+      method: 'POST',
+      body: { parts: [...completed.values()].sort((a, b) => a.number - b.number) },
+    });
+    clearFailure(id);
+  }
+  async function allocate(photo: PendingPhoto) {
+    try {
+      const upload = await api<Schema['UploadSession']>('media/uploads', {
+        method: 'POST',
+        body: {
+          clientSubmissionId: submissionId,
+          clientUploadId: photo.key,
+          sourceSha256: photo.hash,
+          mimeType: photo.file.type,
+          byteCount: photo.file.size,
+          purpose: 'REPORT',
+        },
+      });
+      const id = upload.mediaId;
+      files.current.set(id, photo.file);
+      setPending((p) => p.filter((v) => v.key !== photo.key));
+      if (!currentIds.current.includes(id)) {
+        currentIds.current = [...currentIds.current, id];
+        setIds(currentIds.current);
+      }
+      try {
+        await finish(id, photo.file);
+      } catch (e) {
+        setFailures((f) => ({ ...f, [id]: e as Error }));
+      }
+    } catch (e) {
+      setPending((p) => p.map((v) => (v.key === photo.key ? { ...v, error: e as Error } : v)));
+    }
+  }
+  async function resume(id: string, file?: File) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await finish(id, file || files.current.get(id));
+    } catch (e) {
+      setFailures((f) => ({ ...f, [id]: e as Error }));
+    } finally {
+      setBusy(false);
+    }
+  }
   async function choose(chosen: File[]) {
     if (busy) return;
     setError(null);
-    if (currentIds.current.length + chosen.length > 4) {
+    if (currentIds.current.length + pending.length + chosen.length > 4) {
       setError(new Error('Attach up to four photos.'));
       return;
     }
@@ -96,24 +165,9 @@ export function ReportPhotos({
     setBusy(true);
     try {
       for (const file of chosen) {
-        const upload = await api<Schema['UploadSession']>('media/uploads', {
-          method: 'POST',
-          body: {
-            clientSubmissionId: submissionId,
-            mimeType: file.type,
-            byteCount: file.size,
-            purpose: 'REPORT',
-          },
-        });
-        const id = upload.mediaId;
-        files.current.set(id, file);
-        currentIds.current = [...currentIds.current, id];
-        setIds(currentIds.current);
-        try {
-          await finish(id, file);
-        } catch (e) {
-          setFailures((f) => ({ ...f, [id]: e as Error }));
-        }
+        const photo = { key: crypto.randomUUID(), file, hash: await fingerprint(file) };
+        setPending((p) => [...p, photo]);
+        await allocate(photo);
       }
     } catch (e) {
       setError(e as Error);
@@ -133,7 +187,7 @@ export function ReportPhotos({
         <button
           type="button"
           className="secondary small"
-          disabled={busy || ids.length >= 4}
+          disabled={busy || ids.length + pending.length >= 4}
           onClick={() => input.current?.click()}
         >
           <ImagePlus size={17} />
@@ -158,6 +212,42 @@ export function ReportPhotos({
         the words before using them.
       </p>
       <FormError error={error} />
+      {pending.map((photo) => (
+        <div key={photo.key} className="photo-help" role="status">
+          <FormError error={photo.error || null} />
+          {photo.error ? (
+            <>
+              <button
+                type="button"
+                className="secondary small"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await allocate(photo);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Retry adding photo
+              </button>
+              <button
+                type="button"
+                className="text-button"
+                disabled={busy}
+                onClick={() => {
+                  setPending((p) => p.filter((v) => v.key !== photo.key));
+                }}
+              >
+                Discard pending photo
+              </button>
+            </>
+          ) : (
+            'Starting private upload…'
+          )}
+        </div>
+      ))}
       {ids.map((id, index) => (
         <PhotoCard
           key={id}
@@ -167,19 +257,13 @@ export function ReportPhotos({
           initialJob={analysisIds[id]}
           onJob={(job) => onAnalysisId(id, job)}
           failure={failures[id]}
+          progress={progress[id]}
+          busy={busy}
+          hasFile={files.current.has(id)}
+          onResume={(file) => resume(id, file)}
           onState={onState}
           onApply={(text, corrections) => onApply(id, text, corrections)}
-          onRetry={
-            files.current.has(id)
-              ? async () => {
-                  try {
-                    await finish(id, files.current.get(id)!);
-                  } catch (e) {
-                    setFailures((f) => ({ ...f, [id]: e as Error }));
-                  }
-                }
-              : undefined
-          }
+          onRetry={() => resume(id)}
           onRemoved={() => {
             files.current.delete(id);
             currentIds.current = currentIds.current.filter((v) => v !== id);
@@ -201,7 +285,15 @@ function PhotoCard({
   onApply,
   initialJob,
   onJob,
+  progress,
+  busy,
+  hasFile,
+  onResume,
 }: {
+  progress?: UploadProgress;
+  busy: boolean;
+  hasFile: boolean;
+  onResume: (file: File) => Promise<void>;
   initialJob?: string;
   onJob: (job: string) => void;
   id: string;
@@ -223,12 +315,25 @@ function PhotoCard({
     (c) => c.kind === 'ISSUE_DETECTION' && c.status === 'EVALUATING',
   );
   const [retrying, setRetrying] = useState(false);
+  const resumeInput = useRef<HTMLInputElement>(null);
   const q = useQuery({
     queryKey: ['media', id],
     queryFn: () => api<Schema['Media']>(`media/${id}`),
     refetchInterval: (query) =>
       ['UPLOADING', 'QUARANTINED'].includes(query.state.data?.state || '') ? 1200 : false,
   });
+  const upload = useQuery({
+    queryKey: ['upload', id],
+    queryFn: () => api<Schema['UploadSession']>(`media/${id}/upload`),
+    enabled: q.data?.state === 'UPLOADING',
+    refetchInterval: q.data?.state === 'UPLOADING' ? 1200 : false,
+  });
+  const uploadProgress =
+    progress ||
+    (upload.data && {
+      done: upload.data.completedParts.length,
+      total: Math.ceil(upload.data.byteCount / upload.data.partSize),
+    });
   useEffect(() => {
     onState(id, q.data?.state || 'UPLOADING');
   }, [id, q.data?.state, onState]);
@@ -291,13 +396,82 @@ function PhotoCard({
           <button
             type="button"
             className="text-button"
-            disabled={remove.isPending}
+            disabled={remove.isPending || busy || retrying}
             onClick={() => remove.mutate()}
           >
             <Trash2 size={15} />
             Remove photo
           </button>
         </div>
+        {q.data?.state === 'UPLOADING' && (
+          <div className="upload-progress">
+            {uploadProgress && (
+              <>
+                <progress
+                  aria-label={`Photo ${index + 1} upload progress`}
+                  value={uploadProgress.done}
+                  max={uploadProgress.total}
+                />
+                <p className="muted">
+                  {uploadProgress.done} of {uploadProgress.total} parts uploaded
+                </p>
+              </>
+            )}
+            {!hasFile && (
+              <>
+                <button
+                  type="button"
+                  className="secondary small"
+                  disabled={busy || retrying}
+                  onClick={() => resumeInput.current?.click()}
+                >
+                  Choose same photo to resume
+                </button>
+                <input
+                  ref={resumeInput}
+                  type="file"
+                  hidden
+                  accept="image/jpeg,image/png,image/webp"
+                  aria-label={`Resume photo ${index + 1}`}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!file) return;
+                    setRetrying(true);
+                    try {
+                      await onResume(file);
+                      await q.refetch();
+                    } finally {
+                      setRetrying(false);
+                    }
+                  }}
+                />
+              </>
+            )}
+            {!failure &&
+              !busy &&
+              uploadProgress?.done === uploadProgress?.total &&
+              uploadProgress && (
+                <button
+                  type="button"
+                  className="secondary small"
+                  disabled={retrying}
+                  onClick={async () => {
+                    setRetrying(true);
+                    try {
+                      await onRetry?.();
+                      await q.refetch();
+                    } finally {
+                      setRetrying(false);
+                    }
+                  }}
+                >
+                  Finish upload
+                </button>
+              )}
+            <FormError error={upload.error} />
+          </div>
+        )}
         {q.data?.state === 'REJECTED' && (
           <p role="alert">
             {q.data.rejectionCode === 'PIXEL_LIMIT'
@@ -312,7 +486,7 @@ function PhotoCard({
               <button
                 type="button"
                 className="secondary small"
-                disabled={retrying}
+                disabled={retrying || busy}
                 onClick={async () => {
                   setRetrying(true);
                   await onRetry();

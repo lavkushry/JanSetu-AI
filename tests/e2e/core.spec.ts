@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Browser } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import type { components } from '../../apps/web/src/lib/generated';
 type Schema = components['schemas'];
 async function signIn(page: Page, name: string) {
@@ -535,4 +536,157 @@ test('retry clears a lost upload-completion response without reuploading', async
   await expect(dialog.getByRole('article', { name: 'Photo 1' }).getByRole('alert')).toHaveCount(0);
   expect(completionCalls).toBe(1);
   expect(partCalls).toBe(1);
+});
+
+test('lost allocation response retries the same photo identity', async ({ page }) => {
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  const allocations: Schema['UploadSession'][] = [];
+  const identities: string[] = [];
+  await page.route('**/api/media/uploads', async (route) => {
+    identities.push(route.request().postDataJSON().clientUploadId);
+    const response = await route.fetch();
+    expect(response.status()).toBe(201);
+    allocations.push(await response.json());
+    if (allocations.length === 1) await route.abort('failed');
+    else await route.fulfill({ response });
+  });
+  await dialog
+    .getByLabel('Choose report photos')
+    .setInputFiles('services/backend/internal/media/testdata/notice.png');
+  await dialog.getByRole('button', { name: 'Retry adding photo', exact: true }).click();
+  await expect(
+    dialog.getByRole('img', { name: 'Private report photo 1', exact: true }),
+  ).toBeVisible();
+  expect(identities).toHaveLength(2);
+  expect(identities[0]).toBe(identities[1]);
+  expect(allocations[0].mediaId).toBe(allocations[1].mediaId);
+  expect(allocations[0].uploadId).toBe(allocations[1].uploadId);
+  await expect(dialog.getByRole('article', { name: 'Photo 1', exact: true })).toHaveCount(1);
+  await expect(dialog.getByRole('button', { name: 'Retry adding photo', exact: true })).toHaveCount(
+    0,
+  );
+  await dialog.getByRole('button', { name: 'Remove photo', exact: true }).click();
+  await expect(dialog.getByRole('article', { name: 'Photo 1', exact: true })).toHaveCount(0);
+});
+
+test('multipart draft resumes after reload and rejects a different file before upload', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Location or landmark').fill('Fictional resumed upload crossing');
+  await dialog
+    .getByLabel('Describe the issue')
+    .fill('Fictional street light reported with a resumed private photo.');
+  await dialog.getByLabel('Save this private draft on this device').check();
+  const raw = Buffer.concat([
+    readFileSync('services/backend/internal/media/testdata/notice.png'),
+    Buffer.alloc(3 * 1024 * 1024),
+  ]);
+  let firstPartCalls = 0;
+  let secondPartCalls = 0;
+  page.on('request', (request) => {
+    if (request.method() !== 'PUT') return;
+    if (/\/parts\/1\?/.test(request.url())) firstPartCalls++;
+    if (/\/parts\/2\?/.test(request.url())) secondPartCalls++;
+  });
+  await page.route('**/api/media/*/parts/2?*', async (route) => {
+    if (secondPartCalls === 1) await route.abort('failed');
+    else await route.continue();
+  });
+  const file = { name: 'resume-test.png', mimeType: 'image/png', buffer: raw };
+  await dialog.getByLabel('Choose report photos').setInputFiles(file);
+  await expect(dialog.getByRole('button', { name: 'Retry upload', exact: true })).toBeVisible();
+  await expect(dialog.getByText('1 of 2 parts uploaded', { exact: true })).toBeVisible();
+  const stored = await page.evaluate(
+    () => Object.entries(localStorage).find(([k]) => k.startsWith('jansetu.report-draft.'))?.[1],
+  );
+  expect(stored).toBeTruthy();
+  for (const secret of ['token=', '/api/media/', 'resume-test.png', 'sourceSha256', 'base64'])
+    expect(stored).not.toContain(secret);
+  const mediaId = JSON.parse(stored!).mediaIds[0];
+  const status = await (await page.request.get(`/api/media/${mediaId}/upload`)).json();
+  expect(status.completedParts).toHaveLength(1);
+  expect(status.parts).toHaveLength(0);
+  await page.reload();
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  await dialog.getByRole('button', { name: 'Restore draft', exact: true }).click();
+  await expect(
+    dialog.getByRole('button', { name: 'Choose same photo to resume', exact: true }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(
+    dialog.getByRole('progressbar', { name: 'Photo 1 upload progress' }),
+  ).toHaveAttribute('value', '1');
+  await dialog.getByRole('article', { name: 'Photo 1', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/upload-recovery-mobile.png' });
+  const wrong = Buffer.from(raw);
+  wrong[100] ^= 1;
+  await dialog
+    .getByLabel('Resume photo 1', { exact: true })
+    .setInputFiles({ ...file, buffer: wrong });
+  await expect(
+    dialog.getByText('This is a different photo. Choose the original photo to resume.', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(firstPartCalls).toBe(1);
+  expect(secondPartCalls).toBe(1);
+  await dialog.getByLabel('Resume photo 1', { exact: true }).setInputFiles(file);
+  await expect(
+    dialog.getByRole('img', { name: 'Private report photo 1', exact: true }),
+  ).toBeVisible();
+  await expect(dialog.getByRole('article', { name: 'Photo 1' }).getByRole('alert')).toHaveCount(0);
+  expect(firstPartCalls).toBe(1);
+  expect(secondPartCalls).toBe(2);
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/resumed-photo-mobile.png' });
+  await dialog.getByRole('button', { name: 'Read text from photo', exact: true }).click();
+  await expect(dialog.getByLabel('Word 1, original: BROKEN')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Review report', exact: true }).click();
+  await dialog.getByLabel('I have reviewed this fictional report.').check();
+  await dialog.getByRole('button', { name: 'Submit report', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Your report was received', exact: true }),
+  ).toBeVisible();
+});
+
+test('a committed part with a lost acknowledgement completes after reload without a file', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Save this private draft on this device').check();
+  let partCalls = 0;
+  await page.route('**/api/media/*/parts/1?*', async (route) => {
+    partCalls++;
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    await route.abort('failed');
+  });
+  await dialog
+    .getByLabel('Choose report photos')
+    .setInputFiles('services/backend/internal/media/testdata/notice.png');
+  await expect(dialog.getByRole('button', { name: 'Retry upload', exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  await dialog.getByRole('button', { name: 'Restore draft', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Finish upload', exact: true }).click();
+  await expect(
+    dialog.getByRole('img', { name: 'Private report photo 1', exact: true }),
+  ).toBeVisible();
+  expect(partCalls).toBe(1);
+  await expect(dialog.getByRole('article', { name: 'Photo 1' }).getByRole('alert')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Remove photo', exact: true }).click();
+  await expect(dialog.getByRole('article', { name: 'Photo 1' })).toHaveCount(0);
+  await dialog.getByLabel('Save this private draft on this device').uncheck();
 });

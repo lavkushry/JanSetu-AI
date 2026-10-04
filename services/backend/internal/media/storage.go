@@ -19,6 +19,8 @@ import (
 )
 
 const MaxBytes int64 = 10 << 20
+const PartBytes int64 = 2 << 20
+const MaxParts = 5
 const MaxPixels = 12_000_000
 const MaxDerivativeBytes int64 = 50 << 20
 
@@ -39,7 +41,8 @@ func NewStorage(root string) (*Storage, error) {
 }
 func (s *Storage) Path(key string) (string, error) {
 	stem, ext, ok := strings.Cut(key, ".")
-	if _, e := uuid.Parse(stem); !ok || e != nil || (ext != "raw" && ext != "png") {
+	validPart := len(ext) == 2 && ext[0] == 'p' && ext[1] >= '1' && ext[1] <= '5'
+	if _, e := uuid.Parse(stem); !ok || e != nil || (ext != "raw" && ext != "png" && !validPart) {
 		return "", errors.New("invalid internal media key")
 	}
 	return filepath.Join(s.root, key), nil
@@ -65,6 +68,9 @@ func (s *Storage) Remove(key string) error {
 
 // Save atomically replaces a fixed internal key only after the bounded write succeeds.
 func (s *Storage) Save(key string, r io.Reader, limit int64) ([]byte, int64, error) {
+	return s.save(key, r, limit, nil)
+}
+func (s *Storage) save(key string, r io.Reader, limit int64, expected []byte) ([]byte, int64, error) {
 	p, e := s.Path(key)
 	if e != nil {
 		return nil, 0, e
@@ -83,6 +89,9 @@ func (s *Storage) Save(key string, r io.Reader, limit int64) ([]byte, int64, err
 	if n == 0 || n > limit {
 		return nil, n, errors.New("file size limit")
 	}
+	if expected != nil && !bytes.Equal(h.Sum(nil), expected) {
+		return nil, n, ErrIntegrity
+	}
 	if e = f.Sync(); e != nil {
 		return nil, n, e
 	}
@@ -93,6 +102,53 @@ func (s *Storage) Save(key string, r io.Reader, limit int64) ([]byte, int64, err
 		return nil, n, e
 	}
 	return h.Sum(nil), n, nil
+}
+
+var ErrIntegrity = errors.New("upload integrity mismatch")
+
+type StoredPart struct {
+	Key, ETag string
+	Size      int64
+}
+
+// Assemble validates every immutable part and the full fingerprint before rename.
+func (s *Storage) Assemble(key string, parts []StoredPart, expected []byte) ([]byte, error) {
+	if len(parts) < 1 || len(parts) > MaxParts || len(expected) != 32 {
+		return nil, ErrIntegrity
+	}
+	readers := make([]io.Reader, 0, len(parts))
+	var total int64
+	for _, part := range parts {
+		if part.Size < 1 || part.Size > PartBytes || total+part.Size > MaxBytes {
+			return nil, ErrIntegrity
+		}
+		file, err := s.Open(part.Key)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, ErrIntegrity
+			}
+			return nil, err
+		}
+		raw, err := io.ReadAll(io.LimitReader(file, part.Size+1))
+		file.Close()
+		digest := sha256.Sum256(raw)
+		if err != nil || int64(len(raw)) != part.Size || ETag(digest[:]) != part.ETag {
+			return nil, ErrIntegrity
+		}
+		total += part.Size
+		readers = append(readers, bytes.NewReader(raw))
+	}
+	hash, _, err := s.save(key, io.MultiReader(readers...), total, expected)
+	return hash, err
+}
+func PartKey(uploadID uuid.UUID, number int) string { return fmt.Sprintf("%s.p%d", uploadID, number) }
+func (s *Storage) RemoveParts(uploadID uuid.UUID) error {
+	for number := 1; number <= MaxParts; number++ {
+		if err := s.Remove(PartKey(uploadID, number)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type Prepared struct {

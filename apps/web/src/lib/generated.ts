@@ -1041,7 +1041,9 @@ export interface components {
                 /** @constant */
                 purpose: "REPORT";
                 /** @constant */
-                adapter: "LOCAL_PRIVATE_SINGLE_PART";
+                adapter: "LOCAL_PRIVATE_MULTIPART";
+                partSize: number;
+                maxParts: number;
             };
             analysisCapabilities: {
                 kind: string;
@@ -1344,14 +1346,12 @@ export interface components {
             reviewed: true;
         };
         UploadPart: {
-            /** @constant */
-            number: 1;
+            number: number;
             url: string;
             expiresAt: string;
         };
         CompletedPart: {
-            /** @constant */
-            number: 1;
+            number: number;
             etag: string;
         };
         UploadSession: {
@@ -1362,14 +1362,21 @@ export interface components {
             /** @enum {string} */
             state: "OPEN" | "COMPLETE" | "ABORTED" | "EXPIRED";
             partSize: number;
+            byteCount: number;
+            mimeType: string;
+            sourceSha256: string | null;
             parts: components["schemas"]["UploadPart"][];
             completedParts: components["schemas"]["CompletedPart"][];
             expiresAt: string;
             version: number;
         };
+        /** @description Supply clientUploadId and sourceSha256 together for resumable 2 MiB parts and allocation idempotency. Omitting both preserves legacy single-part uploads. Reusing an identity with different bytes, MIME, or size returns 409. */
         UploadInput: {
             /** Format: uuid */
             clientSubmissionId: string;
+            /** Format: uuid */
+            clientUploadId?: string;
+            sourceSha256?: string;
             /** @enum {string} */
             mimeType: "image/jpeg" | "image/png" | "image/webp";
             byteCount: number;
@@ -2737,7 +2744,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    partNumbers: 1[];
+                    partNumbers: number[];
                 };
             };
         };
@@ -2767,7 +2774,7 @@ export interface operations {
             };
             path: {
                 id: string;
-                number: 1;
+                number: number;
             };
             cookie?: never;
         };

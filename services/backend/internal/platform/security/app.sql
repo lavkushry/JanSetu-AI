@@ -49,8 +49,10 @@ GRANT EXECUTE ON FUNCTION authz.media_attachable(uuid,uuid),authz.report_media_i
 
 GRANT USAGE ON SCHEMA social,infra,authz TO js_media,js_media_worker;
 GRANT SELECT,INSERT,UPDATE ON social.media_asset,infra.upload_session,infra.analysis_job,infra.analysis_task TO js_media;
+GRANT SELECT,INSERT,UPDATE ON infra.upload_part TO js_media;
 GRANT SELECT ON infra.media_derivative TO js_media;
 GRANT SELECT,UPDATE ON social.media_asset,infra.upload_session,infra.analysis_job,infra.analysis_task TO js_media_worker;
+GRANT SELECT,UPDATE ON infra.upload_part TO js_media_worker;
 GRANT SELECT,INSERT,UPDATE ON infra.media_derivative TO js_media_worker;
 GRANT SELECT,INSERT ON ops.report_media TO js_ops;
 GRANT EXECUTE ON FUNCTION authz.media_read(uuid),authz.media_owner(uuid),authz.analysis_owner(uuid),authz.owns_alias(uuid),authz.media_attached(uuid) TO js_media;

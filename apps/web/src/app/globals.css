@@ -2523,6 +2523,13 @@ textarea {
 .photo-card-body {
   padding: 12px;
 }
+.upload-progress {
+  margin: 12px 0;
+}
+.upload-progress progress {
+  width: 100%;
+  accent-color: var(--blue);
+}
 .photo-card-heading {
   margin-bottom: 12px;
 }
