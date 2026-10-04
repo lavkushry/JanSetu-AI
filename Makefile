@@ -1,6 +1,8 @@
-.PHONY: dev db migrate seed api worker web test test-integration check generate
+.PHONY: dev db identity migrate seed api worker web test test-integration check generate
 db:
 	docker compose up -d --build db
+identity:
+	docker compose up -d --wait identity
 migrate:
 	cd services/backend && go run ./cmd/migrate -dir ../../db/migrations
 seed:

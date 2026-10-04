@@ -76,8 +76,11 @@ async function forward(request: NextRequest, { params }: { params: Promise<{ pat
       'cache-control': 'private, no-store',
       'content-type': 'application/json',
       'x-content-type-options': 'nosniff',
+      'referrer-policy': 'no-referrer',
     });
-    for (const key of ['set-cookie', 'etag', 'x-request-id']) {
+    for (const cookie of upstream.headers.getSetCookie())
+      responseHeaders.append('set-cookie', cookie);
+    for (const key of ['etag', 'x-request-id', 'location']) {
       const value = upstream.headers.get(key);
       if (value) responseHeaders.set(key, value);
     }

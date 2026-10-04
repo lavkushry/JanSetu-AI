@@ -39,6 +39,9 @@ func (a *App) transaction(ctx context.Context, actor *Actor, fn func(*dbgen.Quer
 		if principal.State != "ACTIVE" {
 			return forbidden()
 		}
+		if err := a.checkSession(ctx, tx, actor); err != nil {
+			return err
+		}
 		profiles, err := q.LockProfiles(ctx, []uuid.UUID{actor.ProfileID})
 		if err != nil {
 			return err

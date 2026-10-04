@@ -10,6 +10,12 @@ INSERT INTO social.profile(id,handle,display_name,bio,state) VALUES
 INSERT INTO identity.principal(id,profile_id,state)
 SELECT ('10000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,('20000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'ACTIVE'
 FROM generate_series(1,6) n ON CONFLICT DO NOTHING;
+-- Exact local issuer/immutable subject bindings; names and email never bind staff accounts.
+INSERT INTO identity.account_binding(provider,provider_subject,principal_id,state)
+SELECT 'http://localhost:8180/realms/jansetu',
+('90000000-0000-4000-8000-'||lpad(n::text,12,'0')),
+('10000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'ACTIVE'
+FROM unnest(ARRAY[1,2,4,5,6]) n ON CONFLICT DO NOTHING;
 INSERT INTO ops.agency(id,name,organization_type,state) VALUES
 ('30000000-0000-4000-8000-000000000001','City Works (demo)','MUNICIPAL','ACTIVE'),
 ('30000000-0000-4000-8000-000000000002','Water Services (demo)','UTILITY','ACTIVE') ON CONFLICT DO NOTHING;
