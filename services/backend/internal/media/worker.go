@@ -20,7 +20,7 @@ type Worker struct {
 }
 
 func (w *Worker) Once(ctx context.Context) error {
-	if _, e := w.DB.Exec(ctx, `UPDATE social.media_asset SET state='REVOKED',authorization_version=authorization_version+1,processing_token=NULL,storage_cleanup_at=NULL WHERE created_at<statement_timestamp()-interval '24 hours' AND state IN ('UPLOADING','QUARANTINED','APPROVED') AND NOT authz.media_retained(id)`); e != nil {
+	if e := w.expireAbandoned(ctx); e != nil {
 		return e
 	}
 	// Expired incomplete uploads lose their capability and bytes. Originals are
@@ -84,6 +84,38 @@ func (w *Worker) Once(ctx context.Context) error {
 	}
 	return w.analyzeOne(ctx)
 }
+
+// Retention is rechecked in a fresh statement after acquiring the media lock.
+// An eligibility snapshot taken before a concurrent attachment commits must
+// never revoke its photo after waiting for that attachment's row lock.
+func (w *Worker) expireAbandoned(ctx context.Context) error {
+	return pgx.BeginTxFunc(ctx, w.DB, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		rows, e := tx.Query(ctx, `SELECT id FROM social.media_asset WHERE created_at<statement_timestamp()-interval '24 hours' AND state IN ('UPLOADING','QUARANTINED','APPROVED') AND NOT authz.media_retained(id) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 100`)
+		if e != nil {
+			return e
+		}
+		ids := []uuid.UUID{}
+		for rows.Next() {
+			var mid uuid.UUID
+			if e = rows.Scan(&mid); e != nil {
+				rows.Close()
+				return e
+			}
+			ids = append(ids, mid)
+		}
+		rows.Close()
+		if e = rows.Err(); e != nil {
+			return e
+		}
+		for _, mid := range ids {
+			if _, e = tx.Exec(ctx, `UPDATE social.media_asset SET state='REVOKED',authorization_version=authorization_version+1,processing_token=NULL,storage_cleanup_at=NULL WHERE id=$1 AND NOT authz.media_retained(id)`, mid); e != nil {
+				return e
+			}
+		}
+		return nil
+	})
+}
+
 func (w *Worker) prepareOne(ctx context.Context) error {
 	token := uuid.New()
 	var mid uuid.UUID

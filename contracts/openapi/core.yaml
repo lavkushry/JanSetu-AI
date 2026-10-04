@@ -4,7 +4,7 @@ info:
   version: 0.3.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
-    creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
+    social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
     opaque session; fixture shortcuts require explicit demo mode. Real intake and production deployment
     remain disabled.
 servers:
