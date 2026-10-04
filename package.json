@@ -1,0 +1,23 @@
+{
+  "name": "jansetu-ai",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @jansetu/web",
+    "build": "npm run build --workspace @jansetu/web",
+    "typecheck": "npm run typecheck --workspace @jansetu/web",
+    "test:e2e": "playwright test",
+    "contracts": "openapi-typescript contracts/openapi/core.yaml -o apps/web/src/lib/generated.ts",
+    "validate:docs": "python3 scripts/validate_specs.py"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "openapi-typescript": "7.10.1",
+    "prettier": "^3.9.9"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

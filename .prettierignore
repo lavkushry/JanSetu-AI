@@ -1,0 +1,9 @@
+node_modules
+.next
+apps/web/.next
+apps/web/src/lib/generated.ts
+services/backend/internal/store/dbgen
+package-lock.json
+test-results
+playwright-report
+docs/spec
