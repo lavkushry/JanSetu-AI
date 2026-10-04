@@ -12,6 +12,7 @@ sql:
       - ../../db/migrations/00008_private_media.sql
       - ../../db/migrations/00009_media_attachment_scope.sql
       - ../../db/migrations/00010_multipart_uploads.sql
+      - ../../db/migrations/00011_profile_discovery.sql
     queries: internal/store/queries.sql
     gen:
       go:

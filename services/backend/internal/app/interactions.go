@@ -123,6 +123,15 @@ func (a *App) profileFlag(r *http.Request, actor *Actor, block bool) (any, int, 
 		if pid == actor.ProfileID {
 			return invalid("Choose another person")
 		}
+		// Removing an owned relationship remains possible after the other account
+		// becomes inactive. This desired-state command is also an idempotent no-op
+		// for an absent relationship and reveals no target account state.
+		if !b.Enabled {
+			if block {
+				return q.DeleteBlock(r.Context(), dbgen.DeleteBlockParams{BlockerID: actor.ProfileID, BlockedID: pid})
+			}
+			return q.DeleteProfileFollow(r.Context(), dbgen.DeleteProfileFollowParams{FollowerID: actor.ProfileID, FollowedID: pid})
+		}
 		profiles, e := q.LockProfiles(r.Context(), []uuid.UUID{pid})
 		if e != nil {
 			return e
@@ -131,16 +140,10 @@ func (a *App) profileFlag(r *http.Request, actor *Actor, block bool) (any, int, 
 			return unavailable()
 		}
 		if block {
-			if !b.Enabled {
-				return q.DeleteBlock(r.Context(), dbgen.DeleteBlockParams{BlockerID: actor.ProfileID, BlockedID: pid})
-			}
 			if e = q.SetBlock(r.Context(), dbgen.SetBlockParams{BlockerID: actor.ProfileID, BlockedID: pid}); e != nil {
 				return e
 			}
 			return q.RemoveConflictingFollows(r.Context(), dbgen.RemoveConflictingFollowsParams{FollowerID: actor.ProfileID, FollowedID: pid})
-		}
-		if !b.Enabled {
-			return q.DeleteProfileFollow(r.Context(), dbgen.DeleteProfileFollowParams{FollowerID: actor.ProfileID, FollowedID: pid})
 		}
 		blocked, e := q.HasBlock(r.Context(), dbgen.HasBlockParams{BlockerID: actor.ProfileID, BlockedID: pid})
 		if e != nil {

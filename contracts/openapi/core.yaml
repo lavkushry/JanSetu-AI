@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.5.0
+  version: 0.6.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -779,6 +779,75 @@ paths:
           schema:
             type: string
             const: '1'
+  /profiles/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      operationId: get_public_profile
+      description: Chosen public details of an active profile. Either-direction blocks return the same 404 as an unavailable profile. No principal, provider, report or staff-grant data.
+      responses:
+        '200':
+          description: Public profile and current viewer relationship
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileDetail'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /profiles/{id}/posts:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      operationId: get_profile_posts
+      description: Latest approved published posts only, including on the author's own profile. Twenty per keyset page, with current block/community/publication checks and no private edit candidates. Cursor binds viewer, target and five-minute deadline.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 1000
+      responses:
+        '200':
+          description: Authorized published posts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfilePosts'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /me/blocks:
+    get:
+      operationId: get_blocked_people
+      description: Current resident's own blocks, twenty per keyset page. An inactive target has a null profile and can still be unblocked. No incoming-block list or counts are exposed.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 1000
+      responses:
+        '200':
+          description: Owner's block settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockedPeople'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
   /me/blocks/{id}:
     parameters:
       - $ref: '#/components/parameters/ID'
@@ -1665,6 +1734,87 @@ components:
           type: string
         version:
           type: integer
+    PublicProfile:
+      type: object
+      additionalProperties: false
+      required: [id, handle, displayName, bio, joinedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        handle:
+          type: string
+        displayName:
+          type: string
+        bio:
+          type: string
+        joinedAt:
+          type: string
+          format: date-time
+    ProfileDetail:
+      type: object
+      required: [profile, viewer]
+      properties:
+        profile:
+          $ref: '#/components/schemas/PublicProfile'
+        viewer:
+          type: object
+          required: [self, following]
+          properties:
+            self:
+              type: boolean
+            following:
+              type: boolean
+    ProfilePosts:
+      type: object
+      required: [items, nextCursor, expiresAt]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Post'
+        nextCursor:
+          type: [string, 'null']
+        expiresAt:
+          type: string
+          format: date-time
+    BlockedPerson:
+      type: object
+      required: [profileId, profile, blockedAt]
+      properties:
+        profileId:
+          type: string
+          format: uuid
+        profile:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [id, handle, displayName]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                handle:
+                  type: string
+                displayName:
+                  type: string
+            - type: 'null'
+        blockedAt:
+          type: string
+          format: date-time
+    BlockedPeople:
+      type: object
+      required: [items, nextCursor, expiresAt]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlockedPerson'
+        nextCursor:
+          type: [string, 'null']
+        expiresAt:
+          type: string
+          format: date-time
     Agency:
       type: object
       required:
@@ -2254,6 +2404,7 @@ components:
       required:
         - items
         - communities
+        - profiles
         - nextCursor
       properties:
         items:
@@ -2264,6 +2415,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Community'
+        profiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicProfile'
         nextCursor:
           type: 'null'
     ReportInput:

@@ -29,6 +29,7 @@ import {
   type Schema,
 } from '@/lib/api';
 import { Avatar, Badge, Modal, FormError, Loading, ErrorState, Empty, useSession } from './ui';
+import { refreshSocialVisibility } from '@/lib/social-cache';
 
 export function PostCard({
   post: p,
@@ -52,7 +53,8 @@ export function PostCard({
     setPending(true);
     try {
       await api(path, { method, body, version });
-      await qc.invalidateQueries();
+      if (path.includes('blocks')) await refreshSocialVisibility(qc);
+      else await qc.invalidateQueries();
       if (path.includes('blocks')) notify('Person blocked. Their content is now hidden.');
       if (path.includes('following')) notify('Following this person');
     } catch (e) {
@@ -70,20 +72,41 @@ export function PostCard({
       data-testid={`post-${p.id}`}
     >
       <div className="post-meta">
-        <Avatar name={p.author?.displayName || 'Deleted member'} />
+        {p.author ? (
+          <Link
+            href={`/profiles/${p.author.id}`}
+            aria-label={`View ${p.author.displayName}'s profile`}
+          >
+            <Avatar name={p.author.displayName} />
+          </Link>
+        ) : (
+          <Avatar name="Deleted member" />
+        )}
         <div>
           <div className="meta-line">
             {p.community ? (
               <Link className="community-label" href={`/communities/${p.community.id}`}>
                 j/{p.community.slug}
               </Link>
+            ) : p.author ? (
+              <Link className="profile-name" href={`/profiles/${p.author.id}`}>
+                <strong>{p.author.displayName}</strong>
+              </Link>
             ) : (
-              <strong>{p.author?.displayName || 'Deleted member'}</strong>
+              <strong>Deleted member</strong>
             )}
             <span>· {ago(p.publishedAt || p.createdAt)}</span>
           </div>
           <div className="byline">
-            {p.community ? p.author?.displayName : `@${p.author?.handle || 'deleted'}`}{' '}
+            {p.community && p.author ? (
+              <Link className="profile-name" href={`/profiles/${p.author.id}`}>
+                {p.author.displayName}
+              </Link>
+            ) : p.community ? (
+              'Deleted member'
+            ) : (
+              `@${p.author?.handle || 'deleted'}`
+            )}{' '}
             <span className="post-kind">{readable(p.kind)}</span>
           </div>
         </div>
@@ -91,7 +114,13 @@ export function PostCard({
           <summary aria-label="Post options">
             <MoreHorizontal size={20} />
           </summary>
-          <div className="menu-panel">
+          <div
+            className="menu-panel"
+            onClick={(e) => {
+              if (e.target instanceof Element && e.target.closest('button'))
+                e.currentTarget.parentElement?.removeAttribute('open');
+            }}
+          >
             {p.viewer.canEdit && <button onClick={() => onEdit?.(p)}>Edit post</button>}
             {p.viewer.canDelete && (
               <button onClick={() => setConfirm('delete')}>Delete post</button>
@@ -664,7 +693,13 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
             >
               <div className="comment-meta">
                 <Avatar name={c.author?.displayName || 'Deleted member'} size="small" />
-                <strong>{c.author?.displayName || 'Deleted member'}</strong>
+                {c.author ? (
+                  <Link className="profile-name" href={`/profiles/${c.author.id}`}>
+                    <strong>{c.author.displayName}</strong>
+                  </Link>
+                ) : (
+                  <strong>Deleted member</strong>
+                )}
                 <span>· {ago(c.createdAt)}</span>
               </div>
               <p>

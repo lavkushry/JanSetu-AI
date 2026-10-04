@@ -10,6 +10,41 @@ WHERE s.token_hash = $1 AND s.auth_method = $2 AND s.revoked_at IS NULL AND s.ex
 -- name: Profile :one
 SELECT id, handle::text AS handle, display_name, bio, state, version FROM social.profile WHERE id = $1;
 
+-- name: PublicProfile :one
+SELECT p.id,p.handle::text AS handle,p.display_name,p.bio,p.created_at,
+ EXISTS(SELECT FROM social.profile_follow f WHERE f.follower_id=sqlc.arg(viewer_id) AND f.followed_id=p.id) AS following
+FROM social.profile p WHERE p.id=sqlc.arg(profile_id) AND p.state='ACTIVE'
+ AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=sqlc.arg(viewer_id) AND b.blocked_id=p.id) OR (b.blocked_id=sqlc.arg(viewer_id) AND b.blocker_id=p.id));
+
+-- name: SearchProfiles :many
+SELECT p.id FROM social.profile p WHERE p.state='ACTIVE'
+ AND strpos(lower(p.handle::text||' '||p.display_name),lower(sqlc.arg(search_text)))>0
+ AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=sqlc.arg(viewer_id) AND b.blocked_id=p.id) OR (b.blocked_id=sqlc.arg(viewer_id) AND b.blocker_id=p.id))
+ORDER BY p.handle,p.id LIMIT 20;
+
+-- name: ProfilePostPage :many
+SELECT p.id,p.published_at FROM social.post p
+JOIN social.profile author ON author.id=p.author_id AND author.state='ACTIVE'
+JOIN social.post_revision pub ON pub.post_id=p.id AND pub.revision=p.published_revision AND pub.review_state='APPROVED'
+LEFT JOIN social.community c ON c.id=p.community_id
+WHERE p.author_id=sqlc.arg(profile_id) AND p.state='PUBLISHED'
+ AND (c.id IS NULL OR (c.state='ACTIVE' AND c.visibility IN ('PUBLIC','RESTRICTED')))
+ AND (NOT sqlc.arg(has_cursor)::boolean OR (p.published_at,p.id)<(sqlc.arg(before_time)::timestamptz,sqlc.arg(before_id)::uuid))
+ AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=sqlc.arg(viewer_id) AND b.blocked_id=p.author_id) OR (b.blocked_id=sqlc.arg(viewer_id) AND b.blocker_id=p.author_id))
+ORDER BY p.published_at DESC,p.id DESC LIMIT 21;
+
+-- name: BlockedPeoplePage :many
+SELECT b.blocked_id,b.created_at,p.state='ACTIVE' AS available,
+ CASE WHEN p.state='ACTIVE' THEN p.handle::text ELSE '' END AS handle,
+ CASE WHEN p.state='ACTIVE' THEN p.display_name ELSE '' END AS display_name
+FROM social.profile_block b JOIN social.profile p ON p.id=b.blocked_id
+WHERE b.blocker_id=sqlc.arg(viewer_id)
+ AND (NOT sqlc.arg(has_cursor)::boolean OR (b.created_at,b.blocked_id)<(sqlc.arg(before_time)::timestamptz,sqlc.arg(before_id)::uuid))
+ORDER BY b.created_at DESC,b.blocked_id DESC LIMIT 21;
+
 -- name: PlatformRoles :many
 SELECT role FROM identity.platform_grant WHERE principal_id = $1 AND revoked_at IS NULL AND valid_to > now();
 
