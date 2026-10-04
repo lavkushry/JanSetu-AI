@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.8.0
+  version: 0.9.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -825,6 +825,95 @@ paths:
         '422':
           $ref: '#/components/responses/Problem'
         '503':
+          $ref: '#/components/responses/Problem'
+  /me/notification-preferences:
+    get:
+      operationId: get_notification_preferences
+      description: Owner-only local IN_APP consent. Without a stored row, inApp=true and version=1.
+      responses:
+        '200':
+          description: Current preference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreference'
+        '401':
+          $ref: '#/components/responses/Problem'
+    patch:
+      operationId: save_notification_preferences
+      description: Versioned desired state. Turning off hides current Activity and suppresses new worker deliveries. Other stored preference fields and channels are preserved.
+      parameters:
+        - $ref: '#/components/parameters/Version'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [inApp]
+              properties:
+                inApp:
+                  type: boolean
+      responses:
+        '200':
+          description: Saved preference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreference'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+  /me/mutes:
+    get:
+      operationId: get_mutes
+      description: Owner-only twenty-item pages, including expired and unavailable target placeholders. Signed viewer-bound cursor has a five-minute deadline.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 1000
+      responses:
+        '200':
+          description: Current mute list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MutePage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: set_mute
+      description: Reversible desired-state person/community mute. Active targets must be available; removal can clear an inactive or blocked target. Expiry is optional, otherwise indefinite; a supplied expiry must be future and within one year. Mutes affect feed/search posts and reply Activity, preserving explicit profiles, threads, bookmarks, follows and institutional receipts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MuteInput'
+      responses:
+        '200':
+          description: Desired mute state saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MuteState'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '422':
           $ref: '#/components/responses/Problem'
   /me/activity:
     get:
@@ -1808,6 +1897,99 @@ components:
           type: string
         version:
           type: integer
+    NotificationPreference:
+      type: object
+      additionalProperties: false
+      required: [inApp, version]
+      properties:
+        inApp:
+          type: boolean
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+    MuteInput:
+      type: object
+      additionalProperties: false
+      required: [targetType, targetId, active]
+      properties:
+        targetType:
+          type: string
+          enum: [PROFILE, COMMUNITY]
+        targetId:
+          type: string
+          format: uuid
+        active:
+          type: boolean
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+    MuteState:
+      type: object
+      additionalProperties: false
+      required: [targetType, targetId, active, expiresAt]
+      properties:
+        targetType:
+          type: string
+          enum: [PROFILE, COMMUNITY]
+        targetId:
+          type: string
+          format: uuid
+        active:
+          type: boolean
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+    Mute:
+      type: object
+      additionalProperties: false
+      required: [id, targetType, targetId, target, active, createdAt, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        targetType:
+          type: string
+          enum: [PROFILE, COMMUNITY]
+        targetId:
+          type: string
+          format: uuid
+        target:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [id, label, handle]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                label:
+                  type: string
+                handle:
+                  type: string
+            - type: 'null'
+        active:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+    MutePage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor, expiresAt]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Mute'
+        nextCursor:
+          type: [string, 'null']
+        expiresAt:
+          type: string
+          format: date-time
     ActivityRead:
       type: object
       additionalProperties: false
@@ -1913,11 +2095,13 @@ components:
           $ref: '#/components/schemas/PublicProfile'
         viewer:
           type: object
-          required: [self, following]
+          required: [self, following, muted]
           properties:
             self:
               type: boolean
             following:
+              type: boolean
+            muted:
               type: boolean
     ProfilePosts:
       type: object
@@ -2121,6 +2305,7 @@ components:
         - rulesRevision
         - members
         - following
+        - muted
         - membershipState
         - version
       properties:
@@ -2145,6 +2330,8 @@ components:
         members:
           type: integer
         following:
+          type: boolean
+        muted:
           type: boolean
         membershipState:
           type: string
@@ -2254,6 +2441,7 @@ components:
             - canEdit
             - canDelete
             - canReply
+            - mutedAuthor
           properties:
             vote:
               type: integer
@@ -2266,6 +2454,8 @@ components:
             canDelete:
               type: boolean
             canReply:
+              type: boolean
+            mutedAuthor:
               type: boolean
         candidate:
           oneOf:

@@ -1270,3 +1270,244 @@ test('case activity arrives only after reviewed publication and disappears on un
   await staff.context.close();
   await officer.context.close();
 });
+
+test('notification preferences persist, reject stale edits and gate worker delivery', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/account');
+  await signIn(page, 'Ananya Rao');
+  await page.goto('/account#activity-settings');
+  const panel = page.locator('#activity-settings');
+  const toggle = panel.getByRole('switch', { name: /In-app notifications/ });
+  await expect(toggle).toBeChecked();
+  await toggle.uncheck();
+  const second = await staffPage(browser, 'Ananya Rao');
+  const csrf = { 'x-jansetu-csrf': '1' };
+  let current = (await (
+    await second.page.request.get('/api/me/notification-preferences')
+  ).json()) as Schema['NotificationPreference'];
+  expect(
+    (
+      await second.page.request.patch('/api/me/notification-preferences', {
+        headers: { ...csrf, 'if-match': `"${current.version}"` },
+        data: { inApp: false },
+      })
+    ).status(),
+  ).toBe(200);
+  // Another session cannot silently overwrite the version of an unsaved edit.
+  await panel.getByRole('button', { name: 'Save activity preferences' }).click();
+  await expect(panel.getByRole('alert')).toContainText('This item changed');
+  await expect(toggle).not.toBeChecked();
+  await panel.getByRole('button', { name: 'Reload preferences' }).click();
+  await expect(panel.getByRole('alert')).toHaveCount(0);
+  await page.reload();
+  await expect(toggle).not.toBeChecked();
+  await page.goto('/activity');
+  await expect(page.getByText('In-app notifications are paused.', { exact: false })).toBeVisible();
+  expect((await (await page.request.get('/api/me/activity/summary')).json()).unreadCount).toBe(0);
+  const neighbour = await staffPage(browser, 'Rohan Mehta');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  async function approve(target: string) {
+    const queue = (await (await staff.page.request.get('/api/moderation')).json()) as {
+      items: Schema['Review'][];
+    };
+    const item = queue.items.find((m) => m.postId === target || m.commentId === target);
+    if (!item) throw new Error('Missing preference fixture review');
+    expect(
+      (
+        await staff.page.request.post(`/api/moderation/${item.id}/decisions`, {
+          headers: { ...csrf, 'if-match': `"${item.version}"` },
+          data: {
+            action: 'ALLOW',
+            reason: 'Constructive fictional preference fixture',
+            targetRevision: item.targetRevision,
+          },
+        })
+      ).status(),
+    ).toBe(200);
+  }
+  const created = await page.request.post('/api/posts', {
+    headers: { ...csrf, 'idempotency-key': crypto.randomUUID() },
+    data: {
+      kind: 'SHORT',
+      body: `Fictional preference fixture ${Date.now()}`,
+      languageTag: 'en-IN',
+      mediaIds: [],
+      submitForReview: true,
+    },
+  });
+  expect(created.status()).toBe(201);
+  const post = (await created.json()) as Schema['Post'];
+  await approve(post.id);
+  async function reply() {
+    const response = await neighbour.page.request.post(`/api/posts/${post.id}/comments`, {
+      headers: { ...csrf, 'idempotency-key': crypto.randomUUID() },
+      data: {
+        body: 'A fictional reply for preference delivery testing.',
+        languageTag: 'en-IN',
+        parentId: null,
+      },
+    });
+    expect(response.status()).toBe(201);
+    const result = (await response.json()) as { id: string };
+    await approve(result.id);
+  }
+  await reply();
+  await expect
+    .poll(async () => {
+      const detail = (await (
+        await page.request.get(`/api/posts/${post.id}`)
+      ).json()) as Schema['Post'];
+      return detail.stats.comments;
+    })
+    .toBe(1); // The same worker transaction completes the notification projection.
+  await page.goto('/account#activity-settings');
+  await toggle.check();
+  await panel.getByRole('button', { name: 'Save activity preferences' }).click();
+  await expect(page.getByRole('status')).toContainText('In-app notifications enabled');
+  const activity = async () =>
+    (await (
+      await page.request.get('/api/me/activity?filter=SOCIAL')
+    ).json()) as Schema['ActivityPage'];
+  expect((await activity()).items.filter((n) => n.target.id === post.id)).toHaveLength(0);
+  await reply();
+  await expect
+    .poll(async () => (await activity()).items.filter((n) => n.target.id === post.id).length)
+    .toBe(1);
+  await page.reload();
+  await expect(toggle).toBeChecked();
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await panel.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/activity-preferences-mobile.png' });
+  await second.context.close();
+  await neighbour.context.close();
+  await staff.context.close();
+});
+
+test('person and community mutes preserve explicit access and can be managed from Account', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const neighbour = await staffPage(browser, 'Rohan Mehta');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  const csrf = { 'x-jansetu-csrf': '1' };
+  const writer = (await (await neighbour.page.request.get('/api/me')).json()) as Schema['Me'];
+  const marker = `Fictional mute discovery ${Date.now()}`;
+  const communityId = '50000000-0000-4000-8000-000000000001';
+  for (const [targetType, targetId] of [
+    ['PROFILE', writer.profile.id],
+    ['COMMUNITY', communityId],
+  ]) {
+    expect(
+      (
+        await page.request.put('/api/me/mutes', {
+          headers: csrf,
+          data: { targetType, targetId, active: false },
+        })
+      ).status(),
+    ).toBe(200);
+  }
+  const community = (await (
+    await neighbour.page.request.get(`/api/communities/${communityId}`)
+  ).json()) as Schema['Community'];
+  expect(
+    (
+      await neighbour.page.request.put(`/api/communities/${communityId}/membership`, {
+        headers: csrf,
+        data: { joined: true, rulesRevision: community.rulesRevision },
+      })
+    ).status(),
+  ).toBe(200);
+  const response = await neighbour.page.request.post('/api/posts', {
+    headers: { ...csrf, 'idempotency-key': crypto.randomUUID() },
+    data: {
+      kind: 'SHORT',
+      body: marker,
+      languageTag: 'en-IN',
+      mediaIds: [],
+      communityId,
+      submitForReview: true,
+    },
+  });
+  expect(response.status()).toBe(201);
+  const post = (await response.json()) as Schema['Post'];
+  const queue = (await (await staff.page.request.get('/api/moderation')).json()) as {
+    items: Schema['Review'][];
+  };
+  const review = queue.items.find((m) => m.postId === post.id);
+  if (!review) throw new Error('Missing mute fixture review');
+  expect(
+    (
+      await staff.page.request.post(`/api/moderation/${review.id}/decisions`, {
+        headers: { ...csrf, 'if-match': `"${review.version}"` },
+        data: {
+          action: 'ALLOW',
+          reason: 'Constructive fictional mute fixture',
+          targetRevision: review.targetRevision,
+        },
+      })
+    ).status(),
+  ).toBe(200);
+  await page.goto(`/posts/${post.id}`);
+  await page.getByRole('button', { name: 'Bookmark post' }).click();
+  await page.goto(`/profiles/${writer.profile.id}`);
+  await expect(
+    page.getByRole('heading', { name: writer.profile.displayName, exact: true }),
+  ).toBeVisible();
+  const follow = page.getByRole('button', { name: 'Follow person', exact: true });
+  if (await follow.isVisible()) await follow.click();
+  await expect(page.getByRole('button', { name: 'Unfollow person', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Mute person', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Mute this person?' });
+  await dialog.getByLabel('Mute duration').selectOption('HOUR');
+  await dialog.getByRole('button', { name: 'Mute person', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'Unmute person', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Unfollow person', exact: true })).toBeVisible();
+  await page.goto(`/search?q=${encodeURIComponent(marker)}`);
+  await expect(page.getByText(marker, { exact: true })).toHaveCount(0);
+  await page.goto('/bookmarks');
+  await expect(page.getByText(marker, { exact: true })).toBeVisible();
+  await page.goto(`/posts/${post.id}`);
+  await expect(page.getByText(marker, { exact: true })).toBeVisible();
+  await page.getByLabel('Post options').click();
+  await expect(page.getByRole('button', { name: 'Unmute person', exact: true })).toBeVisible();
+  await page.goto('/account#muted-items');
+  const person = page.getByTestId('mute-row').filter({ hasText: writer.profile.displayName });
+  await expect(person).toContainText('Muted until');
+  await page.reload();
+  await expect(person).toBeVisible();
+  await person.getByRole('button', { name: /Remove mute/ }).click();
+  await expect(person).toHaveCount(0);
+  await page.goto(`/search?q=${encodeURIComponent(marker)}`);
+  await expect(page.getByText(marker, { exact: true })).toBeVisible();
+  await page.goto(`/communities/${communityId}`);
+  await page.getByRole('button', { name: 'Mute community', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Mute this community?' })
+    .getByRole('button', { name: 'Mute community', exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'Unmute community', exact: true })).toBeVisible();
+  await expect(page.getByText(marker, { exact: true })).toHaveCount(0);
+  await page.goto('/account#muted-items');
+  const row = page.getByTestId('mute-row').filter({ hasText: community.title });
+  await expect(row).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await row.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/mutes-mobile.png' });
+  await row.getByRole('button', { name: /Remove mute/ }).click();
+  await expect(row).toHaveCount(0);
+  expect((await neighbour.page.request.get('/api/me/mutes')).status()).toBe(200);
+  expect((await (await neighbour.page.request.get('/api/me/mutes')).json()).items).toHaveLength(0);
+  await neighbour.context.close();
+  await staff.context.close();
+});

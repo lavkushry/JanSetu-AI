@@ -1,6 +1,6 @@
 # In-app Activity inbox
 
-The local milestone adds `/activity` for approved replies and reviewed public case progress. It uses the existing durable outbox and restricted worker. The [canonical specification](spec/README.md) remains the complete product target; email, push, mentions, account-security alerts, user-facing channel/quiet-hour settings and production delivery are pending.
+The local milestone adds `/activity` for approved replies and reviewed public case progress. It uses the existing durable outbox and restricted worker. The [canonical specification](spec/README.md) remains the complete product target; email, push, mentions, account-security alerts, outbound channel/quiet-hour settings and production delivery are pending.
 
 ## Resident experience
 
@@ -18,7 +18,7 @@ Loading, signed-out, empty and retry states are explicit. Refresh clears the sel
 | First approved nested reply      | Direct parent comment author     | Same approval rule. Self replies do not notify. The parent and thread must still be published.                                                                                   |
 | Reviewed public case progress    | Current public receipt followers | `SafeReceiptPublished` projects from the current published receipt. One notification per recipient/receipt/projection version. Internal case events never deliver public alerts. |
 
-The worker shares source eligibility views with inbox reads and unread counts. Reply eligibility checks current publication, active authors/recipient, public or restricted active community, either-direction blocks, unexpired person/community mutes and the IN_APP channel preference. Existing preference rows are honored; without a row, IN_APP is enabled. Case eligibility checks an active recipient, a published receipt, current follow and IN_APP preference. Interpersonal blocks do not hide institutional case progress.
+The worker shares source eligibility views with inbox reads and unread counts. Reply eligibility checks current publication, active authors/recipient, public or restricted active community, either-direction blocks, unexpired person/community mutes and the IN_APP channel preference. Existing preference rows are honored; without a row, IN_APP is enabled. [Account controls](ACTIVITY_PREFERENCES_AND_MUTES.md) now manage IN_APP consent and person/community mutes. Case eligibility checks an active recipient, a published receipt, current follow and IN_APP preference. Interpersonal blocks do not hide institutional case progress.
 
 The worker stores the event time, not its processing time. Publication events and case follows record statement time after command lock waits; transaction-start times could misorder a late subscription. A case follow created after publication cannot receive a delayed older event. Unfollowing hides earlier case alerts and prevents queued delivery; refollowing starts a new subscription. A receipt event with an obsolete projection version is skipped. Republishing or correcting the same operational version does not create another alert.
 

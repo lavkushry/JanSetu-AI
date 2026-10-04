@@ -36,7 +36,7 @@ func (a *App) publicProfile(w http.ResponseWriter, r *http.Request, actor *Actor
 	if e != nil {
 		return nil, 0, e
 	}
-	return map[string]any{"profile": publicProfileViewOf(p), "viewer": map[string]any{"self": pid == actorID(actor), "following": p.Following}}, 200, nil
+	return map[string]any{"profile": publicProfileViewOf(p), "viewer": map[string]any{"self": pid == actorID(actor), "following": p.Following, "muted": p.Muted}}, 200, nil
 }
 
 // Compact keyset cursors bind the owner/viewer, endpoint, target and deadline.

@@ -12,7 +12,8 @@ SELECT id, handle::text AS handle, display_name, bio, state, version FROM social
 
 -- name: PublicProfile :one
 SELECT p.id,p.handle::text AS handle,p.display_name,p.bio,p.created_at,
- EXISTS(SELECT FROM social.profile_follow f WHERE f.follower_id=sqlc.arg(viewer_id) AND f.followed_id=p.id) AS following
+ EXISTS(SELECT FROM social.profile_follow f WHERE f.follower_id=sqlc.arg(viewer_id) AND f.followed_id=p.id) AS following,
+ EXISTS(SELECT FROM social.mute m WHERE m.profile_id=sqlc.arg(viewer_id) AND m.muted_profile_id=p.id AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) AS muted
 FROM social.profile p WHERE p.id=sqlc.arg(profile_id) AND p.state='ACTIVE'
  AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
  (b.blocker_id=sqlc.arg(viewer_id) AND b.blocked_id=p.id) OR (b.blocked_id=sqlc.arg(viewer_id) AND b.blocker_id=p.id));
@@ -62,6 +63,7 @@ SELECT id,state FROM social.profile WHERE id = ANY($1::uuid[]) ORDER BY id FOR U
 SELECT c.id,c.slug::text AS slug,c.title,c.description,c.language_tag,c.visibility,c.state,c.rules_body,c.rules_revision,c.version,
   EXISTS(SELECT 1 FROM social.community_follow cf WHERE cf.community_id = c.id AND cf.profile_id = sqlc.arg(viewer_id)) AS following,
   COALESCE((SELECT cm.state FROM social.community_member cm WHERE cm.community_id = c.id AND cm.profile_id = sqlc.arg(viewer_id)),'LEFT') AS membership_state,
+  EXISTS(SELECT FROM social.mute m WHERE m.profile_id=sqlc.arg(viewer_id) AND m.muted_community_id=c.id AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) AS muted,
   (SELECT count(*) FROM social.community_member cm WHERE cm.community_id = c.id AND cm.state = 'ACTIVE') AS members
 FROM social.community c WHERE c.visibility IN ('PUBLIC','RESTRICTED') ORDER BY c.created_at,c.id;
 
@@ -95,7 +97,8 @@ SELECT jsonb_build_object(
     'reposted',EXISTS(SELECT 1 FROM social.repost r WHERE r.profile_id=sqlc.arg(viewer_id) AND r.post_id=p.id),
     'canEdit',p.author_id=sqlc.arg(viewer_id) AND p.state IN ('PENDING','PUBLISHED'),
     'canDelete',p.author_id=sqlc.arg(viewer_id) AND p.state NOT IN ('DELETED'),
-    'canReply',p.state='PUBLISHED' AND sqlc.arg(viewer_id)::uuid <> '00000000-0000-0000-0000-000000000000'::uuid),
+    'canReply',p.state='PUBLISHED' AND sqlc.arg(viewer_id)::uuid <> '00000000-0000-0000-0000-000000000000'::uuid,
+    'mutedAuthor',CASE WHEN p.state='DELETED' THEN false ELSE EXISTS(SELECT FROM social.mute m WHERE m.profile_id=sqlc.arg(viewer_id) AND m.muted_profile_id=p.author_id AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) END),
   'candidate',CASE WHEN p.author_id=sqlc.arg(viewer_id) OR sqlc.arg(review_access)::boolean THEN
     jsonb_build_object('title',cur.title,'body',cur.body,'revision',cur.revision,'reviewState',cur.review_state) ELSE NULL END
 ) AS data
@@ -116,6 +119,7 @@ WHERE p.state='PUBLISHED' AND (c.id IS NULL OR c.visibility IN ('PUBLIC','RESTRI
   AND (c.id IS NULL OR c.state='ACTIVE') AND (p.author_id IS NULL OR EXISTS(SELECT 1 FROM social.profile author WHERE author.id=p.author_id AND author.state='ACTIVE'))
   AND (sqlc.arg(community_id)::uuid='00000000-0000-0000-0000-000000000000'::uuid OR p.community_id=sqlc.arg(community_id))
   AND (NOT sqlc.arg(saved_only)::boolean OR EXISTS(SELECT 1 FROM social.bookmark bm WHERE bm.profile_id=sqlc.arg(viewer_id) AND bm.post_id=p.id))
+  AND (sqlc.arg(saved_only)::boolean OR NOT EXISTS(SELECT FROM social.mute m WHERE m.profile_id=sqlc.arg(viewer_id) AND (m.muted_profile_id=p.author_id OR m.muted_community_id=p.community_id) AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())))
   AND (NOT sqlc.arg(following_only)::boolean OR EXISTS(SELECT 1 FROM social.community_follow cf WHERE cf.profile_id=sqlc.arg(viewer_id) AND cf.community_id=p.community_id)
     OR EXISTS(SELECT 1 FROM social.profile_follow pf WHERE pf.follower_id=sqlc.arg(viewer_id) AND pf.followed_id=p.author_id))
   AND (sqlc.arg(search_text)::text='' OR strpos(lower(COALESCE((SELECT body||' '||COALESCE(title,'') FROM social.post_revision WHERE post_id=p.id AND revision=p.published_revision),'')),lower(sqlc.arg(search_text)))>0)
@@ -399,3 +403,45 @@ UPDATE social.notification n SET read_at=CASE WHEN sqlc.arg(read)::boolean THEN 
 WHERE n.id=sqlc.arg(id) AND n.recipient_id=sqlc.arg(viewer_id)
 AND EXISTS(SELECT FROM social.activity_visible visible WHERE visible.id=n.id AND visible.recipient_id=n.recipient_id)
 RETURNING n.id,n.read_at;
+
+-- name: NotificationPreference :one
+SELECT COALESCE('IN_APP'=ANY(pref.notification_channels),true)::boolean AS in_app,COALESCE(pref.version,1)::bigint AS version
+FROM (SELECT sqlc.arg(viewer_id)::uuid AS id) viewer LEFT JOIN social.feed_preference pref ON pref.profile_id=viewer.id;
+-- name: EnsureNotificationPreference :exec
+INSERT INTO social.feed_preference(profile_id,policy_version) VALUES($1,'local-notifications-v1') ON CONFLICT DO NOTHING;
+-- name: LockNotificationPreference :one
+SELECT 'IN_APP'=ANY(notification_channels) AS in_app,version FROM social.feed_preference WHERE profile_id=$1 FOR UPDATE;
+-- name: SaveNotificationPreference :one
+UPDATE social.feed_preference SET notification_channels=CASE WHEN sqlc.arg(in_app)::boolean THEN array_append(array_remove(notification_channels,'IN_APP'),'IN_APP') ELSE array_remove(notification_channels,'IN_APP') END,
+ policy_version='local-notifications-v1',version=version+1 WHERE profile_id=sqlc.arg(viewer_id)
+RETURNING 'IN_APP'=ANY(notification_channels) AS in_app,version;
+
+-- name: SetProfileMute :exec
+INSERT INTO social.mute(id,profile_id,muted_profile_id,expires_at) VALUES($1,$2,$3,$4)
+ON CONFLICT(profile_id,muted_profile_id) DO UPDATE SET expires_at=EXCLUDED.expires_at,
+ created_at=CASE WHEN social.mute.expires_at IS NOT DISTINCT FROM EXCLUDED.expires_at THEN social.mute.created_at ELSE statement_timestamp() END;
+-- name: SetCommunityMute :exec
+INSERT INTO social.mute(id,profile_id,muted_community_id,expires_at) VALUES($1,$2,$3,$4)
+ON CONFLICT(profile_id,muted_community_id) DO UPDATE SET expires_at=EXCLUDED.expires_at,
+ created_at=CASE WHEN social.mute.expires_at IS NOT DISTINCT FROM EXCLUDED.expires_at THEN social.mute.created_at ELSE statement_timestamp() END;
+-- name: DeleteMute :exec
+DELETE FROM social.mute WHERE profile_id=sqlc.arg(viewer_id) AND
+ ((sqlc.arg(target_type)::text='PROFILE' AND muted_profile_id=sqlc.arg(target_id)::uuid) OR
+ (sqlc.arg(target_type)='COMMUNITY' AND muted_community_id=sqlc.arg(target_id)));
+-- name: PostMuted :one
+SELECT EXISTS(SELECT FROM social.post p JOIN social.mute m ON m.profile_id=sqlc.arg(viewer_id)
+ AND (m.muted_profile_id=p.author_id OR m.muted_community_id=p.community_id)
+ WHERE p.id=sqlc.arg(post_id) AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp()));
+-- name: MutePage :many
+SELECT m.id,m.muted_profile_id,m.muted_community_id,m.created_at,m.expires_at,
+ (m.expires_at IS NULL OR m.expires_at>statement_timestamp()) AS active,
+ CASE WHEN p.state='ACTIVE' AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=m.profile_id AND b.blocked_id=p.id) OR (b.blocked_id=m.profile_id AND b.blocker_id=p.id)) THEN p.display_name ELSE '' END::text AS display_name,
+ CASE WHEN p.state='ACTIVE' AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=m.profile_id AND b.blocked_id=p.id) OR (b.blocked_id=m.profile_id AND b.blocker_id=p.id)) THEN p.handle::text ELSE '' END::text AS handle,
+ CASE WHEN c.state='ACTIVE' AND c.visibility IN ('PUBLIC','RESTRICTED') THEN c.title ELSE '' END::text AS community_title,
+ CASE WHEN c.state='ACTIVE' AND c.visibility IN ('PUBLIC','RESTRICTED') THEN c.slug::text ELSE '' END::text AS community_slug
+FROM social.mute m LEFT JOIN social.profile p ON p.id=m.muted_profile_id LEFT JOIN social.community c ON c.id=m.muted_community_id
+WHERE m.profile_id=sqlc.arg(viewer_id)
+ AND (NOT sqlc.arg(has_cursor)::boolean OR (m.created_at,m.id)<(sqlc.arg(before_time)::timestamptz,sqlc.arg(before_id)::uuid))
+ORDER BY m.created_at DESC,m.id DESC LIMIT 21;

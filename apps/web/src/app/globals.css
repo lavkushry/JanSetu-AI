@@ -2944,3 +2944,109 @@ textarea {
     flex-wrap: wrap;
   }
 }
+
+.account-panel h2:has(svg) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.account-panel .preference-switch {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 0;
+}
+.preference-switch span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.preference-switch input {
+  appearance: none;
+  width: 44px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  margin: 0;
+  border-radius: 999px;
+  background-color: var(--muted);
+  background-image: radial-gradient(circle, #fff 0 9px, transparent 10px);
+  background-size: 20px 20px;
+  background-position: 2px center;
+  background-repeat: no-repeat;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.preference-switch input:checked {
+  background-color: var(--blue);
+  background-position: right 2px center;
+}
+.preference-switch input:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+}
+.preference-switch input:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.preference-help {
+  font-size: 12px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+.mute-list {
+  margin-top: 16px;
+}
+.mute-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding: 16px 0;
+}
+.mute-row > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mute-row small {
+  display: block;
+  margin-top: 3px;
+}
+.mute-row .avatar,
+.mute-community-icon {
+  flex-shrink: 0;
+}
+.mute-community-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  display: grid;
+  place-items: center;
+}
+.activity-paused {
+  background: var(--blue-soft);
+  color: var(--ink);
+  border-radius: 12px;
+  padding: 16px;
+  font-size: 13px;
+  margin: 16px 0;
+}
+.activity-paused a {
+  color: var(--blue);
+  text-decoration: underline;
+}
+@media (max-width: 420px) {
+  .mute-row {
+    flex-wrap: wrap;
+  }
+  .mute-row > div {
+    min-width: 150px;
+  }
+  .mute-row > button {
+    margin-left: 50px;
+  }
+}
