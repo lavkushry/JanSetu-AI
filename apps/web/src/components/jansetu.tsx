@@ -30,6 +30,7 @@ import {
   Check,
   MessageSquare,
   ArrowRight,
+  Bell,
 } from 'lucide-react';
 import { api, APIError, type Me, type Schema, type Post, type Community } from '@/lib/api';
 import { SessionContext, Avatar, Modal, Loading, Empty, ErrorState, useSession } from './ui';
@@ -38,6 +39,7 @@ import { ReportWizard, MyReports, ReceiptDetail } from './reports';
 import { Studio } from './studio';
 import { Accounts, AccountSecurity } from './accounts';
 import { PublicProfilePage, PeopleResults } from './profiles';
+import { ActivityPage, useActivitySummary } from './activity';
 
 export default function JanSetu() {
   const [client] = useState(
@@ -97,6 +99,8 @@ function Application() {
     },
   });
   const me = session.data || null;
+  const activity = useActivitySummary(me?.profile.id);
+  const unread = activity.data?.unreadCount || 0;
   const previousProfile = useRef<string | null>(null);
   useEffect(() => {
     const next = me?.profile.id || null;
@@ -162,6 +166,7 @@ function Application() {
     { href: '/explore', label: 'Explore', icon: Compass },
     { href: '/communities', label: 'Communities', icon: Users },
     { href: '/bookmarks', label: 'Bookmarks', icon: Bookmark },
+    { href: '/activity', label: 'Activity', icon: Bell },
     { href: '/my-reports', label: 'My reports', icon: FileText },
     { href: '/account', label: 'Account', icon: ShieldCheck },
   ];
@@ -203,6 +208,18 @@ function Application() {
           <kbd>↵</kbd>
         </form>
         <div className="topbar-actions">
+          <Link
+            href="/activity"
+            className="icon-button activity-bell"
+            aria-label={unread ? `Activity, ${unread} unread` : 'Activity'}
+          >
+            <Bell size={20} />
+            {unread > 0 && (
+              <span className="activity-count" aria-hidden="true">
+                {unread > 99 ? '99+' : unread}
+              </span>
+            )}
+          </Link>
           <span className="city-pill">
             <MapPin size={15} />
             Bengaluru
@@ -257,6 +274,11 @@ function Application() {
               >
                 <Icon size={21} />
                 <span>{label}</span>
+                {href === '/activity' && unread > 0 && (
+                  <span className="nav-activity-count" aria-label={`${unread} unread`}>
+                    {unread > 99 ? '99+' : unread}
+                  </span>
+                )}
                 {href === '/' && <span className="nav-current-dot" />}
               </Link>
             ))}
@@ -518,6 +540,7 @@ function Page({
   if (pathname === '/my-reports') return <MyReports onReport={onReport} />;
   if (pathname === '/studio') return <Studio />;
   if (pathname === '/account') return <AccountSecurity />;
+  if (pathname === '/activity') return <ActivityPage />;
   if (parts[0] === 'profiles' && parts[1])
     return <PublicProfilePage key={parts[1]} id={parts[1]} onEdit={onEdit} />;
   if (pathname === '/communities')

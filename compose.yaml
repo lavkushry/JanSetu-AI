@@ -92,7 +92,7 @@ services:
       JANSETU_VISION_BINARY: /opt/vision/run
       JANSETU_MEDIA_DIR: /data/media
     ports:
-      - 127.0.0.1:8081:8080
+      - 0.0.0.0:8081:8080
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -138,7 +138,7 @@ services:
     environment:
       JANSETU_API_URL: http://api:8080
     ports:
-      - 127.0.0.1:3100:3000
+      - 0.0.0.0:3100:3000
     depends_on:
       api:
         condition: service_healthy

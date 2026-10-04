@@ -118,6 +118,20 @@ type OpsReport struct {
 	Version               int64              `json:"version"`
 }
 
+type SocialActivityVisible struct {
+	ID          uuid.UUID          `json:"id"`
+	RecipientID uuid.UUID          `json:"recipient_id"`
+	Kind        string             `json:"kind"`
+	PostID      *uuid.UUID         `json:"post_id"`
+	ReceiptID   *uuid.UUID         `json:"receipt_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ReadAt      pgtype.Timestamptz `json:"read_at"`
+	ActorID     *uuid.UUID         `json:"actor_id"`
+	DisplayName pgtype.Text        `json:"display_name"`
+	Handle      pgtype.Text        `json:"handle"`
+	Title       pgtype.Text        `json:"title"`
+}
+
 type SocialCaseReceipt struct {
 	ID                uuid.UUID          `json:"id"`
 	Title             string             `json:"title"`

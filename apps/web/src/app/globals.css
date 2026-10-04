@@ -2829,3 +2829,118 @@ textarea {
   white-space: nowrap;
   border: 0;
 }
+
+.activity-bell {
+  position: relative;
+  flex-shrink: 0;
+}
+.activity-count,
+.nav-activity-count {
+  background: var(--blue);
+  color: var(--surface);
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 5px;
+  line-height: 1.3;
+}
+.activity-count {
+  position: absolute;
+  top: -2px;
+  right: -7px;
+}
+.nav-activity-count {
+  margin-left: auto;
+}
+.activity-toolbar,
+.activity-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.activity-intro .activity-toolbar {
+  margin-top: 20px;
+}
+.activity-note {
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 16px 0;
+}
+.activity-card {
+  display: flex;
+  gap: 14px;
+  padding: 22px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  margin-bottom: 10px;
+}
+.activity-card.unread {
+  border-left: 3px solid var(--blue);
+}
+.activity-avatar {
+  flex-shrink: 0;
+  color: var(--blue);
+  padding-top: 2px;
+}
+.activity-content {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.activity-meta {
+  font-size: 13px;
+  font-weight: 650;
+}
+.activity-meta time {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.activity-target {
+  display: block;
+  margin: 9px 0 12px;
+}
+.activity-target p {
+  line-height: 1.5;
+  margin: 0 0 7px;
+  font-size: 14px;
+}
+.activity-target span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.activity-target:hover p {
+  color: var(--blue);
+}
+.activity-read {
+  font-size: 12px;
+}
+.activity-unread-dot {
+  margin-top: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--blue);
+  flex-shrink: 0;
+}
+@media (max-width: 760px) {
+  .topbar-actions .activity-bell {
+    width: 28px;
+    height: 31px;
+  }
+}
+@media (max-width: 420px) {
+  .activity-card {
+    padding: 18px 12px;
+    gap: 10px;
+  }
+  .activity-toolbar {
+    flex-wrap: wrap;
+  }
+}

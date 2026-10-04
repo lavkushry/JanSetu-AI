@@ -12,6 +12,70 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const activityPage = `-- name: ActivityPage :many
+SELECT id, recipient_id, kind, post_id, receipt_id, created_at, read_at, actor_id, display_name, handle, title FROM social.activity_visible WHERE recipient_id=$1
+AND ($2::text='ALL' OR ($2='SOCIAL' AND kind='REPLY') OR ($2='CASES' AND kind='CASE_PROGRESS'))
+AND (NOT $3::boolean OR (created_at,id)<($4::timestamptz,$5::uuid))
+ORDER BY created_at DESC,id DESC LIMIT 21
+`
+
+type ActivityPageParams struct {
+	ViewerID   uuid.UUID          `json:"viewer_id"`
+	Filter     string             `json:"filter"`
+	HasCursor  bool               `json:"has_cursor"`
+	BeforeTime pgtype.Timestamptz `json:"before_time"`
+	BeforeID   uuid.UUID          `json:"before_id"`
+}
+
+func (q *Queries) ActivityPage(ctx context.Context, arg ActivityPageParams) ([]SocialActivityVisible, error) {
+	rows, err := q.db.Query(ctx, activityPage,
+		arg.ViewerID,
+		arg.Filter,
+		arg.HasCursor,
+		arg.BeforeTime,
+		arg.BeforeID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SocialActivityVisible{}
+	for rows.Next() {
+		var i SocialActivityVisible
+		if err := rows.Scan(
+			&i.ID,
+			&i.RecipientID,
+			&i.Kind,
+			&i.PostID,
+			&i.ReceiptID,
+			&i.CreatedAt,
+			&i.ReadAt,
+			&i.ActorID,
+			&i.DisplayName,
+			&i.Handle,
+			&i.Title,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const activityUnread = `-- name: ActivityUnread :one
+SELECT count(*) FROM social.activity_visible WHERE recipient_id=$1 AND read_at IS NULL
+`
+
+func (q *Queries) ActivityUnread(ctx context.Context, viewerID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, activityUnread, viewerID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const addEvent = `-- name: AddEvent :exec
 INSERT INTO infra.outbox(id,aggregate_type,aggregate_id,aggregate_version,event_type,payload_version,payload) VALUES ($1,$2,$3,$4,$5,1,$6)
 `
@@ -765,6 +829,54 @@ type DeleteVoteParams struct {
 
 func (q *Queries) DeleteVote(ctx context.Context, arg DeleteVoteParams) error {
 	_, err := q.db.Exec(ctx, deleteVote, arg.ProfileID, arg.PostID)
+	return err
+}
+
+const deliverCaseActivity = `-- name: DeliverCaseActivity :exec
+INSERT INTO social.notification(id,recipient_id,event_id,channel,receipt_id,kind,source_version,state,created_at)
+SELECT gen_random_uuid(),recipient_id,$1,'IN_APP',receipt_id,'CASE_PROGRESS',$2,'SENT',$3
+FROM social.activity_case_target target WHERE target.receipt_id=$4 AND target.projection_version=$2 AND target.followed_at<=$3
+ON CONFLICT DO NOTHING
+`
+
+type DeliverCaseActivityParams struct {
+	EventID       uuid.UUID          `json:"event_id"`
+	SourceVersion pgtype.Int8        `json:"source_version"`
+	EventTime     pgtype.Timestamptz `json:"event_time"`
+	ReceiptID     uuid.UUID          `json:"receipt_id"`
+}
+
+func (q *Queries) DeliverCaseActivity(ctx context.Context, arg DeliverCaseActivityParams) error {
+	_, err := q.db.Exec(ctx, deliverCaseActivity,
+		arg.EventID,
+		arg.SourceVersion,
+		arg.EventTime,
+		arg.ReceiptID,
+	)
+	return err
+}
+
+const deliverReplyActivity = `-- name: DeliverReplyActivity :exec
+INSERT INTO social.notification(id,recipient_id,event_id,channel,post_id,comment_id,kind,source_version,state,created_at)
+SELECT gen_random_uuid(),recipient_id,$1,'IN_APP',post_id,comment_id,'REPLY',$2,'SENT',$3
+FROM social.activity_reply_target target WHERE target.comment_id=$4 AND target.source_version>=$2
+ON CONFLICT DO NOTHING
+`
+
+type DeliverReplyActivityParams struct {
+	EventID       uuid.UUID          `json:"event_id"`
+	SourceVersion pgtype.Int8        `json:"source_version"`
+	EventTime     pgtype.Timestamptz `json:"event_time"`
+	CommentID     uuid.UUID          `json:"comment_id"`
+}
+
+func (q *Queries) DeliverReplyActivity(ctx context.Context, arg DeliverReplyActivityParams) error {
+	_, err := q.db.Exec(ctx, deliverReplyActivity,
+		arg.EventID,
+		arg.SourceVersion,
+		arg.EventTime,
+		arg.CommentID,
+	)
 	return err
 }
 
@@ -2346,6 +2458,31 @@ func (q *Queries) SessionActor(ctx context.Context, arg SessionActorParams) (Ses
 		&i.AuthorizationVersion,
 		&i.SessionID,
 	)
+	return i, err
+}
+
+const setActivityRead = `-- name: SetActivityRead :one
+UPDATE social.notification n SET read_at=CASE WHEN $1::boolean THEN COALESCE(n.read_at,now()) ELSE NULL END
+WHERE n.id=$2 AND n.recipient_id=$3
+AND EXISTS(SELECT FROM social.activity_visible visible WHERE visible.id=n.id AND visible.recipient_id=n.recipient_id)
+RETURNING n.id,n.read_at
+`
+
+type SetActivityReadParams struct {
+	Read     bool      `json:"read"`
+	ID       uuid.UUID `json:"id"`
+	ViewerID uuid.UUID `json:"viewer_id"`
+}
+
+type SetActivityReadRow struct {
+	ID     uuid.UUID          `json:"id"`
+	ReadAt pgtype.Timestamptz `json:"read_at"`
+}
+
+func (q *Queries) SetActivityRead(ctx context.Context, arg SetActivityReadParams) (SetActivityReadRow, error) {
+	row := q.db.QueryRow(ctx, setActivityRead, arg.Read, arg.ID, arg.ViewerID)
+	var i SetActivityReadRow
+	err := row.Scan(&i.ID, &i.ReadAt)
 	return i, err
 }
 

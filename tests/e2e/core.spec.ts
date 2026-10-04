@@ -94,6 +94,18 @@ test('post review, votes, bookmarks, comments, edits, and deletion survive refre
   const title = 'A neighbourhood reading circle ' + Date.now();
   await page.goto('/');
   await signIn(page, 'Ananya Rao');
+  const communityId = '50000000-0000-4000-8000-000000000001';
+  const community = (await (
+    await page.request.get(`/api/communities/${communityId}`)
+  ).json()) as Schema['Community'];
+  expect(
+    (
+      await page.request.put(`/api/communities/${communityId}/membership`, {
+        headers: { 'x-jansetu-csrf': '1' },
+        data: { joined: true, rulesRevision: community.rulesRevision },
+      })
+    ).status(),
+  ).toBe(200);
   await page.getByRole('button', { name: 'Create a post', exact: true }).click();
   const composer = page.getByRole('dialog', { name: 'Start a conversation' });
   await composer
@@ -1030,4 +1042,231 @@ test('public profile excludes pending content and opens the latest private revis
   await expect(page.getByTestId(`post-${post.id}`)).toHaveCount(0);
   await anonymous.close();
   await staff.context.close();
+});
+
+test('activity inbox uses approved replies, persists read state and hides revoked sources', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/activity');
+  await expect(page.getByRole('heading', { name: 'Your activity lives here' })).toBeVisible();
+  await signIn(page, 'Ananya Rao');
+  const neighbour = await staffPage(browser, 'Rohan Mehta');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  const csrf = { 'x-jansetu-csrf': '1' };
+  async function approve(target: string) {
+    const { items } = (await (await staff.page.request.get('/api/moderation')).json()) as {
+      items: Schema['Review'][];
+    };
+    const item = items.find((row) => row.postId === target || row.commentId === target);
+    if (!item) throw new Error('Missing activity fixture review');
+    expect(
+      (
+        await staff.page.request.post(`/api/moderation/${item.id}/decisions`, {
+          headers: { ...csrf, 'if-match': `"${item.version}"` },
+          data: {
+            action: 'ALLOW',
+            reason: 'Constructive fictional activity fixture',
+            targetRevision: item.targetRevision,
+          },
+        })
+      ).status(),
+    ).toBe(200);
+  }
+  const response = await page.request.post('/api/posts', {
+    headers: { ...csrf, 'idempotency-key': crypto.randomUUID() },
+    data: {
+      kind: 'SHORT',
+      body: `Fictional activity conversation ${Date.now()}`,
+      languageTag: 'en-IN',
+      mediaIds: [],
+      submitForReview: true,
+    },
+  });
+  expect(response.status()).toBe(201);
+  const post = (await response.json()) as Schema['Post'];
+  await approve(post.id);
+  const candidate = await neighbour.page.request.post(`/api/posts/${post.id}/comments`, {
+    headers: { ...csrf, 'idempotency-key': crypto.randomUUID() },
+    data: {
+      body: 'A private pending reply must not become an inbox preview.',
+      languageTag: 'en-IN',
+      parentId: null,
+    },
+  });
+  expect(candidate.status()).toBe(201);
+  const comment = (await candidate.json()) as { id: string };
+  const activity = async () =>
+    (await (
+      await page.request.get('/api/me/activity?filter=SOCIAL')
+    ).json()) as Schema['ActivityPage'];
+  expect((await activity()).items.filter((n) => n.target.id === post.id)).toHaveLength(0);
+  await approve(comment.id);
+  await expect
+    .poll(async () => (await activity()).items.filter((n) => n.target.id === post.id).length)
+    .toBe(1);
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Conversations', exact: true }).click();
+  const card = page
+    .getByTestId('activity-card')
+    .filter({ has: page.locator(`a[href="/posts/${post.id}"]`) });
+  await expect(card).toContainText('Replied to your conversation.');
+  await expect(card).not.toContainText('private pending');
+  await card.getByRole('button', { name: 'Mark as read', exact: true }).click();
+  await expect(card.getByRole('button', { name: 'Mark as unread', exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'Conversations', exact: true }).click();
+  await expect(card.getByRole('button', { name: 'Mark as unread', exact: true })).toBeVisible();
+  await card.getByRole('button', { name: 'Mark as unread', exact: true }).click();
+  await expect(card.getByRole('button', { name: 'Mark as read', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Service progress', exact: true }).click();
+  await expect(card).toHaveCount(0);
+  await page.getByRole('button', { name: 'Conversations', exact: true }).click();
+  await expect(card).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 720 });
+  await expect(page.locator('.topbar .activity-bell')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.getByRole('button', { name: 'Use dark theme' }).click();
+  await page.screenshot({ path: 'test-results/activity-mobile-dark.png' });
+  await card.getByRole('link', { name: /Replied to your conversation/ }).click();
+  await page.waitForURL(`**/posts/${post.id}`);
+  const writer = (await (await neighbour.page.request.get('/api/me')).json()) as Schema['Me'];
+  expect(
+    (
+      await page.request.put(`/api/me/blocks/${writer.profile.id}`, {
+        headers: csrf,
+        data: { enabled: true },
+      })
+    ).status(),
+  ).toBe(200);
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Refresh activity' }).click();
+  await expect(card).toHaveCount(0);
+  expect(
+    (
+      await page.request.put(`/api/me/blocks/${writer.profile.id}`, {
+        headers: csrf,
+        data: { enabled: false },
+      })
+    ).status(),
+  ).toBe(200);
+  const thread = (await (
+    await neighbour.page.request.get(`/api/posts/${post.id}/comments`)
+  ).json()) as Schema['CommentPage'];
+  const latest = thread.items.find((c) => c.id === comment.id);
+  if (!latest) throw new Error('Missing reply fixture');
+  expect(
+    (
+      await neighbour.page.request.delete(`/api/comments/${comment.id}`, {
+        headers: { ...csrf, 'if-match': `"${latest.version}"` },
+      })
+    ).status(),
+  ).toBe(204);
+  await page.getByRole('button', { name: 'Refresh activity' }).click();
+  await expect(card).toHaveCount(0);
+  await neighbour.context.close();
+  await staff.context.close();
+});
+
+test('case activity arrives only after reviewed publication and disappears on unfollow', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const follower = await staffPage(browser, 'Rohan Mehta');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  const officer = await staffPage(browser, 'City Works team');
+  const csrf = { 'x-jansetu-csrf': '1' };
+  const response = await page.request.post('/api/service-reports', {
+    headers: { ...csrf, 'idempotency-key': crypto.randomUUID() },
+    data: {
+      clientSubmissionId: crypto.randomUUID(),
+      statement: `Private activity report ${Date.now()}`,
+      languageTag: 'en-IN',
+      category: 'FOOTPATH',
+      locationLabel: 'Fictional neighbourhood crossing',
+      publicationPreference: 'SANITIZED_RECEIPT',
+    },
+  });
+  expect(response.status()).toBe(201);
+  const report = (await response.json()) as { id: string };
+  const triage = await staff.page.request.post(`/api/authority/reports/${report.id}/triage`, {
+    headers: { ...csrf, 'if-match': '"1"' },
+    data: {
+      agencyId: '30000000-0000-4000-8000-000000000001',
+      category: 'FOOTPATH',
+      urgencyTier: 2,
+      reason: 'Fictional crossing restoration requires agency action',
+    },
+  });
+  expect(triage.status()).toBe(201);
+  const { caseId } = (await triage.json()) as { caseId: string };
+  const publication = {
+    title: `Reviewed activity crossing ${Date.now()}`,
+    summary: 'A fictional restoration task was proposed.',
+    area: 'Indiranagar',
+    reviewed: true,
+  };
+  const published = await staff.page.request.post(`/api/authority/cases/${caseId}/publications`, {
+    headers: { ...csrf, 'if-match': '"1"' },
+    data: publication,
+  });
+  expect(published.status()).toBe(200);
+  const { receiptId } = (await published.json()) as { receiptId: string };
+  expect(
+    (
+      await follower.page.request.put(`/api/case-receipts/${receiptId}/follow`, {
+        headers: csrf,
+        data: { following: true },
+      })
+    ).status(),
+  ).toBe(200);
+  const detail = (await (
+    await officer.page.request.get(`/api/authority/cases/${caseId}`)
+  ).json()) as Schema['CaseDetail'];
+  const obligation = detail.obligations[0];
+  expect(
+    (
+      await officer.page.request.post(`/api/authority/obligations/${obligation.id}/accept`, {
+        headers: { ...csrf, 'if-match': `"${obligation.version}"` },
+        data: { summary: 'Private agency acceptance statement' },
+      })
+    ).status(),
+  ).toBe(200);
+  const activity = async () =>
+    (await (
+      await follower.page.request.get('/api/me/activity?filter=CASES')
+    ).json()) as Schema['ActivityPage'];
+  expect((await activity()).items.filter((n) => n.target.id === receiptId)).toHaveLength(0);
+  expect(
+    (
+      await staff.page.request.post(`/api/authority/cases/${caseId}/publications`, {
+        headers: { ...csrf, 'if-match': '"2"' },
+        data: { ...publication, summary: 'Agency acceptance was reviewed for public progress.' },
+      })
+    ).status(),
+  ).toBe(200);
+  await expect
+    .poll(async () => (await activity()).items.filter((n) => n.target.id === receiptId).length)
+    .toBe(1);
+  const item = (await activity()).items.find((n) => n.target.id === receiptId);
+  expect(JSON.stringify(item)).not.toContain(caseId);
+  expect(JSON.stringify(item)).not.toContain(report.id);
+  expect(JSON.stringify(item)).not.toContain('Private');
+  await follower.page.goto('/activity');
+  await follower.page.getByRole('button', { name: 'Service progress', exact: true }).click();
+  const card = follower.page.getByTestId('activity-card').filter({ hasText: publication.title });
+  await expect(card).toContainText('Reviewed public progress was updated.');
+  await card.getByRole('link', { name: /Reviewed public progress/ }).click();
+  await follower.page.waitForURL(`**/cases/${receiptId}`);
+  await follower.page.getByRole('button', { name: 'Following', exact: true }).click();
+  await follower.page.goto('/activity');
+  await follower.page.getByRole('button', { name: 'Refresh activity' }).click();
+  await expect(card).toHaveCount(0);
+  await follower.context.close();
+  await staff.context.close();
+  await officer.context.close();
 });

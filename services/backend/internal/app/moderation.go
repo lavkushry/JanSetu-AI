@@ -126,6 +126,11 @@ func (a *App) moderationDecision(w http.ResponseWriter, r *http.Request, actor *
 				if e = q.PublishComment(r.Context(), dbgen.PublishCommentParams{ID: c.ID, Body: body}); e != nil {
 					return e
 				}
+				if !c.PublishedVersion.Valid {
+					if e = addEvent(r.Context(), q, "POST", c.PostID, parent.Version, "CommentPublished", map[string]any{"commentId": c.ID, "revision": c.CurrentRevision}); e != nil {
+						return e
+					}
+				}
 			} else {
 				if e = q.RejectCommentRevision(r.Context(), dbgen.RejectCommentRevisionParams{CommentID: c.ID, Version: c.CurrentRevision}); e != nil {
 					return e

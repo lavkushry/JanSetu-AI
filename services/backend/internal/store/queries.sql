@@ -372,3 +372,30 @@ SELECT coalesce(authz.report_ocr_region($1,$2,$3),'')::text AS original_text;
 
 -- name: ReportMediaAttachable :one
 SELECT authz.media_attachable($1,$2)::boolean AS allowed;
+
+-- name: DeliverReplyActivity :exec
+INSERT INTO social.notification(id,recipient_id,event_id,channel,post_id,comment_id,kind,source_version,state,created_at)
+SELECT gen_random_uuid(),recipient_id,sqlc.arg(event_id),'IN_APP',post_id,comment_id,'REPLY',sqlc.arg(source_version),'SENT',sqlc.arg(event_time)
+FROM social.activity_reply_target target WHERE target.comment_id=sqlc.arg(comment_id) AND target.source_version>=sqlc.arg(source_version)
+ON CONFLICT DO NOTHING;
+
+-- name: DeliverCaseActivity :exec
+INSERT INTO social.notification(id,recipient_id,event_id,channel,receipt_id,kind,source_version,state,created_at)
+SELECT gen_random_uuid(),recipient_id,sqlc.arg(event_id),'IN_APP',receipt_id,'CASE_PROGRESS',sqlc.arg(source_version),'SENT',sqlc.arg(event_time)
+FROM social.activity_case_target target WHERE target.receipt_id=sqlc.arg(receipt_id) AND target.projection_version=sqlc.arg(source_version) AND target.followed_at<=sqlc.arg(event_time)
+ON CONFLICT DO NOTHING;
+
+-- name: ActivityPage :many
+SELECT * FROM social.activity_visible WHERE recipient_id=sqlc.arg(viewer_id)
+AND (sqlc.arg(filter)::text='ALL' OR (sqlc.arg(filter)='SOCIAL' AND kind='REPLY') OR (sqlc.arg(filter)='CASES' AND kind='CASE_PROGRESS'))
+AND (NOT sqlc.arg(has_cursor)::boolean OR (created_at,id)<(sqlc.arg(before_time)::timestamptz,sqlc.arg(before_id)::uuid))
+ORDER BY created_at DESC,id DESC LIMIT 21;
+
+-- name: ActivityUnread :one
+SELECT count(*) FROM social.activity_visible WHERE recipient_id=sqlc.arg(viewer_id) AND read_at IS NULL;
+
+-- name: SetActivityRead :one
+UPDATE social.notification n SET read_at=CASE WHEN sqlc.arg(read)::boolean THEN COALESCE(n.read_at,now()) ELSE NULL END
+WHERE n.id=sqlc.arg(id) AND n.recipient_id=sqlc.arg(viewer_id)
+AND EXISTS(SELECT FROM social.activity_visible visible WHERE visible.id=n.id AND visible.recipient_id=n.recipient_id)
+RETURNING n.id,n.read_at;

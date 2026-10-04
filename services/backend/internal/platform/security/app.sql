@@ -14,6 +14,11 @@ GRANT SELECT,INSERT,UPDATE,DELETE ON social.community_member,social.community_fo
 GRANT SELECT ON social.community TO js_social;
 GRANT UPDATE(id) ON social.community TO js_social;
 GRANT SELECT ON social.profile,social.post_stats,social.case_receipt,social.case_receipt_event TO js_social;
+GRANT SELECT ON social.notification,social.activity_visible,social.activity_reply_target,social.activity_case_target TO js_social;
+GRANT UPDATE(read_at) ON social.notification TO js_social;
+GRANT SELECT(profile_id,notification_channels) ON social.feed_preference TO js_social,js_worker;
+GRANT SELECT(profile_id,muted_profile_id,muted_community_id,expires_at) ON social.mute TO js_social,js_worker;
+GRANT EXECUTE ON FUNCTION authz.current_profile() TO js_social;
 -- Row locks in social commands need an UPDATE column; actual profile updates stay in auth.
 GRANT UPDATE(id) ON social.profile TO js_social;
 GRANT USAGE ON SCHEMA ops,social,infra,authz TO js_ops,js_publication;
@@ -38,7 +43,9 @@ GRANT SELECT,UPDATE ON infra.outbox TO js_worker;
 GRANT SELECT,INSERT ON infra.processed_event TO js_worker;
 GRANT SELECT ON social.post TO js_worker;
 GRANT SELECT(post_id,value) ON social.post_vote TO js_worker;
-GRANT SELECT(post_id,state) ON social.comment TO js_worker;
+GRANT SELECT(id,post_id,state,author_id,parent_id,published_version) ON social.comment TO js_worker;
+GRANT SELECT ON social.profile,social.community,social.profile_block,social.case_follow,social.case_receipt,social.activity_reply_target,social.activity_case_target TO js_worker;
+GRANT SELECT,INSERT ON social.notification TO js_worker;
 GRANT SELECT(post_id) ON social.repost TO js_worker;
 GRANT UPDATE(id) ON social.post TO js_worker;
 GRANT SELECT,INSERT,UPDATE ON social.post_stats TO js_worker;
