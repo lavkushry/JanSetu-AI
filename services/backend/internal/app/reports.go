@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/vault"
 )
 
 type ReportInput struct {
@@ -43,44 +44,25 @@ func (b *ReportInput) validate() error {
 
 // Vault aliases are issued before the application transaction. A failed intake
 // may leave an unused alias, but can never leave a report with a public identity.
-func (a *App) reportAlias(ctx context.Context, principal, submission uuid.UUID) (uuid.UUID, error) {
-	var alias uuid.UUID
-	e := pgx.BeginTxFunc(ctx, a.Vault, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, e := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", principal.String()); e != nil {
-			return e
-		}
-		var subject uuid.UUID
-		e := tx.QueryRow(ctx, "SELECT subject_id FROM vault.principal_subject WHERE principal_ref=$1", principal).Scan(&subject)
-		if errors.Is(e, pgx.ErrNoRows) {
-			subject = uuid.New()
-			if _, e = tx.Exec(ctx, "INSERT INTO vault.subject(id,safe_contact_policy,retention_policy_id) VALUES ($1,'{}','local-demo-v1')", subject); e != nil {
-				return e
-			}
-			if _, e = tx.Exec(ctx, "INSERT INTO vault.principal_subject(principal_ref,subject_id) VALUES ($1,$2)", principal, subject); e != nil {
-				return e
-			}
-		} else if e != nil {
-			return e
-		}
-		return tx.QueryRow(ctx, "INSERT INTO vault.pseudonym_binding(alias_id,subject_id,scope_kind,scope_id) VALUES ($1,$2,'REPORT',$3) ON CONFLICT(subject_id,scope_kind,scope_id) DO UPDATE SET scope_id=EXCLUDED.scope_id RETURNING alias_id", uuid.New(), subject, submission).Scan(&alias)
-	})
-	return alias, e
+func (a *App) aliasGrant(ctx context.Context, submission uuid.UUID) (vault.Grant, error) {
+	s := scope(ctx)
+	grant, err := a.Vault.Aliases(ctx, s.Session, s.Trace, submission)
+	if errors.Is(err, vault.ErrUnauthenticated) {
+		return grant, failure(401, "AUTH_REQUIRED", "Sign in to continue")
+	}
+	if err == nil {
+		s.Claim = grant.Claim
+		s.Signature = grant.Signature
+	}
+	return grant, err
 }
-func (a *App) ownedAliases(ctx context.Context, principal uuid.UUID) ([]uuid.UUID, error) {
-	rows, e := a.Vault.Query(ctx, "SELECT b.alias_id FROM vault.pseudonym_binding b JOIN vault.principal_subject p ON p.subject_id=b.subject_id WHERE p.principal_ref=$1 AND b.scope_kind='REPORT'", principal)
-	if e != nil {
-		return nil, e
-	}
-	defer rows.Close()
-	ids := []uuid.UUID{}
-	for rows.Next() {
-		var id uuid.UUID
-		if e = rows.Scan(&id); e != nil {
-			return nil, e
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
+func (a *App) reportAlias(ctx context.Context, submission uuid.UUID) (uuid.UUID, error) {
+	grant, err := a.aliasGrant(ctx, submission)
+	return grant.Alias, err
+}
+func (a *App) ownedAliases(ctx context.Context) ([]uuid.UUID, error) {
+	grant, err := a.aliasGrant(ctx, uuid.Nil)
+	return grant.Aliases, err
 }
 func reportAck(id uuid.UUID, received any) map[string]any {
 	return map[string]any{"id": id, "receivedAt": received, "state": "PLATFORM_RECEIVED", "message": "Received by JanSetu. Agency acceptance has not been confirmed."}
@@ -99,7 +81,7 @@ func (a *App) submitReport(w http.ResponseWriter, r *http.Request, actor *Actor)
 	if e := b.validate(); e != nil {
 		return nil, 0, e
 	}
-	alias, e := a.reportAlias(r.Context(), actor.PrincipalID, b.ClientSubmissionID)
+	alias, e := a.reportAlias(r.Context(), b.ClientSubmissionID)
 	if e != nil {
 		return nil, 0, e
 	}
@@ -141,11 +123,11 @@ func (a *App) ownProgress(r *http.Request, actor *Actor, reportID uuid.UUID) ([]
 	if e := require(actor); e != nil {
 		return nil, e
 	}
-	aliases, e := a.ownedAliases(r.Context(), actor.PrincipalID)
+	aliases, e := a.ownedAliases(r.Context())
 	if e != nil {
 		return nil, e
 	}
-	q := dbgen.New(a.DB)
+	q := dbgen.New(a.store(r.Context()))
 	rows, e := q.OwnReportProgress(r.Context(), dbgen.OwnReportProgressParams{AliasIds: aliases, ReportID: reportID})
 	if e != nil {
 		return nil, e
@@ -155,17 +137,28 @@ func (a *App) ownProgress(r *http.Request, actor *Actor, reportID uuid.UUID) ([]
 		progress := "PLATFORM_RECEIVED"
 		responsibilities := []any{}
 		if v.CaseID != nil {
-			obligations, e := q.CaseObligations(r.Context(), *v.CaseID)
+			tasks, e := a.store(r.Context()).Query(r.Context(), "SELECT agency_name,state FROM authz.owner_tasks($1)", v.ID)
 			if e != nil {
 				return nil, e
 			}
 			progress = "AWAITING_AGENCY_ACCEPTANCE"
-			for _, o := range obligations {
-				responsibilities = append(responsibilities, map[string]any{"agency": o.AgencyName, "state": o.State})
-				if o.State != "PROPOSED" {
-					progress = o.State
+			for tasks.Next() {
+				var agency, state string
+				if e = tasks.Scan(&agency, &state); e != nil {
+					tasks.Close()
+					return nil, e
+				}
+				responsibilities = append(responsibilities, map[string]any{"agency": agency, "state": state})
+				if state != "PROPOSED" {
+					progress = state
 				}
 			}
+			e = tasks.Err()
+			tasks.Close()
+			if e != nil {
+				return nil, e
+			}
+
 		}
 		items = append(items, map[string]any{"id": v.ID, "statement": v.Statement, "languageTag": v.LanguageTag, "receivedAt": timestamp(v.ReceivedAt), "state": progress, "receiptId": v.ReceiptID, "responsibilities": responsibilities})
 	}
@@ -196,7 +189,7 @@ func (a *App) intakeQueue(w http.ResponseWriter, r *http.Request, actor *Actor) 
 	if !actor.Has("COORDINATOR") {
 		return nil, 0, forbidden()
 	}
-	rows, e := dbgen.New(a.DB).IntakeQueue(r.Context())
+	rows, e := dbgen.New(a.store(r.Context())).IntakeQueue(r.Context())
 	items := []any{}
 	for _, v := range rows {
 		items = append(items, map[string]any{"id": v.ID, "statement": v.Statement, "languageTag": v.LanguageTag, "publicationPreference": v.PublicationPreference, "metadata": json.RawMessage(v.IntakeMetadata), "receivedAt": timestamp(v.ReceivedAt), "version": v.Version})
@@ -207,7 +200,7 @@ func (a *App) agencies(w http.ResponseWriter, r *http.Request, actor *Actor) (an
 	if !actor.Has("COORDINATOR") {
 		return nil, 0, forbidden()
 	}
-	rows, e := dbgen.New(a.DB).AgencyDirectory(r.Context())
+	rows, e := dbgen.New(a.store(r.Context())).AgencyDirectory(r.Context())
 	return map[string]any{"items": rows}, 200, e
 }
 func (a *App) triage(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {

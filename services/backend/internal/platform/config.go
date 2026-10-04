@@ -11,8 +11,8 @@ import (
 )
 
 type Config struct {
-	Environment, DatabaseURL, VaultURL, Addr, WebOrigin                   string
-	AuthMode, OIDCIssuer, OIDCClientID, OIDCClientSecret, OIDCBackchannel string
+	Environment, DatabaseURL, SocialURL, OperationsURL, PublicationURL, WorkerURL, VaultURL, VaultToken, Addr, WebOrigin string
+	AuthMode, OIDCIssuer, OIDCClientID, OIDCClientSecret, OIDCBackchannel                                                string
 }
 
 func env(key, fallback string) string {
@@ -25,8 +25,13 @@ func env(key, fallback string) string {
 func Load() (Config, error) {
 	c := Config{
 		Environment:      env("JANSETU_ENV", "local"),
-		DatabaseURL:      env("JANSETU_DATABASE_URL", "postgres://jansetu:jansetu-local@localhost:5438/jansetu?sslmode=disable"),
-		VaultURL:         env("JANSETU_VAULT_URL", "postgres://jansetu:jansetu-local@localhost:5438/jansetu_vault?sslmode=disable"),
+		DatabaseURL:      env("JANSETU_DATABASE_URL", "postgres://js_auth:js_auth-local@localhost:5438/jansetu?sslmode=disable"),
+		SocialURL:        env("JANSETU_SOCIAL_DATABASE_URL", "postgres://js_social:js_social-local@localhost:5438/jansetu?sslmode=disable"),
+		OperationsURL:    env("JANSETU_OPERATIONS_DATABASE_URL", "postgres://js_ops:js_ops-local@localhost:5438/jansetu?sslmode=disable"),
+		PublicationURL:   env("JANSETU_PUBLICATION_DATABASE_URL", "postgres://js_publication:js_publication-local@localhost:5438/jansetu?sslmode=disable"),
+		WorkerURL:        env("JANSETU_WORKER_DATABASE_URL", "postgres://js_worker:js_worker-local@localhost:5438/jansetu?sslmode=disable"),
+		VaultURL:         env("JANSETU_VAULT_SERVICE_URL", "http://127.0.0.1:8082"),
+		VaultToken:       env("JANSETU_VAULT_SERVICE_TOKEN", "local-vault-service-token-fictional-2026"),
 		Addr:             env("JANSETU_HTTP_ADDR", "127.0.0.1:8081"),
 		WebOrigin:        env("JANSETU_WEB_ORIGIN", "http://localhost:3100"),
 		AuthMode:         env("JANSETU_AUTH_MODE", "oidc"),

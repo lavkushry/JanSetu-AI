@@ -12,7 +12,7 @@ func (a *App) moderationQueue(w http.ResponseWriter, r *http.Request, actor *Act
 	if !actor.Has("PLATFORM_MODERATOR") {
 		return nil, 0, forbidden()
 	}
-	q := dbgen.New(a.DB)
+	q := dbgen.New(a.store(r.Context()))
 	rows, e := q.ModerationQueue(r.Context())
 	if e != nil {
 		return nil, 0, e

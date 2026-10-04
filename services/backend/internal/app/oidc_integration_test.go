@@ -70,7 +70,7 @@ func (p *testOIDC) application(t *testing.T) *App {
 	cfg.AuthMode = "oidc"
 	cfg.OIDCIssuer = p.server.URL
 	cfg.OIDCBackchannel = ""
-	a := New(base.DB, base.Vault, cfg)
+	a := cloneTestApp(t, cfg)
 	var err error
 	a.Identity, err = authn.Discover(context.Background(), cfg)
 	if err != nil {
@@ -207,14 +207,14 @@ func TestOIDCProvisioningAndCallbackBoundary(t *testing.T) {
 		signedClient(t, a, result)
 	}
 	var count int
-	if err := a.DB.QueryRow(context.Background(), "SELECT count(*) FROM identity.account_binding WHERE provider=$1 AND provider_subject=$2", p.server.URL, subject).Scan(&count); err != nil || count != 1 {
+	if err := integrationAdmin.QueryRow(context.Background(), "SELECT count(*) FROM identity.account_binding WHERE provider=$1 AND provider_subject=$2", p.server.URL, subject).Scan(&count); err != nil || count != 1 {
 		t.Fatal("duplicate provisioning", err, count)
 	}
 	// Fixture shortcuts cannot bypass OIDC.
 	mustStatus(t, (client{app: a}).request("POST", "dev/session", map[string]any{"principalId": DemoPrincipals[2]}, 0, ""), 404)
 	mustStatus(t, (client{app: a}).request("GET", "dev/accounts", nil, 0, ""), 404)
 	// Account binding revocation invalidates existing sessions and future sign-in.
-	if _, err := a.DB.Exec(context.Background(), "UPDATE identity.account_binding SET state='REVOKED' WHERE provider=$1 AND provider_subject=$2", p.server.URL, subject); err != nil {
+	if _, err := integrationAdmin.Exec(context.Background(), "UPDATE identity.account_binding SET state='REVOKED' WHERE provider=$1 AND provider_subject=$2", p.server.URL, subject); err != nil {
 		t.Fatal(err)
 	}
 	mustStatus(t, resident.request("GET", "me", nil, 0, ""), 401)
@@ -267,7 +267,7 @@ func TestOIDCRejectsInvalidIdentityAssertions(t *testing.T) {
 	})
 	t.Run("expired flow", func(t *testing.T) {
 		f := beginFlow(t, a)
-		if _, err := a.DB.Exec(context.Background(), "UPDATE identity.login_flow SET expires_at=now()-interval '1 second' WHERE state_hash=$1", tokenHash(f.state)); err != nil {
+		if _, err := integrationAdmin.Exec(context.Background(), "UPDATE identity.login_flow SET expires_at=now()-interval '1 second' WHERE state_hash=$1", tokenHash(f.state)); err != nil {
 			t.Fatal(err)
 		}
 		assertNoSession(t, callback(a, f, p.code(t, f, uuid.NewString(), nil)))
@@ -325,20 +325,20 @@ func TestSessionOwnershipExpiryAndRevokedCommands(t *testing.T) {
 	if err == nil || called {
 		t.Fatal("revoked session entered an authorized command")
 	}
-	if _, err = a.DB.Exec(context.Background(), "UPDATE identity.session SET last_seen_at=now()-interval '31 minutes' WHERE token_hash=$1", tokenHash(second.cookie.Value)); err != nil {
+	if _, err = integrationAdmin.Exec(context.Background(), "UPDATE identity.session SET last_seen_at=now()-interval '31 minutes' WHERE token_hash=$1", tokenHash(second.cookie.Value)); err != nil {
 		t.Fatal(err)
 	}
 	mustStatus(t, second.request("GET", "me", nil, 0, ""), 401)
 	third := login(t, a, 0)
-	if _, err = a.DB.Exec(context.Background(), "UPDATE identity.session SET created_at=now()-interval '2 hours',expires_at=now()-interval '1 hour' WHERE token_hash=$1", tokenHash(third.cookie.Value)); err != nil {
+	if _, err = integrationAdmin.Exec(context.Background(), "UPDATE identity.session SET created_at=now()-interval '2 hours',expires_at=now()-interval '1 hour' WHERE token_hash=$1", tokenHash(third.cookie.Value)); err != nil {
 		t.Fatal(err)
 	}
 	mustStatus(t, third.request("GET", "me", nil, 0, ""), 401)
 	var events int
-	if err = a.DB.QueryRow(context.Background(), "SELECT count(*) FROM infra.audit_event WHERE purpose_code='ACCOUNT_SECURITY'").Scan(&events); err != nil || events == 0 {
+	if err = integrationAdmin.QueryRow(context.Background(), "SELECT count(*) FROM infra.audit_event WHERE purpose_code='ACCOUNT_SECURITY'").Scan(&events); err != nil || events == 0 {
 		t.Fatal("security audit missing")
 	}
-	if _, err = a.DB.Exec(context.Background(), "DELETE FROM infra.audit_event WHERE purpose_code='ACCOUNT_SECURITY'"); err == nil {
+	if _, err = integrationAdmin.Exec(context.Background(), "DELETE FROM infra.audit_event WHERE purpose_code='ACCOUNT_SECURITY'"); err == nil {
 		t.Fatal("audit mutation allowed")
 	}
 }
@@ -371,7 +371,7 @@ func TestSessionLimitRevokesAndAuditsOldest(t *testing.T) {
 	cfg := base.Config
 	cfg.AuthMode = "oidc"
 	cfg.OIDCIssuer = "https://identity.example.test"
-	a := New(base.DB, base.Vault, cfg)
+	a := cloneTestApp(t, cfg)
 	identity := authn.Identity{Issuer: cfg.OIDCIssuer, Subject: uuid.NewString()}
 	var oldest, newest string
 	for i := 0; i < 25; i++ {
@@ -397,7 +397,7 @@ func TestSessionLimitRevokesAndAuditsOldest(t *testing.T) {
 		t.Fatal("session cap not enforced")
 	}
 	var audits int
-	err := a.DB.QueryRow(context.Background(), `SELECT count(*) FROM infra.audit_event e JOIN identity.account_binding b ON b.principal_id=e.actor_ref WHERE b.provider=$1 AND b.provider_subject=$2 AND e.action='SESSION_LIMIT_REVOKED'`, identity.Issuer, identity.Subject).Scan(&audits)
+	err := integrationAdmin.QueryRow(context.Background(), `SELECT count(*) FROM infra.audit_event e JOIN identity.account_binding b ON b.principal_id=e.actor_ref WHERE b.provider=$1 AND b.provider_subject=$2 AND e.action='SESSION_LIMIT_REVOKED'`, identity.Issuer, identity.Subject).Scan(&audits)
 	if err != nil || audits != 5 {
 		t.Fatal("session limit revocations were not audited", err, audits)
 	}

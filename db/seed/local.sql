@@ -32,7 +32,7 @@ INSERT INTO social.community(id,slug,title,description,scope_kind,visibility,rul
 ('50000000-0000-4000-8000-000000000003','bengaluru-cycling','Bengaluru Cycling','Safer routes and conversations on two wheels.','TOPIC','PUBLIC','Be helpful. No harassment. Keep route advice grounded.','ACTIVE','en-IN'),
 ('50000000-0000-4000-8000-000000000004','green-city','A greener Bengaluru','Small steps for a city that breathes easier.','TOPIC','PUBLIC','Share practical information and respect differing views.','ACTIVE','en-IN') ON CONFLICT DO NOTHING;
 INSERT INTO social.community_member(community_id,profile_id,role,state)
-SELECT c.id,p.id,'MEMBER','ACTIVE' FROM social.community c CROSS JOIN social.profile p ON CONFLICT DO NOTHING;
+SELECT c.id,p.id,'MEMBER','ACTIVE' FROM social.community c CROSS JOIN social.profile p WHERE p.id IN ('20000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000002','20000000-0000-4000-8000-000000000003','20000000-0000-4000-8000-000000000004','20000000-0000-4000-8000-000000000005','20000000-0000-4000-8000-000000000006') ON CONFLICT DO NOTHING;
 INSERT INTO social.community_follow(profile_id,community_id) VALUES
 ('20000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000001'),
 ('20000000-0000-4000-8000-000000000001','50000000-0000-4000-8000-000000000003') ON CONFLICT DO NOTHING;

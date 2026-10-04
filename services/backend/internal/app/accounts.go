@@ -83,7 +83,7 @@ func (a *App) loginRedirect(w http.ResponseWriter, r *http.Request) {
 	verifier := oauth2.GenerateVerifier()
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	err = pgx.BeginTxFunc(ctx, a.DB, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err = pgx.BeginTxFunc(ctx, a.Auth, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, "DELETE FROM identity.login_flow WHERE expires_at < now()"); err != nil {
 			return err
 		}
@@ -119,7 +119,7 @@ func (a *App) loginCallback(w http.ResponseWriter, r *http.Request) {
 	var nonceHash []byte
 	var verifier, returnPath string
 	// Consumption commits before token exchange; two callbacks cannot use one flow.
-	err = a.DB.QueryRow(ctx, `DELETE FROM identity.login_flow WHERE state_hash=$1 AND browser_hash=$2 AND expires_at>now()
+	err = a.Auth.QueryRow(ctx, `DELETE FROM identity.login_flow WHERE state_hash=$1 AND browser_hash=$2 AND expires_at>now()
 	RETURNING nonce_hash,pkce_verifier,return_path`, tokenHash(query.Get("state")), tokenHash(c.Value)).Scan(&nonceHash, &verifier, &returnPath)
 	if err != nil || query.Get("error") != "" || len(query["code"]) != 1 || len(query.Get("code")) == 0 || len(query.Get("code")) > 4096 {
 		fail()
@@ -155,7 +155,7 @@ func accountAudit(ctx context.Context, tx pgx.Tx, actor, object uuid.UUID, kind,
 }
 
 func (a *App) provisionSession(ctx context.Context, identity authn.Identity, token string, oldHash []byte) error {
-	return pgx.BeginTxFunc(ctx, a.DB, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return pgx.BeginTxFunc(ctx, a.Auth, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		// Serialize first sign-in of the exact issuer/subject; no email matching.
 		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", identity.Issuer+"\x1f"+identity.Subject); err != nil {
 			return err
@@ -262,7 +262,7 @@ func (a *App) listSessions(w http.ResponseWriter, r *http.Request, actor *Actor)
 	if err := require(actor); err != nil {
 		return nil, 0, err
 	}
-	rows, err := a.DB.Query(r.Context(), `SELECT id,created_at,last_seen_at,expires_at,auth_method FROM identity.session
+	rows, err := a.Auth.Query(r.Context(), `SELECT id,created_at,last_seen_at,expires_at,auth_method FROM identity.session
 	WHERE principal_id=$1 AND revoked_at IS NULL AND expires_at>now() AND last_seen_at>now()-interval '30 minutes'
 	ORDER BY created_at DESC,id DESC LIMIT 20`, actor.PrincipalID)
 	if err != nil {
@@ -287,7 +287,10 @@ func (a *App) securityTransaction(r *http.Request, actor *Actor, fn func(pgx.Tx)
 	if err := require(actor); err != nil {
 		return err
 	}
-	return pgx.BeginTxFunc(r.Context(), a.DB, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return pgx.BeginTxFunc(r.Context(), a.Auth, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := a.configureScope(r.Context(), tx); err != nil {
+			return err
+		}
 		var state string
 		if err := tx.QueryRow(r.Context(), "SELECT state FROM identity.principal WHERE id=$1 FOR UPDATE", actor.PrincipalID).Scan(&state); err != nil {
 			return err
@@ -303,9 +306,7 @@ func (a *App) securityTransaction(r *http.Request, actor *Actor, fn func(pgx.Tx)
 }
 func (a *App) checkSession(ctx context.Context, tx pgx.Tx, actor *Actor) error {
 	var active bool
-	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity.session WHERE id=$1 AND principal_id=$2
-	AND auth_method=$3 AND revoked_at IS NULL AND expires_at>now() AND last_seen_at>now()-interval '30 minutes'
- AND (auth_method='demo' OR (provider=$4 AND EXISTS(SELECT 1 FROM identity.account_binding b WHERE b.provider=identity.session.provider AND b.provider_subject=identity.session.provider_subject AND b.principal_id=identity.session.principal_id AND b.state='ACTIVE'))))`, actor.SessionID, actor.PrincipalID, a.Config.AuthMode, a.Config.OIDCIssuer).Scan(&active)
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT FROM authz.authenticate($1,$2,$3) WHERE principal_id=$4 AND session_id=$5)`, tokenHash(scope(ctx).Session), a.Config.AuthMode, a.Config.OIDCIssuer, actor.PrincipalID, actor.SessionID).Scan(&active)
 	if err != nil {
 		return err
 	}

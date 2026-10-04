@@ -25,35 +25,41 @@ func (a *App) transaction(ctx context.Context, actor *Actor, fn func(*dbgen.Quer
 	if err := require(actor); err != nil {
 		return err
 	}
-	return pgx.BeginTxFunc(ctx, a.DB, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	return pgx.BeginTxFunc(ctx, a.pool(ctx), pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := a.configureScope(ctx, tx); err != nil {
+			return err
+		}
 		q := dbgen.New(tx)
 		// Serialize local pilot commands before row locks. Replace this coarse lock
 		// with ordered aggregate locks before enabling a multi-city deployment.
 		if err := q.LockIdempotency(ctx, 77120261004); err != nil {
 			return err
 		}
-		principal, err := q.LockPrincipal(ctx, actor.PrincipalID)
-		if err != nil {
+		var state *string
+		if err := tx.QueryRow(ctx, "SELECT authz.lock_principal($1)", actor.PrincipalID).Scan(&state); err != nil {
 			return err
 		}
-		if principal.State != "ACTIVE" {
+		if state == nil {
+			return failure(401, "AUTH_REQUIRED", "Sign in to continue")
+		}
+		if *state != "ACTIVE" {
 			return forbidden()
 		}
 		if err := a.checkSession(ctx, tx, actor); err != nil {
 			return err
 		}
-		profiles, err := q.LockProfiles(ctx, []uuid.UUID{actor.ProfileID})
-		if err != nil {
+		if err := tx.QueryRow(ctx, "SELECT authz.lock_profile($1)", actor.PrincipalID).Scan(&state); err != nil {
 			return err
 		}
-		if len(profiles) != 1 || profiles[0].State != "ACTIVE" {
+		if state == nil || *state != "ACTIVE" {
 			return forbidden()
 		}
-		roles, err := q.PlatformRoles(ctx, actor.PrincipalID)
+		authority := dbgen.New(a.Auth)
+		roles, err := authority.PlatformRoles(ctx, actor.PrincipalID)
 		if err != nil {
 			return err
 		}
-		grants, err := q.AgencyGrants(ctx, actor.PrincipalID)
+		grants, err := authority.AgencyGrants(ctx, actor.PrincipalID)
 		if err != nil {
 			return err
 		}

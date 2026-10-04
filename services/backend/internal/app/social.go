@@ -67,7 +67,7 @@ func (a *App) getPost(w http.ResponseWriter, r *http.Request, actor *Actor) (any
 	if e != nil {
 		return nil, 0, e
 	}
-	data, e := postData(r.Context(), dbgen.New(a.DB), pid, actor, false)
+	data, e := postData(r.Context(), dbgen.New(a.store(r.Context())), pid, actor, false)
 	if e == nil {
 		var v struct {
 			Version int64 `json:"version"`
@@ -209,7 +209,7 @@ func (a *App) comments(w http.ResponseWriter, r *http.Request, actor *Actor) (an
 	if e != nil {
 		return nil, 0, e
 	}
-	q := dbgen.New(a.DB)
+	q := dbgen.New(a.store(r.Context()))
 	if _, e = postData(r.Context(), q, pid, actor, false); e != nil {
 		return nil, 0, e
 	}

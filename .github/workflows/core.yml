@@ -28,8 +28,9 @@ jobs:
       - run: make generate
       - run: git diff --exit-code -- services/backend/internal/store/dbgen apps/web/src/lib/generated.ts
       - run: npx playwright install --with-deps chromium
-      - name: Start API, worker, and production web
+      - name: Start vault, API, worker, and production web
         run: |
+          (cd services/backend && go run ./cmd/vault) > /tmp/jansetu-vault.log 2>&1 &
           (cd services/backend && go run ./cmd/public-api) > /tmp/jansetu-api.log 2>&1 &
           (cd services/backend && go run ./cmd/worker) > /tmp/jansetu-worker.log 2>&1 &
           npm run start --workspace @jansetu/web > /tmp/jansetu-web.log 2>&1 &
@@ -43,4 +44,4 @@ jobs:
         if: failure()
         run: |
           docker compose logs --tail=40 db identity
-          cat /tmp/jansetu-api.log /tmp/jansetu-worker.log /tmp/jansetu-web.log 2>/dev/null || true
+          cat /tmp/jansetu-api.log /tmp/jansetu-vault.log /tmp/jansetu-worker.log /tmp/jansetu-web.log 2>/dev/null || true

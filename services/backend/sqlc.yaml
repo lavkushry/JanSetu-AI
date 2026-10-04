@@ -1,10 +1,13 @@
-version: "2"
+version: '2'
 sql:
   - engine: postgresql
     schema:
       - ../../db/migrations/00001_foundation.sql
       - ../../db/migrations/00002_core_enforcement.sql
       - ../../db/migrations/00003_account_security.sql
+      - ../../db/migrations/00004_database_isolation.sql
+      - ../../db/migrations/00005_publication_report_scope.sql
+      - ../../db/migrations/00006_live_scope.sql
     queries: internal/store/queries.sql
     gen:
       go:
