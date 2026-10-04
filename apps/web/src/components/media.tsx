@@ -49,7 +49,14 @@ export function ReportPhotos({
   currentIds.current = ids;
   async function finish(id: string, file: File) {
     const session = await api<Schema['UploadSession']>(`media/${id}/upload`);
-    if (session.state === 'COMPLETE') return;
+    if (session.state === 'COMPLETE') {
+      setFailures((f) => {
+        const next = { ...f };
+        delete next[id];
+        return next;
+      });
+      return;
+    }
     if (session.state !== 'OPEN')
       throw new Error('This upload expired. Remove the photo and choose it again.');
     let part = session.completedParts[0];
