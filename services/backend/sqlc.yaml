@@ -13,6 +13,7 @@ sql:
       - ../../db/migrations/00009_media_attachment_scope.sql
       - ../../db/migrations/00010_multipart_uploads.sql
       - ../../db/migrations/00011_profile_discovery.sql
+      - ../../db/migrations/00012_comment_pagination.sql
     queries: internal/store/queries.sql
     gen:
       go:

@@ -176,6 +176,156 @@ test('post review, votes, bookmarks, comments, edits, and deletion survive refre
   await expect(page.getByText('This post was deleted.')).toBeVisible();
   await staff.context.close();
 });
+
+test('conversation pages, reply context and collapse controls survive refresh', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  const other = await browser.newContext();
+  const neighbour = await other.newPage();
+  await neighbour.goto('/');
+  await signIn(neighbour, 'Rohan Mehta');
+  async function approve(target: string) {
+    const queue = (await (await staff.page.request.get('/api/moderation')).json()) as {
+      items: Schema['Review'][];
+    };
+    const item = queue.items.find((row) => row.postId === target || row.commentId === target);
+    expect(item).toBeDefined();
+    if (!item) throw new Error('Missing fixture review');
+    const response = await staff.page.request.post(`/api/moderation/${item.id}/decisions`, {
+      headers: { 'x-jansetu-csrf': '1', 'if-match': `"${item.version}"` },
+      data: {
+        action: 'ALLOW',
+        reason: 'Constructive fictional pagination fixture',
+        targetRevision: item.targetRevision,
+      },
+    });
+    expect(response.status()).toBe(200);
+  }
+  const response = await page.request.post('/api/posts', {
+    headers: { 'x-jansetu-csrf': '1', 'idempotency-key': crypto.randomUUID() },
+    data: {
+      kind: 'SHORT',
+      body: `Fictional paginated conversation ${Date.now()}`,
+      languageTag: 'en-IN',
+      mediaIds: [],
+      submitForReview: true,
+    },
+  });
+  expect(response.status()).toBe(201);
+  const post = (await response.json()) as Schema['Post'];
+  await approve(post.id);
+  async function comment(writer: Page, body: string, parentId: string | null = null) {
+    const response = await writer.request.post(`/api/posts/${post.id}/comments`, {
+      headers: { 'x-jansetu-csrf': '1', 'idempotency-key': crypto.randomUUID() },
+      data: { body, languageTag: 'en-IN', parentId },
+    });
+    expect(response.status()).toBe(201);
+    const result = (await response.json()) as { id: string };
+    await approve(result.id);
+    return result.id;
+  }
+  const rootBody = `A constructive root comment ${Date.now()}`;
+  const rootId = await comment(page, rootBody);
+  for (let i = 0; i < 19; i++) await comment(page, `Fictional top-level conversation entry ${i}`);
+  const childBody = `A reply with stable parent context ${Date.now()}`;
+  const childId = await comment(neighbour, childBody, rootId);
+  const grandBody = `A nested constructive reply ${Date.now()}`;
+  const grandId = await comment(page, grandBody, childId);
+  for (let i = 0; i < 3; i++) await comment(page, `Fictional later conversation entry ${i}`);
+  await page.goto(`/posts/${post.id}`);
+  await expect(page.locator('article.comment')).toHaveCount(20);
+  await expect(page.getByText(childBody, { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Load more comments', exact: true }).click();
+  await expect(page.locator('article.comment')).toHaveCount(25);
+  await expect(page.getByRole('button', { name: 'Load more comments', exact: true })).toHaveCount(
+    0,
+  );
+  const root = page.getByTestId(`comment-${rootId}`);
+  const child = page.getByTestId(`comment-${childId}`);
+  const grandchild = page.getByTestId(`comment-${grandId}`);
+  await child.getByRole('link', { name: 'Reply to Ananya Rao', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`#comment-${rootId}$`));
+  const collapse = root.getByRole('button', { name: 'Hide replies (2 loaded)', exact: true });
+  await collapse.focus();
+  await collapse.press('Enter');
+  await expect(child).not.toBeVisible();
+  await expect(grandchild).not.toBeVisible();
+  await expect(
+    root.getByRole('button', { name: 'Show replies (2 loaded)', exact: true }),
+  ).toHaveAttribute('aria-expanded', 'false');
+  await root.getByRole('button', { name: 'Show replies (2 loaded)', exact: true }).click();
+  await child.getByRole('button', { name: 'Hide replies (1 loaded)', exact: true }).click();
+  await root.getByRole('button', { name: 'Hide replies (2 loaded)', exact: true }).click();
+  await root.getByRole('button', { name: 'Show replies (2 loaded)', exact: true }).click();
+  await expect(child).toBeVisible();
+  await expect(grandchild).not.toBeVisible();
+  await child.getByRole('button', { name: 'Show replies (1 loaded)', exact: true }).click();
+  await expect(grandchild).toBeVisible();
+  await child.getByRole('button', { name: 'Reply', exact: true }).click();
+  await expect(page.locator('.reply-context blockquote')).toHaveText(childBody);
+  await page.getByRole('button', { name: 'Cancel reply', exact: true }).click();
+  await expect(page.locator('.reply-context')).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('article.comment')).toHaveCount(20);
+  await page.getByLabel('Add to the conversation').fill('A fictional unsent reply draft');
+  await page.route(
+    `**/api/posts/${post.id}/comments?cursor=*`,
+    (route) =>
+      route.fulfill({
+        status: 410,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'CURSOR_EXPIRED', title: 'Refresh this page to continue' }),
+      }),
+    { times: 1 },
+  );
+  await page.getByRole('button', { name: 'Load more comments', exact: true }).click();
+  await expect(page.locator('.thread').getByRole('alert')).toHaveText(
+    'Refresh this page to continue',
+  );
+  await expect(root).toBeVisible();
+  await page.getByRole('button', { name: 'Refresh conversation', exact: true }).click();
+  await expect(page.locator('.thread').getByRole('alert')).toHaveCount(0);
+  await expect(page.getByLabel('Add to the conversation')).toHaveValue(
+    'A fictional unsent reply draft',
+  );
+  await page.getByRole('button', { name: 'Load more comments', exact: true }).click();
+  await expect(page.locator('article.comment')).toHaveCount(25);
+  await root.getByRole('button', { name: 'Reply', exact: true }).click();
+  await root.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete comment?' })
+    .getByRole('button', { name: 'Delete comment', exact: true })
+    .click();
+  await expect(root.getByText('This comment was deleted.', { exact: true })).toBeVisible();
+  await expect(root.getByText(rootBody, { exact: true })).toHaveCount(0);
+  await expect(page.locator('.reply-context')).toHaveCount(0);
+  await expect(
+    child.getByRole('link', { name: 'Reply to a deleted comment', exact: true }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 850 });
+  await child.getByRole('button', { name: 'Reply', exact: true }).click();
+  await expect(page.locator('.reply-context blockquote')).toHaveText(childBody);
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+    .toBe(true);
+  await page.locator('.reply-context').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/paginated-conversation-mobile.png' });
+  const latest = (await (await page.request.get(`/api/posts/${post.id}`)).json()) as Schema['Post'];
+  expect(
+    (
+      await page.request.delete(`/api/posts/${post.id}`, {
+        headers: { 'x-jansetu-csrf': '1', 'if-match': `"${latest.version}"` },
+      })
+    ).status(),
+  ).toBe(204);
+  await other.close();
+  await staff.context.close();
+});
 test('private report, triage, agency work, independent verification, and reviewed public progress', async ({
   page,
   browser,

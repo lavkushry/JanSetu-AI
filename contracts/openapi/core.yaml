@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.6.0
+  version: 0.7.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -436,23 +436,26 @@ paths:
     parameters:
       - $ref: '#/components/parameters/ID'
     get:
+      description: Chronological live pages of visible comments. Rechecks post access, author state and blocks on every page. Pending comments and edit candidates are owner-only. Deleted comments are body-free placeholders.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 1000
       responses:
         '200':
-          description: At most 200 visible comments
+          description: Twenty visible comments per page, with no total-row cap
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - items
-                  - nextCursor
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Comment'
-                  nextCursor:
-                    type: 'null'
+                $ref: '#/components/schemas/CommentPage'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
       operationId: get_posts_by_id_comments
@@ -2211,6 +2214,25 @@ components:
             - string
             - 'null'
           format: uuid
+    CommentPage:
+      type: object
+      required:
+        - items
+        - nextCursor
+        - expiresAt
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/Comment'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+        expiresAt:
+          type: string
+          format: date-time
     Comment:
       type: object
       required:
