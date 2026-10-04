@@ -421,3 +421,61 @@ func TestCancellationDuringOCRDiscardsActualLateOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestExpirySkipsInFlightAttachmentAndRetainsSubmittedPhoto(t *testing.T) {
+	a := testApp(t)
+	owner := login(t, a, 0)
+	sub := uuid.New()
+	raw, e := os.ReadFile("../media/testdata/notice.png")
+	if e != nil {
+		t.Fatal(e)
+	}
+	mid := uploadFixture(t, owner, sub, raw)
+	runMedia(t)
+	input := ReportInput{ClientSubmissionID: sub, Statement: "Fictional report before an attachment finishes", LanguageTag: "en-IN", Category: "OTHER", LocationLabel: "Fictional test crossing", PublicationPreference: "PRIVATE"}
+	r := owner.request("POST", "service-reports", input, 0, sub.String())
+	mustStatus(t, r, 201)
+	var ack struct {
+		ID uuid.UUID `json:"id"`
+	}
+	json.Unmarshal(r.Body.Bytes(), &ack)
+	if _, e = integrationAdmin.Exec(context.Background(), `UPDATE social.media_asset SET created_at=statement_timestamp()-interval '25 hours',storage_cleanup_at=statement_timestamp() WHERE id=$1`, mid); e != nil {
+		t.Fatal(e)
+	}
+	tx, e := integrationAdmin.Begin(context.Background())
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer tx.Rollback(context.Background())
+	var locked uuid.UUID
+	if e = tx.QueryRow(context.Background(), `SELECT id FROM social.media_asset WHERE id=$1 FOR UPDATE`, mid).Scan(&locked); e != nil {
+		t.Fatal(e)
+	}
+	// Hold the same media lock used by the real report attachment command.
+	// Cleanup must skip this in-flight attachment, then observe its committed link.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	finished := make(chan error, 1)
+	worker := mediaWorker(t)
+	go func() { finished <- worker.Once(ctx) }()
+	select {
+	case e = <-finished:
+		if e != nil {
+			t.Fatal("cleanup waited for an in-flight attachment:", e)
+		}
+	case <-ctx.Done():
+		t.Fatal("cleanup blocked an in-flight attachment")
+	}
+	if _, e = tx.Exec(context.Background(), `INSERT INTO ops.report_media(report_id,media_id) VALUES($1,$2)`, ack.ID, mid); e != nil {
+		t.Fatal(e)
+	}
+	if e = tx.Commit(context.Background()); e != nil {
+		t.Fatal(e)
+	}
+	runMedia(t)
+	r = owner.request("GET", "media/"+mid.String(), nil, 0, "")
+	mustStatus(t, r, 200)
+	if !strings.Contains(r.Body.String(), "APPROVED") {
+		t.Fatal("submitted photo was expired")
+	}
+}
