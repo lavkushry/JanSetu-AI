@@ -1500,6 +1500,9 @@ textarea {
   font-weight: 400;
   margin-left: 5px;
 }
+.reply-composer {
+  scroll-margin-top: 160px;
+}
 .reply-composer > label {
   font-size: 11px;
   font-weight: 600;
@@ -1550,6 +1553,7 @@ textarea {
 }
 .comment-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 14px;
   margin-left: 39px;
 }
@@ -1564,6 +1568,56 @@ textarea {
 }
 .comment > .review-note {
   margin-left: 39px;
+}
+.comment[hidden] {
+  display: none;
+}
+.comment {
+  scroll-margin-top: 160px;
+}
+.comment:target {
+  box-shadow: inset 3px 0 var(--blue);
+  padding-left: 12px;
+}
+.comment-context {
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.comment-context a:hover {
+  color: var(--blue);
+  text-decoration: underline;
+}
+.comment-meta .profile-name {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.reply-context {
+  margin: 15px 0;
+}
+.reply-context p {
+  color: var(--muted);
+  font-size: 12px;
+}
+.reply-context .text-button {
+  margin-left: 10px;
+}
+.reply-context blockquote {
+  margin: 8px 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--blue);
+  background: var(--surface-alt);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.conversation-refresh {
+  display: block;
+  margin-top: 16px;
 }
 .steps {
   display: flex;

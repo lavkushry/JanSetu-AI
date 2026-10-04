@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowUp,
   ArrowDown,
@@ -30,6 +30,7 @@ import {
 } from '@/lib/api';
 import { Avatar, Badge, Modal, FormError, Loading, ErrorState, Empty, useSession } from './ui';
 import { refreshSocialVisibility } from '@/lib/social-cache';
+import { conversation } from '@/lib/conversation';
 
 export function PostCard({
   post: p,
@@ -564,14 +565,32 @@ export function Composer({
 export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }) {
   const { me, notify, signIn } = useSession();
   const qc = useQueryClient();
-  const post = useQuery({ queryKey: ['post', id], queryFn: () => api<Post>(`posts/${id}`) });
-  const comments = useQuery({
-    queryKey: ['comments', id],
-    queryFn: () => api<{ items: Schema['Comment'][] }>(`posts/${id}/comments`),
+  const viewer = me?.profile.id || 'guest';
+  const post = useQuery({
+    queryKey: ['post', id, viewer],
+    queryFn: () => api<Post>(`posts/${id}`),
+  });
+  const comments = useInfiniteQuery({
+    queryKey: ['comments', id, viewer],
+    initialPageParam: '',
+    queryFn: ({ pageParam }) =>
+      api<Schema['CommentPage']>(
+        `posts/${id}/comments${pageParam ? `?cursor=${encodeURIComponent(pageParam)}` : ''}`,
+      ),
+    getNextPageParam: (page) => page.nextCursor || undefined,
     enabled: post.isSuccess,
   });
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [submitted, setSubmitted] = useState(false);
+  const tree = useMemo(
+    () => conversation(comments.data?.pages.flatMap((page) => page.items) || [], collapsed),
+    [comments.data, collapsed],
+  );
+  const loadedCount = tree.byId.size;
   const [body, setBody] = useState('');
-  const [parent, setParent] = useState<Schema['Comment'] | null>(null);
+  const [parent, setParent] = useState<string | null>(null);
+  const replyTarget = parent ? tree.byId.get(parent) : null;
+  const replyAvailable = !parent || replyTarget?.state === 'PUBLISHED';
   const key = useRef(crypto.randomUUID());
   const send = useMutation({
     mutationFn: () =>
@@ -580,13 +599,14 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
         body: {
           body,
           languageTag: 'en-IN',
-          parentId: parent?.id || null,
+          parentId: parent,
         } satisfies Schema['CommentInput'],
         key: key.current,
       }),
     onSuccess: () => {
       setBody('');
       setParent(null);
+      setSubmitted(true);
       key.current = crypto.randomUUID();
       qc.invalidateQueries();
       notify('Comment submitted for review');
@@ -609,6 +629,7 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
       await qc.invalidateQueries();
       setEdit(null);
       setDeletion(null);
+      if (remove && parent === c.id) setParent(null);
       notify(remove ? 'Comment deleted' : 'Edit submitted for review');
     } catch (e) {
       setError(e instanceof Error ? e : new Error('Please try again'));
@@ -618,23 +639,12 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
   }
   if (post.isPending) return <Loading />;
   if (post.error) return <ErrorState error={post.error} retry={() => post.refetch()} />;
-  const ordered: Schema['Comment'][] = [];
-  const all = comments.data?.items || [];
-  const seen = new Set<string>();
-  function append(c: Schema['Comment']) {
-    if (seen.has(c.id)) return;
-    seen.add(c.id);
-    ordered.push(c);
-    all.filter((v) => v.parentId === c.id).forEach(append);
-  }
-  all.filter((c) => !c.parentId || !all.some((v) => v.id === c.parentId)).forEach(append);
-  all.forEach(append);
   return (
     <>
       <PostCard post={post.data} detail onEdit={onEdit} />
       <section className="thread">
         <h2>
-          Conversation <span>{all.length}</span>
+          Conversation <span>{loadedCount} loaded</span>
         </h2>
         {post.data.state === 'PUBLISHED' &&
           (me ? (
@@ -642,16 +652,27 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
               className="reply-composer"
               onSubmit={(e) => {
                 e.preventDefault();
-                send.mutate();
+                if (replyAvailable) send.mutate();
               }}
             >
               {parent && (
-                <p>
-                  Replying to {parent.author?.displayName}
-                  <button type="button" className="text-button" onClick={() => setParent(null)}>
-                    Cancel reply
-                  </button>
-                </p>
+                <div className="reply-context">
+                  <p>
+                    {replyAvailable
+                      ? `Replying to ${replyTarget?.author?.displayName || 'this comment'}`
+                      : 'Reply context unavailable'}
+                    <button type="button" className="text-button" onClick={() => setParent(null)}>
+                      Cancel reply
+                    </button>
+                  </p>
+                  {replyAvailable ? (
+                    <blockquote>{replyTarget?.body}</blockquote>
+                  ) : (
+                    <small>
+                      Load this comment again or cancel the reply to start a new comment.
+                    </small>
+                  )}
+                </div>
               )}
               <label htmlFor="reply">Add to the conversation</label>
               <textarea
@@ -661,15 +682,19 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
                 rows={3}
                 placeholder="Be constructive. Share what you know…"
                 value={body}
-                onChange={(e) => setBody(e.target.value)}
+                onChange={(e) => {
+                  setBody(e.target.value);
+                  setSubmitted(false);
+                }}
               />
               <div className="form-actions">
                 <small>Comments are reviewed before publication.</small>
-                <button className="primary small" disabled={send.isPending}>
+                <button className="primary small" disabled={send.isPending || !replyAvailable}>
                   {send.isPending ? 'Submitting…' : 'Submit comment'}
                 </button>
               </div>
               <FormError error={send.error} />
+              {submitted && <p role="status">Your comment was submitted for review.</p>}
             </form>
           ) : (
             <button className="secondary" onClick={signIn}>
@@ -678,19 +703,35 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
           ))}
         {comments.isPending ? (
           <Loading />
-        ) : comments.error ? (
+        ) : comments.error && !comments.data ? (
           <ErrorState error={comments.error} retry={() => comments.refetch()} />
-        ) : ordered.length === 0 ? (
+        ) : loadedCount === 0 ? (
           <Empty title="Be the first to join in">
             Thoughtful conversations start with one comment.
           </Empty>
         ) : (
-          ordered.map((c) => (
+          tree.ordered.map(({ comment: c, hidden }) => (
             <article
+              id={`comment-${c.id}`}
+              data-testid={`comment-${c.id}`}
               className="comment"
               key={c.id}
+              tabIndex={-1}
+              hidden={hidden}
               style={{ marginLeft: `${Math.min(c.depth, 3) * 16}px` }}
             >
+              {c.parentId && (
+                <div className="comment-context">
+                  {tree.byId.has(c.parentId) ? (
+                    <Link href={`#comment-${c.parentId}`}>
+                      Reply to{' '}
+                      {tree.byId.get(c.parentId)?.author?.displayName || 'a deleted comment'}
+                    </Link>
+                  ) : (
+                    <span>Reply to an unavailable comment</span>
+                  )}
+                </div>
+              )}
               <div className="comment-meta">
                 <Avatar name={c.author?.displayName || 'Deleted member'} size="small" />
                 {c.author ? (
@@ -705,7 +746,7 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
               <p>
                 {c.state === 'DELETED'
                   ? 'This comment was deleted.'
-                  : c.state === 'PENDING'
+                  : c.state === 'PENDING' || c.state === 'HIDDEN'
                     ? c.candidate?.body
                     : c.body}
               </p>
@@ -714,16 +755,42 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
                   Your {c.publishedVersion ? 'edit' : 'comment'} is awaiting review.
                 </small>
               )}
+              {c.state === 'HIDDEN' && (
+                <small className="review-note">This comment was not published.</small>
+              )}
               <div className="comment-actions">
-                {c.state === 'PUBLISHED' && (
+                {!!tree.replyCounts.get(c.id) && (
+                  <button
+                    type="button"
+                    aria-expanded={!collapsed.has(c.id)}
+                    aria-controls={tree.children
+                      .get(c.id)
+                      ?.map((child) => `comment-${child.id}`)
+                      .join(' ')}
+                    onClick={() =>
+                      setCollapsed((current) => {
+                        const next = new Set(current);
+                        if (next.has(c.id)) next.delete(c.id);
+                        else next.add(c.id);
+                        return next;
+                      })
+                    }
+                  >
+                    {collapsed.has(c.id) ? 'Show replies' : 'Hide replies'} (
+                    {tree.replyCounts.get(c.id)} loaded)
+                  </button>
+                )}
+                {c.state === 'PUBLISHED' && c.depth < 20 && post.data.state === 'PUBLISHED' && (
                   <button
                     onClick={() => {
                       if (!me) {
                         signIn();
                         return;
                       }
-                      setParent(c);
-                      document.getElementById('reply')?.focus();
+                      setParent(c.id);
+                      const composer = document.getElementById('reply');
+                      composer?.focus({ preventScroll: true });
+                      composer?.closest('form')?.scrollIntoView({ block: 'start' });
                     }}
                   >
                     Reply
@@ -753,6 +820,29 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
               </div>
             </article>
           ))
+        )}
+        {comments.error && comments.data && <FormError error={comments.error} />}
+        {comments.hasNextPage && (
+          <button
+            type="button"
+            className="secondary load-more"
+            disabled={comments.isFetchingNextPage}
+            onClick={() => void comments.fetchNextPage()}
+          >
+            {comments.isFetchingNextPage ? 'Loading comments…' : 'Load more comments'}
+          </button>
+        )}
+        {comments.data && (
+          <button
+            type="button"
+            className="text-button conversation-refresh"
+            disabled={comments.isFetching}
+            onClick={() =>
+              void qc.resetQueries({ queryKey: ['comments', id, viewer], exact: true })
+            }
+          >
+            Refresh conversation
+          </button>
         )}
       </section>
       {edit && (

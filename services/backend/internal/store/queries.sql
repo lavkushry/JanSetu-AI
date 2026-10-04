@@ -144,18 +144,36 @@ UPDATE social.post SET published_revision=current_revision,state='PUBLISHED',pub
 UPDATE social.post SET state=CASE WHEN published_revision IS NULL THEN 'HIDDEN' ELSE state END,version=version+1 WHERE id=$1;
 
 -- name: CommentPage :many
-SELECT jsonb_build_object('id',c.id,'postId',c.post_id,'parentId',c.parent_id,'depth',c.depth,'state',c.state,'version',c.version,
+-- Recheck the thread's access in the same statement as its comment bodies,
+-- including changes after the handler's initial post lookup.
+WITH accessible_post AS (
+ SELECT post.id FROM social.post post LEFT JOIN social.profile author ON author.id=post.author_id
+ LEFT JOIN social.community community ON community.id=post.community_id
+ WHERE post.id=sqlc.arg(post_id)
+ AND (community.id IS NULL OR (community.state='ACTIVE' AND community.visibility IN ('PUBLIC','RESTRICTED')))
+ AND (post.state='DELETED' OR post.author_id IS NULL OR author.state='ACTIVE')
+ AND (post.state IN ('PUBLISHED','DELETED') OR post.author_id=sqlc.arg(viewer_id))
+ AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=sqlc.arg(viewer_id) AND b.blocked_id=post.author_id) OR (b.blocked_id=sqlc.arg(viewer_id) AND b.blocker_id=post.author_id))
+)
+SELECT c.id,c.created_at,jsonb_build_object('id',c.id,'postId',c.post_id,'parentId',c.parent_id,'depth',c.depth,'state',c.state,'version',c.version,
   'currentRevision',c.current_revision,'publishedVersion',c.published_version,'createdAt',c.created_at,
   'body',CASE WHEN c.state='PUBLISHED' THEN c.body ELSE NULL END,
   'author',CASE WHEN c.state='DELETED' THEN NULL ELSE jsonb_build_object('id',p.id,'handle',p.handle,'displayName',p.display_name) END,
   'viewer',jsonb_build_object('canEdit',c.author_id=sqlc.arg(viewer_id) AND c.state IN ('PENDING','PUBLISHED'),'canDelete',c.author_id=sqlc.arg(viewer_id) AND c.state<>'DELETED'),
-  'candidate',CASE WHEN c.author_id=sqlc.arg(viewer_id) THEN jsonb_build_object('body',r.body,'reviewState',r.review_state) ELSE NULL END) AS data
-FROM social.comment c JOIN social.profile p ON p.id=c.author_id
+  'candidate',CASE WHEN c.author_id=sqlc.arg(viewer_id) AND c.state<>'DELETED' THEN jsonb_build_object('body',r.body,'reviewState',r.review_state) ELSE NULL END) AS data
+FROM social.comment c JOIN accessible_post thread ON thread.id=c.post_id JOIN social.profile p ON p.id=c.author_id
 JOIN social.comment_revision r ON r.comment_id=c.id AND r.version=c.current_revision
 WHERE c.post_id=sqlc.arg(post_id) AND (c.state IN ('PUBLISHED','DELETED') OR c.author_id=sqlc.arg(viewer_id))
+  AND (NOT sqlc.arg(has_cursor)::boolean OR (c.created_at,c.id)>(sqlc.arg(after_time)::timestamptz,sqlc.arg(after_id)::uuid))
   AND (c.state='DELETED' OR p.state='ACTIVE')
   AND NOT EXISTS(SELECT 1 FROM social.profile_block b WHERE (b.blocker_id=sqlc.arg(viewer_id) AND b.blocked_id=c.author_id) OR (b.blocked_id=sqlc.arg(viewer_id) AND b.blocker_id=c.author_id))
-ORDER BY c.created_at,c.id LIMIT 200;
+ORDER BY c.created_at,c.id LIMIT 21;
+-- name: CommentReplyable :one
+SELECT EXISTS(SELECT FROM social.comment c JOIN social.profile p ON p.id=c.author_id
+ WHERE c.id=sqlc.arg(comment_id) AND c.post_id=sqlc.arg(post_id) AND c.state='PUBLISHED' AND p.state='ACTIVE'
+ AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=sqlc.arg(viewer_id) AND b.blocked_id=c.author_id) OR (b.blocked_id=sqlc.arg(viewer_id) AND b.blocker_id=c.author_id))) AS allowed;
 -- name: LockComment :one
 SELECT * FROM social.comment WHERE id=$1 FOR UPDATE;
 -- name: InsertComment :exec

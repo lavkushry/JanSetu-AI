@@ -323,6 +323,7 @@ export interface paths {
             };
             cookie?: never;
         };
+        /** @description Chronological live pages of visible comments. Rechecks post access, author state and blocks on every page. Pending comments and edit candidates are owner-only. Deleted comments are body-free placeholders. */
         get: operations["get_posts_by_id_comments"];
         put?: never;
         post: operations["post_posts_by_id_comments"];
@@ -1231,6 +1232,12 @@ export interface components {
             /** Format: uuid */
             parentId?: string | null;
         };
+        CommentPage: {
+            items: components["schemas"]["Comment"][];
+            nextCursor: string | null;
+            /** Format: date-time */
+            expiresAt: string;
+        };
         Comment: {
             id: string;
             postId: string;
@@ -2071,7 +2078,9 @@ export interface operations {
     };
     get_posts_by_id_comments: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string;
+            };
             header?: never;
             path: {
                 id: components["parameters"]["ID"];
@@ -2080,18 +2089,18 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description At most 200 visible comments */
+            /** @description Twenty visible comments per page, with no total-row cap */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        items: components["schemas"]["Comment"][];
-                        nextCursor: null;
-                    };
+                    "application/json": components["schemas"]["CommentPage"];
                 };
             };
+            404: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };

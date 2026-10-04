@@ -483,43 +483,91 @@ func (q *Queries) ClaimEvent(ctx context.Context, arg ClaimEventParams) (InfraOu
 }
 
 const commentPage = `-- name: CommentPage :many
-SELECT jsonb_build_object('id',c.id,'postId',c.post_id,'parentId',c.parent_id,'depth',c.depth,'state',c.state,'version',c.version,
+WITH accessible_post AS (
+ SELECT post.id FROM social.post post LEFT JOIN social.profile author ON author.id=post.author_id
+ LEFT JOIN social.community community ON community.id=post.community_id
+ WHERE post.id=$2
+ AND (community.id IS NULL OR (community.state='ACTIVE' AND community.visibility IN ('PUBLIC','RESTRICTED')))
+ AND (post.state='DELETED' OR post.author_id IS NULL OR author.state='ACTIVE')
+ AND (post.state IN ('PUBLISHED','DELETED') OR post.author_id=$1)
+ AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=$1 AND b.blocked_id=post.author_id) OR (b.blocked_id=$1 AND b.blocker_id=post.author_id))
+)
+SELECT c.id,c.created_at,jsonb_build_object('id',c.id,'postId',c.post_id,'parentId',c.parent_id,'depth',c.depth,'state',c.state,'version',c.version,
   'currentRevision',c.current_revision,'publishedVersion',c.published_version,'createdAt',c.created_at,
   'body',CASE WHEN c.state='PUBLISHED' THEN c.body ELSE NULL END,
   'author',CASE WHEN c.state='DELETED' THEN NULL ELSE jsonb_build_object('id',p.id,'handle',p.handle,'displayName',p.display_name) END,
   'viewer',jsonb_build_object('canEdit',c.author_id=$1 AND c.state IN ('PENDING','PUBLISHED'),'canDelete',c.author_id=$1 AND c.state<>'DELETED'),
-  'candidate',CASE WHEN c.author_id=$1 THEN jsonb_build_object('body',r.body,'reviewState',r.review_state) ELSE NULL END) AS data
-FROM social.comment c JOIN social.profile p ON p.id=c.author_id
+  'candidate',CASE WHEN c.author_id=$1 AND c.state<>'DELETED' THEN jsonb_build_object('body',r.body,'reviewState',r.review_state) ELSE NULL END) AS data
+FROM social.comment c JOIN accessible_post thread ON thread.id=c.post_id JOIN social.profile p ON p.id=c.author_id
 JOIN social.comment_revision r ON r.comment_id=c.id AND r.version=c.current_revision
 WHERE c.post_id=$2 AND (c.state IN ('PUBLISHED','DELETED') OR c.author_id=$1)
+  AND (NOT $3::boolean OR (c.created_at,c.id)>($4::timestamptz,$5::uuid))
   AND (c.state='DELETED' OR p.state='ACTIVE')
   AND NOT EXISTS(SELECT 1 FROM social.profile_block b WHERE (b.blocker_id=$1 AND b.blocked_id=c.author_id) OR (b.blocked_id=$1 AND b.blocker_id=c.author_id))
-ORDER BY c.created_at,c.id LIMIT 200
+ORDER BY c.created_at,c.id LIMIT 21
 `
 
 type CommentPageParams struct {
-	ViewerID uuid.UUID `json:"viewer_id"`
-	PostID   uuid.UUID `json:"post_id"`
+	ViewerID  uuid.UUID          `json:"viewer_id"`
+	PostID    uuid.UUID          `json:"post_id"`
+	HasCursor bool               `json:"has_cursor"`
+	AfterTime pgtype.Timestamptz `json:"after_time"`
+	AfterID   uuid.UUID          `json:"after_id"`
 }
 
-func (q *Queries) CommentPage(ctx context.Context, arg CommentPageParams) ([][]byte, error) {
-	rows, err := q.db.Query(ctx, commentPage, arg.ViewerID, arg.PostID)
+type CommentPageRow struct {
+	ID        uuid.UUID          `json:"id"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	Data      []byte             `json:"data"`
+}
+
+// Recheck the thread's access in the same statement as its comment bodies,
+// including changes after the handler's initial post lookup.
+func (q *Queries) CommentPage(ctx context.Context, arg CommentPageParams) ([]CommentPageRow, error) {
+	rows, err := q.db.Query(ctx, commentPage,
+		arg.ViewerID,
+		arg.PostID,
+		arg.HasCursor,
+		arg.AfterTime,
+		arg.AfterID,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := [][]byte{}
+	items := []CommentPageRow{}
 	for rows.Next() {
-		var data []byte
-		if err := rows.Scan(&data); err != nil {
+		var i CommentPageRow
+		if err := rows.Scan(&i.ID, &i.CreatedAt, &i.Data); err != nil {
 			return nil, err
 		}
-		items = append(items, data)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return items, nil
+}
+
+const commentReplyable = `-- name: CommentReplyable :one
+SELECT EXISTS(SELECT FROM social.comment c JOIN social.profile p ON p.id=c.author_id
+ WHERE c.id=$1 AND c.post_id=$2 AND c.state='PUBLISHED' AND p.state='ACTIVE'
+ AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=$3 AND b.blocked_id=c.author_id) OR (b.blocked_id=$3 AND b.blocker_id=c.author_id))) AS allowed
+`
+
+type CommentReplyableParams struct {
+	CommentID uuid.UUID `json:"comment_id"`
+	PostID    uuid.UUID `json:"post_id"`
+	ViewerID  uuid.UUID `json:"viewer_id"`
+}
+
+func (q *Queries) CommentReplyable(ctx context.Context, arg CommentReplyableParams) (bool, error) {
+	row := q.db.QueryRow(ctx, commentReplyable, arg.CommentID, arg.PostID, arg.ViewerID)
+	var allowed bool
+	err := row.Scan(&allowed)
+	return allowed, err
 }
 
 const communities = `-- name: Communities :many

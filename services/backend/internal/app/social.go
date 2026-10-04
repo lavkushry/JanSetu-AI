@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -213,12 +214,26 @@ func (a *App) comments(w http.ResponseWriter, r *http.Request, actor *Actor) (an
 	if _, e = postData(r.Context(), q, pid, actor, false); e != nil {
 		return nil, 0, e
 	}
-	rows, e := q.CommentPage(r.Context(), dbgen.CommentPageParams{PostID: pid, ViewerID: actorID(actor)})
-	items := []json.RawMessage{}
-	for _, b := range rows {
-		items = append(items, json.RawMessage(b))
+	c, e := a.profilePageCursor(r.URL.Query().Get("cursor"), "comments", actorID(actor), pid)
+	if e != nil {
+		return nil, 0, e
 	}
-	return map[string]any{"items": items, "nextCursor": nil}, 200, e
+	rows, e := q.CommentPage(r.Context(), dbgen.CommentPageParams{PostID: pid, ViewerID: actorID(actor), HasCursor: !c.Before.IsZero(), AfterTime: pgtype.Timestamptz{Time: c.Before, Valid: true}, AfterID: c.ID})
+	if e != nil {
+		return nil, 0, e
+	}
+	items := []json.RawMessage{}
+	for _, row := range rows[:min(20, len(rows))] {
+		items = append(items, json.RawMessage(row.Data))
+	}
+	var next any
+	if len(rows) > 20 {
+		last := rows[19]
+		c.Before = last.CreatedAt.Time
+		c.ID = last.ID
+		next = a.encodeProfileCursor(c)
+	}
+	return map[string]any{"items": items, "nextCursor": next, "expiresAt": time.Unix(c.Expires, 0).UTC().Format(time.RFC3339)}, 200, nil
 }
 
 type CommentInput struct {
@@ -270,6 +285,13 @@ func (a *App) createComment(w http.ResponseWriter, r *http.Request, actor *Actor
 		if b.ParentID != nil {
 			parent, e := q.LockComment(r.Context(), *b.ParentID)
 			if e != nil || parent.PostID != pid || parent.State != "PUBLISHED" {
+				return uuid.Nil, nil, invalid("Choose an available comment in this thread")
+			}
+			allowed, e := q.CommentReplyable(r.Context(), dbgen.CommentReplyableParams{CommentID: parent.ID, PostID: pid, ViewerID: actor.ProfileID})
+			if e != nil {
+				return uuid.Nil, nil, e
+			}
+			if !allowed {
 				return uuid.Nil, nil, invalid("Choose an available comment in this thread")
 			}
 			depth = parent.Depth + 1
