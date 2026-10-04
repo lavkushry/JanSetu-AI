@@ -21,7 +21,7 @@ func (a *App) capabilities(w http.ResponseWriter, r *http.Request, _ *Actor) (an
 		visionStatus, visionNote = "EVALUATING", "Local YOLOX object candidates only. Potholes, leaks, waste, damage, and agency routing are unsupported. Review results yourself."
 	}
 	return map[string]any{"synthetic": true, "mediaUpload": a.Media != nil && a.Files != nil, "ocr": false,
-		"uploads": map[string]any{"mimeTypes": []string{"image/jpeg", "image/png", "image/webp"}, "maxBytes": 10485760, "maxAttachments": 4, "maxPixels": 12000000, "purpose": "REPORT", "adapter": "LOCAL_PRIVATE_SINGLE_PART"},
+		"uploads": map[string]any{"mimeTypes": []string{"image/jpeg", "image/png", "image/webp"}, "maxBytes": 10485760, "maxAttachments": 4, "maxPixels": 12000000, "purpose": "REPORT", "adapter": "LOCAL_PRIVATE_MULTIPART", "partSize": 2097152, "maxParts": 5},
 		"analysisCapabilities": []any{
 			map[string]any{"kind": "OCR", "status": "EVALUATING", "languageTags": []string{"en-IN", "en-US", "en-GB", "en"}, "note": "Local Tesseract English preview; review every word. Production language evaluation is pending."},
 			map[string]any{"kind": "QUALITY", "status": "EVALUATING", "languageTags": []string{}, "note": "Resolution check only; no blur, lighting, or truth assessment."},

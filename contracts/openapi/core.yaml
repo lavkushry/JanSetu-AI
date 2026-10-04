@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.4.0
+  version: 0.5.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -1236,9 +1236,13 @@ paths:
               properties:
                 partNumbers:
                   type: array
+                  minItems: 1
+                  maxItems: 5
+                  uniqueItems: true
                   items:
                     type: integer
-                    const: 1
+                    minimum: 1
+                    maximum: 5
   /media/{id}/parts/{number}:
     put:
       operationId: put_media_part
@@ -1268,7 +1272,9 @@ paths:
           in: path
           required: true
           schema:
-            const: 1
+            type: integer
+            minimum: 1
+            maximum: 5
         - name: token
           in: query
           required: true
@@ -1322,6 +1328,8 @@ paths:
               properties:
                 parts:
                   type: array
+                  minItems: 1
+                  maxItems: 5
                   items:
                     $ref: '#/components/schemas/CompletedPart'
   /media/{id}:
@@ -1759,6 +1767,8 @@ components:
             - maxPixels
             - purpose
             - adapter
+            - partSize
+            - maxParts
           properties:
             mimeTypes:
               type: array
@@ -1770,7 +1780,9 @@ components:
             purpose:
               const: REPORT
             adapter:
-              const: LOCAL_PRIVATE_SINGLE_PART
+              const: LOCAL_PRIVATE_MULTIPART
+            partSize: *id004
+            maxParts: *id004
         analysisCapabilities:
           type: array
           items:
@@ -2703,7 +2715,8 @@ components:
       properties:
         number:
           type: integer
-          const: 1
+          minimum: 1
+          maximum: 5
         url: *id003
         expiresAt: *id003
     CompletedPart:
@@ -2714,7 +2727,8 @@ components:
       properties:
         number:
           type: integer
-          const: 1
+          minimum: 1
+          maximum: 5
         etag: *id003
     UploadSession:
       type: object
@@ -2723,6 +2737,9 @@ components:
         - uploadId
         - state
         - partSize
+        - byteCount
+        - mimeType
+        - sourceSha256
         - parts
         - completedParts
         - expiresAt
@@ -2738,6 +2755,11 @@ components:
             - ABORTED
             - EXPIRED
         partSize: *id004
+        byteCount: *id004
+        mimeType: *id003
+        sourceSha256:
+          type: [string, 'null']
+          pattern: '^[a-f0-9]{64}$'
         parts:
           type: array
           items:
@@ -2750,6 +2772,7 @@ components:
         version: *id004
     UploadInput:
       type: object
+      description: Supply clientUploadId and sourceSha256 together for resumable 2 MiB parts and allocation idempotency. Omitting both preserves legacy single-part uploads. Reusing an identity with different bytes, MIME, or size returns 409.
       required:
         - clientSubmissionId
         - mimeType
@@ -2757,6 +2780,10 @@ components:
         - purpose
       properties:
         clientSubmissionId: *id002
+        clientUploadId: *id002
+        sourceSha256:
+          type: string
+          pattern: '^[a-fA-F0-9]{64}$'
         mimeType:
           type: string
           enum:
