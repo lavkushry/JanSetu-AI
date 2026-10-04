@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bell, VolumeX, Volume2, Users } from 'lucide-react';
 import { api, type Schema } from '@/lib/api';
@@ -202,47 +203,50 @@ export function MuteControl({
         {!menu && (active ? <Volume2 size={16} /> : <VolumeX size={16} />)}
         {active ? `Unmute ${kind}` : `Mute ${kind}`}
       </button>
-      {open && (
-        <Modal title={`Mute this ${kind}?`} onClose={() => !save.isPending && setOpen(false)}>
-          <p>
-            <strong>{label}</strong> will be muted in your feed, post search and reply alerts. You
-            can still open public profiles, threads and bookmarks. Follows and public service
-            progress stay available.
-          </p>
-          <label>
-            Mute duration
-            <select
-              value={duration}
-              onChange={(e) => setDuration(e.target.value)}
-              disabled={save.isPending}
-            >
-              <option value="FOREVER">Until I unmute</option>
-              <option value="HOUR">1 hour</option>
-              <option value="DAY">24 hours</option>
-              <option value="WEEK">7 days</option>
-            </select>
-          </label>
-          <FormError error={save.error} />
-          <div className="form-actions">
-            <button
-              type="button"
-              className="secondary"
-              disabled={save.isPending}
-              onClick={() => setOpen(false)}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="primary"
-              disabled={save.isPending}
-              onClick={() => save.mutate(true)}
-            >
-              {save.isPending ? 'Saving…' : `Mute ${kind}`}
-            </button>
-          </div>
-        </Modal>
-      )}
+      {/* Keep the confirmation visible when its parent post menu closes. */}
+      {open &&
+        createPortal(
+          <Modal title={`Mute this ${kind}?`} onClose={() => !save.isPending && setOpen(false)}>
+            <p>
+              <strong>{label}</strong> will be muted in your feed, post search and reply alerts. You
+              can still open public profiles, threads and bookmarks. Follows and public service
+              progress stay available.
+            </p>
+            <label>
+              Mute duration
+              <select
+                value={duration}
+                onChange={(e) => setDuration(e.target.value)}
+                disabled={save.isPending}
+              >
+                <option value="FOREVER">Until I unmute</option>
+                <option value="HOUR">1 hour</option>
+                <option value="DAY">24 hours</option>
+                <option value="WEEK">7 days</option>
+              </select>
+            </label>
+            <FormError error={save.error} />
+            <div className="form-actions">
+              <button
+                type="button"
+                className="secondary"
+                disabled={save.isPending}
+                onClick={() => setOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={save.isPending}
+                onClick={() => save.mutate(true)}
+              >
+                {save.isPending ? 'Saving…' : `Mute ${kind}`}
+              </button>
+            </div>
+          </Modal>,
+          document.body,
+        )}
     </>
   );
 }

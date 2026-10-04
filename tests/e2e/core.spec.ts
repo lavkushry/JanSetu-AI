@@ -1487,6 +1487,26 @@ test('person and community mutes preserve explicit access and can be managed fro
   await expect(person).toHaveCount(0);
   await page.goto(`/search?q=${encodeURIComponent(marker)}`);
   await expect(page.getByText(marker, { exact: true })).toBeVisible();
+  await page.goto(`/posts/${post.id}`);
+  await page.getByLabel('Post options').click();
+  await page.getByRole('button', { name: 'Mute person', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator('details.menu')).not.toHaveAttribute('open');
+  await page.getByLabel('Post options').click();
+  await page.getByRole('button', { name: 'Mute person', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Mute person', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await page.getByLabel('Post options').click();
+  await page.getByRole('button', { name: 'Unmute person', exact: true }).click();
+  await expect
+    .poll(async () => {
+      const mutes = (await (await page.request.get('/api/me/mutes')).json()) as Schema['MutePage'];
+      return mutes.items.some((item) => item.targetId === writer.profile.id);
+    })
+    .toBe(false);
   await page.goto(`/communities/${communityId}`);
   await page.getByRole('button', { name: 'Mute community', exact: true }).click();
   await page

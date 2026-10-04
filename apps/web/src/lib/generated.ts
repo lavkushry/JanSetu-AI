@@ -2710,6 +2710,7 @@ export interface operations {
             query?: never;
             header: {
                 "If-Match": components["parameters"]["Version"];
+                "X-JanSetu-CSRF": "1";
             };
             path?: never;
             cookie?: never;
@@ -2765,7 +2766,9 @@ export interface operations {
     set_mute: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-JanSetu-CSRF": "1";
+            };
             path?: never;
             cookie?: never;
         };

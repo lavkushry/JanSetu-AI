@@ -844,6 +844,12 @@ paths:
       description: Versioned desired state. Turning off hides current Activity and suppresses new worker deliveries. Other stored preference fields and channels are preserved.
       parameters:
         - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
       requestBody:
         required: true
         content:
@@ -896,6 +902,13 @@ paths:
     put:
       operationId: set_mute
       description: Reversible desired-state person/community mute. Active targets must be available; removal can clear an inactive or blocked target. Expiry is optional, otherwise indefinite; a supplied expiry must be future and within one year. Mutes affect feed/search posts and reply Activity, preserving explicit profiles, threads, bookmarks, follows and institutional receipts.
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
       requestBody:
         required: true
         content:
