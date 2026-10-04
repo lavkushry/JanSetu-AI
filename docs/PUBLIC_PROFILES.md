@@ -35,7 +35,7 @@ Profile posts are ordered by original publication time and UUID, newest first. B
 
 Keyset pages have no two-hundred-row total cap. Newly published posts ahead of an existing page position appear on refresh, while edits retain the original publication order. Later pages apply current visibility and can omit removed/blocked content. These are live pages, not a frozen historical export. Cursor keys remain process-local, so API restart requires refreshing the first page. Persistent shared keys, search relevance/localization evaluation, capacity tests, follower directories/counts and public comment/activity histories remain pending.
 
-[Migration 00011](../db/migrations/00011_profile_discovery.sql) adds author/publication and owner/block-time indexes. It changes no existing data, ownership mapping or privileges. A targeted upgrade is:
+[Migration 00011](../db/migrations/00011_profile_discovery.sql) adds an owner/block-time index. Profile timelines use the existing partial author/publication index from the foundation migration. This changes no existing data, ownership mapping or privileges. A targeted upgrade is:
 
 ```bash
 docker compose build migrate api web
