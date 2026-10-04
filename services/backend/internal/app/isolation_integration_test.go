@@ -368,3 +368,39 @@ func TestSessionExpiryInsideOpenTransaction(t *testing.T) {
 		t.Fatal("transaction retained expired session access", count, err)
 	}
 }
+
+func TestAliasGrantExpiryInsideOpenTransaction(t *testing.T) {
+	a := testApp(t)
+	owner := login(t, a, 0)
+	rid := privateFixture(t, owner)
+	grant, err := a.Vault.Aliases(context.Background(), owner.cookie.Value, uuid.NewString(), uuid.Nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err = json.Unmarshal([]byte(grant.Claim), &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload["expiresAt"] = time.Now().Add(2 * time.Second).Unix()
+	b, _ := json.Marshal(payload)
+	grant.Claim = string(b)
+	m := hmac.New(sha256.New, integrationKeys.SigningKey)
+	m.Write(b)
+	grant.Signature = hex.EncodeToString(m.Sum(nil))
+	ctx := scopedContext(owner, a.Operations, grant)
+	tx, err := a.begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	var count int
+	if err = tx.QueryRow(ctx, "SELECT count(*) FROM ops.report WHERE id=$1", rid).Scan(&count); err != nil || count != 1 {
+		t.Fatal("initial grant unavailable", count, err)
+	}
+	if _, err = tx.Exec(ctx, "SELECT pg_sleep(2.2)"); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.QueryRow(ctx, "SELECT count(*) FROM ops.report WHERE id=$1", rid).Scan(&count); err != nil || count != 0 {
+		t.Fatal("transaction retained expired alias grant access", count, err)
+	}
+}

@@ -12,7 +12,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
  FROM identity.session s JOIN identity.principal ip ON ip.id=s.principal_id
  JOIN social.profile p ON p.id=ip.profile_id
  WHERE octet_length(token)=32 AND s.token_hash=token AND s.auth_method=mode
- AND s.revoked_at IS NULL AND s.expires_at>now() AND s.last_seen_at>now()-interval '30 minutes'
+ AND s.revoked_at IS NULL AND s.expires_at>statement_timestamp() AND s.last_seen_at>statement_timestamp()-interval '30 minutes'
  AND ip.state='ACTIVE' AND p.state='ACTIVE'
  AND (s.auth_method='demo' OR (s.provider=issuer AND EXISTS(SELECT FROM identity.account_binding b WHERE b.provider=s.provider AND b.provider_subject=s.provider_subject AND b.principal_id=ip.id AND b.state='ACTIVE')))
 $$;
@@ -20,10 +20,10 @@ CREATE FUNCTION authz.principal() RETURNS uuid LANGUAGE sql STABLE SECURITY DEFI
  SELECT principal_id FROM authz.authenticate(decode(nullif(current_setting('jansetu.session_hash',true),''),'hex'),current_setting('jansetu.auth_mode',true),current_setting('jansetu.issuer',true))
 $$;
 CREATE FUNCTION authz.has_role(wanted text) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
- SELECT EXISTS(SELECT FROM identity.platform_grant WHERE principal_id=authz.principal() AND role=wanted AND revoked_at IS NULL AND valid_to>now())
+ SELECT EXISTS(SELECT FROM identity.platform_grant WHERE principal_id=authz.principal() AND role=wanted AND revoked_at IS NULL AND valid_to>statement_timestamp())
 $$;
 CREATE FUNCTION authz.agency(aid uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
- SELECT EXISTS(SELECT FROM identity.organization_grant g JOIN ops.agency a ON a.id=g.agency_id WHERE g.principal_id=authz.principal() AND g.agency_id=aid AND g.revoked_at IS NULL AND g.valid_from<=now() AND g.valid_to>now() AND a.state='ACTIVE')
+ SELECT EXISTS(SELECT FROM identity.organization_grant g JOIN ops.agency a ON a.id=g.agency_id WHERE g.principal_id=authz.principal() AND g.agency_id=aid AND g.revoked_at IS NULL AND g.valid_from<=statement_timestamp() AND g.valid_to>statement_timestamp() AND a.state='ACTIVE')
 $$;
 CREATE FUNCTION authz.owns_alias(alias uuid) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
 DECLARE claim text := current_setting('jansetu.vault_claim',true); body jsonb; signature text := current_setting('jansetu.vault_signature',true);
@@ -31,7 +31,7 @@ BEGIN
  IF authz.principal() IS NULL OR claim IS NULL OR claim='' OR signature IS NULL THEN RETURN false; END IF;
  IF NOT EXISTS(SELECT FROM authz.vault_key WHERE encode(public.hmac(convert_to(claim,'UTF8'),signing_key,'sha256'),'hex')=signature) THEN RETURN false; END IF;
  body := claim::jsonb;
- RETURN body->>'sessionHash'=current_setting('jansetu.session_hash',true) AND (body->>'expiresAt')::bigint>extract(epoch FROM now()) AND body->'aliases' ? alias::text;
+ RETURN body->>'sessionHash'=current_setting('jansetu.session_hash',true) AND (body->>'expiresAt')::bigint>extract(epoch FROM statement_timestamp()) AND body->'aliases' ? alias::text;
 EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN RETURN false;
 END $$;
 CREATE FUNCTION authz.owns_report(rid uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$

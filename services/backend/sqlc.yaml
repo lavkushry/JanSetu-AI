@@ -8,6 +8,7 @@ sql:
       - ../../db/migrations/00004_database_isolation.sql
       - ../../db/migrations/00005_publication_report_scope.sql
       - ../../db/migrations/00006_live_scope.sql
+      - ../../db/migrations/00007_alias_grant_expiry.sql
     queries: internal/store/queries.sql
     gen:
       go:
