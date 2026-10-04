@@ -438,3 +438,35 @@ test('invalid photo removal and unsupported OCR preserve manual reporting', asyn
     page.getByRole('heading', { name: 'Your report was received', exact: true }),
   ).toBeVisible();
 });
+
+test('retry clears a lost upload-completion response without reuploading', async ({ page }) => {
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  let completionCalls = 0;
+  let partCalls = 0;
+  page.on('request', (request) => {
+    if (request.method() === 'PUT' && /\/api\/media\/[^/]+\/parts\/1/.test(request.url()))
+      partCalls++;
+  });
+  await page.route('**/api/media/*/complete', async (route) => {
+    completionCalls++;
+    // The server commits completion; only its response to the browser is lost.
+    const response = await route.fetch();
+    expect(response.status()).toBe(202);
+    await route.abort('failed');
+  });
+  await dialog
+    .getByLabel('Choose report photos')
+    .setInputFiles('services/backend/internal/media/testdata/notice.png');
+  await expect(dialog.getByRole('button', { name: 'Retry upload', exact: true })).toBeVisible();
+  await expect(
+    dialog.getByRole('img', { name: 'Private report photo 1', exact: true }),
+  ).toBeVisible();
+  await dialog.getByRole('button', { name: 'Retry upload', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Retry upload', exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('article', { name: 'Photo 1' }).getByRole('alert')).toHaveCount(0);
+  expect(completionCalls).toBe(1);
+  expect(partCalls).toBe(1);
+});
