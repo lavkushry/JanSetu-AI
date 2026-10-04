@@ -139,6 +139,20 @@ func (q *Queries) AssignCoordinator(ctx context.Context, arg AssignCoordinatorPa
 	return err
 }
 
+const attachReportMedia = `-- name: AttachReportMedia :exec
+INSERT INTO ops.report_media(report_id,media_id) VALUES($1,$2)
+`
+
+type AttachReportMediaParams struct {
+	ReportID uuid.UUID `json:"report_id"`
+	MediaID  uuid.UUID `json:"media_id"`
+}
+
+func (q *Queries) AttachReportMedia(ctx context.Context, arg AttachReportMediaParams) error {
+	_, err := q.db.Exec(ctx, attachReportMedia, arg.ReportID, arg.MediaID)
+	return err
+}
+
 const candidateComment = `-- name: CandidateComment :one
 SELECT body FROM social.comment_revision WHERE comment_id=$1 AND version=$2
 `
@@ -1958,6 +1972,50 @@ func (q *Queries) ReportBySubmission(ctx context.Context, clientSubmissionID uui
 		&i.Version,
 	)
 	return i, err
+}
+
+const reportMediaAttachable = `-- name: ReportMediaAttachable :one
+SELECT authz.media_attachable($1,$2)::boolean AS allowed
+`
+
+type ReportMediaAttachableParams struct {
+	Mid uuid.UUID `json:"mid"`
+	Rid uuid.UUID `json:"rid"`
+}
+
+func (q *Queries) ReportMediaAttachable(ctx context.Context, arg ReportMediaAttachableParams) (bool, error) {
+	row := q.db.QueryRow(ctx, reportMediaAttachable, arg.Mid, arg.Rid)
+	var allowed bool
+	err := row.Scan(&allowed)
+	return allowed, err
+}
+
+const reportMediaIDs = `-- name: ReportMediaIDs :one
+SELECT authz.report_media_ids($1)::uuid[] AS media_ids
+`
+
+func (q *Queries) ReportMediaIDs(ctx context.Context, rid uuid.UUID) ([]uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, reportMediaIDs, rid)
+	var media_ids []uuid.UUID
+	err := row.Scan(&media_ids)
+	return media_ids, err
+}
+
+const reportOCRRegion = `-- name: ReportOCRRegion :one
+SELECT coalesce(authz.report_ocr_region($1,$2,$3),'')::text AS original_text
+`
+
+type ReportOCRRegionParams struct {
+	Rid    uuid.UUID `json:"rid"`
+	Tid    uuid.UUID `json:"tid"`
+	Region string    `json:"region"`
+}
+
+func (q *Queries) ReportOCRRegion(ctx context.Context, arg ReportOCRRegionParams) (string, error) {
+	row := q.db.QueryRow(ctx, reportOCRRegion, arg.Rid, arg.Tid, arg.Region)
+	var original_text string
+	err := row.Scan(&original_text)
+	return original_text, err
 }
 
 const retryEvent = `-- name: RetryEvent :exec

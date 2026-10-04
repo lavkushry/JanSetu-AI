@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/authn"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/media"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/platform"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/vault"
@@ -30,6 +31,8 @@ type App struct {
 	DB, Auth, Operations, Publication, Worker *pgxpool.Pool
 	Vault                                     *vault.Client
 	Config                                    platform.Config
+	Media                                     *pgxpool.Pool
+	Files                                     *media.Storage
 	cursorKey                                 []byte
 	Identity                                  *authn.Provider
 }
@@ -141,6 +144,9 @@ func (a *App) route(fn endpoint) http.HandlerFunc {
 		result, status, err := fn(w, r, actor)
 		if err != nil {
 			a.respondError(w, err, requestID)
+			return
+		}
+		if status == -1 {
 			return
 		}
 		if status == 0 {
@@ -394,7 +400,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		if a.DB.Ping(ctx) != nil || a.Auth.Ping(ctx) != nil || a.Operations.Ping(ctx) != nil || a.Publication.Ping(ctx) != nil || a.Vault.Ready(ctx) != nil {
+		if (a.Media != nil && a.Media.Ping(ctx) != nil) || a.DB.Ping(ctx) != nil || a.Auth.Ping(ctx) != nil || a.Operations.Ping(ctx) != nil || a.Publication.Ping(ctx) != nil || a.Vault.Ready(ctx) != nil {
 			writeJSON(w, 503, map[string]bool{"ok": false})
 			return
 		}
@@ -403,6 +409,12 @@ func (a *App) Handler() http.Handler {
 	for pattern, fn := range map[string]endpoint{
 		"GET /v1/dev/accounts": a.accounts, "POST /v1/dev/session": a.signIn, "POST /v1/me/logout": a.logout, "GET /v1/me": a.me,
 		"GET /v1/auth/config": a.authConfig, "GET /v1/me/sessions": a.listSessions, "DELETE /v1/me/sessions/{id}": a.revokeSession, "POST /v1/me/sessions/revoke-others": a.revokeOtherSessions, "PATCH /v1/me/profile": a.updateProfile,
+		"POST /v1/media/uploads": a.createUpload, "GET /v1/media/{id}/upload": a.uploadStatus,
+		"POST /v1/media/{id}/upload-parts": a.renewUpload, "PUT /v1/media/{id}/parts/{number}": a.uploadPart,
+		"POST /v1/media/{id}/complete": a.completeUpload, "DELETE /v1/media/{id}/upload": a.abortUpload,
+		"GET /v1/media/{id}": a.getMedia, "GET /v1/media/{id}/content": a.mediaContent,
+		"POST /v1/media/{id}/analyses": a.createAnalysis, "GET /v1/analyses/{id}": a.getAnalysis,
+		"POST /v1/analyses/{id}/retry": a.retryAnalysis, "DELETE /v1/analyses/{id}": a.cancelAnalysis,
 		"GET /v1/capabilities": a.capabilities, "GET /v1/communities": a.communities, "GET /v1/communities/{id}": a.community,
 		"PUT /v1/communities/{id}/membership": a.membership, "PUT /v1/communities/{id}/follow": a.communityFollow,
 		"GET /v1/feed": a.feed, "GET /v1/search": a.search, "GET /v1/me/bookmarks": a.bookmarks,
@@ -423,7 +435,11 @@ func (a *App) Handler() http.Handler {
 		mux.HandleFunc(pattern, a.route(fn))
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, 65536)
+		limit := int64(65536)
+		if r.Method == "PUT" && strings.HasPrefix(r.URL.Path, "/v1/media/") && strings.Contains(r.URL.Path, "/parts/") {
+			limit = media.MaxBytes
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		mux.ServeHTTP(w, r)
 	})
 }

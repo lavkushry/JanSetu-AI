@@ -29,15 +29,22 @@ async function forward(request: NextRequest, { params }: { params: Promise<{ pat
   }
   if (!['GET', 'HEAD'].includes(request.method))
     headers.set('origin', process.env.JANSETU_WEB_ORIGIN || 'http://localhost:3100');
+  const binaryUpload =
+    request.method === 'PUT' &&
+    path.length === 4 &&
+    path[0] === 'media' &&
+    path[2] === 'parts' &&
+    path[3] === '1';
+  const maxBody = binaryUpload ? 10 * 1024 * 1024 : 65536;
   try {
     let body: ArrayBuffer | undefined;
     if (!['GET', 'HEAD'].includes(request.method)) {
-      if (Number(request.headers.get('content-length') || 0) > 65536)
+      if (Number(request.headers.get('content-length') || 0) > maxBody)
         return Response.json(
           { code: 'BODY_TOO_LARGE', title: 'Request is too large' },
           { status: 413 },
         );
-      // Read at most 64 KiB even when transfer encoding omits Content-Length.
+      // Enforce the endpoint bound even when Content-Length is absent.
       const reader = request.body?.getReader();
       const chunks: Uint8Array[] = [];
       let size = 0;
@@ -46,7 +53,7 @@ async function forward(request: NextRequest, { params }: { params: Promise<{ pat
           const { done, value } = await reader.read();
           if (done) break;
           size += value.length;
-          if (size > 65536) {
+          if (size > maxBody) {
             await reader.cancel();
             return Response.json(
               { code: 'BODY_TOO_LARGE', title: 'Request is too large' },
@@ -74,13 +81,19 @@ async function forward(request: NextRequest, { params }: { params: Promise<{ pat
     });
     const responseHeaders = new Headers({
       'cache-control': 'private, no-store',
-      'content-type': 'application/json',
+      'content-type': upstream.headers.get('content-type') || 'application/json',
       'x-content-type-options': 'nosniff',
       'referrer-policy': 'no-referrer',
     });
     for (const cookie of upstream.headers.getSetCookie())
       responseHeaders.append('set-cookie', cookie);
-    for (const key of ['etag', 'x-request-id', 'location']) {
+    for (const key of [
+      'etag',
+      'x-request-id',
+      'location',
+      'content-disposition',
+      'content-length',
+    ]) {
       const value = upstream.headers.get(key);
       if (value) responseHeaders.set(key, value);
     }

@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/media"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/platform"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/vault"
@@ -29,6 +30,7 @@ import (
 var integrationApp *App
 var integrationAdmin, integrationVaultAdmin, integrationVaultRuntime, integrationVaultAuth *pgxpool.Pool
 var integrationKeys vault.Keys
+var integrationMediaWorker *pgxpool.Pool
 
 func administratorURL() string {
 	if v := os.Getenv("JANSETU_MIGRATION_DATABASE_URL"); v != "" {
@@ -55,6 +57,8 @@ func cloneTestApp(t *testing.T, cfg platform.Config) *App {
 	a.Operations = base.Operations
 	a.Publication = base.Publication
 	a.Worker = base.Worker
+	a.Media = base.Media
+	a.Files = base.Files
 	return a
 }
 
@@ -154,7 +158,7 @@ func TestMain(m *testing.M) {
 			}
 		}
 		pools := map[string]*pgxpool.Pool{}
-		for _, role := range []string{"js_auth", "js_social", "js_ops", "js_publication", "js_worker", "js_vault", "js_vault_auth"} {
+		for _, role := range []string{"js_auth", "js_social", "js_ops", "js_publication", "js_worker", "js_vault", "js_vault_auth", "js_media", "js_media_worker"} {
 			dsn := dsns[0]
 			if role == "js_vault" {
 				dsn = dsns[1]
@@ -183,6 +187,17 @@ func TestMain(m *testing.M) {
 		integrationApp.Operations = pools["js_ops"]
 		integrationApp.Publication = pools["js_publication"]
 		integrationApp.Worker = pools["js_worker"]
+		integrationApp.Media = pools["js_media"]
+		integrationMediaWorker = pools["js_media_worker"]
+		mediaDir, e := os.MkdirTemp("", "jansetu-media-test-")
+		if e != nil {
+			return 1
+		}
+		defer os.RemoveAll(mediaDir)
+		integrationApp.Files, e = media.NewStorage(mediaDir)
+		if e != nil {
+			return 1
+		}
 		return m.Run()
 	}()
 	os.Exit(code)

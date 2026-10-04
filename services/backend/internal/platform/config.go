@@ -11,6 +11,7 @@ import (
 )
 
 type Config struct {
+	MediaURL, MediaWorkerURL, MediaDir, OCRBinary                                                                        string
 	Environment, DatabaseURL, SocialURL, OperationsURL, PublicationURL, WorkerURL, VaultURL, VaultToken, Addr, WebOrigin string
 	AuthMode, OIDCIssuer, OIDCClientID, OIDCClientSecret, OIDCBackchannel                                                string
 }
@@ -24,6 +25,10 @@ func env(key, fallback string) string {
 
 func Load() (Config, error) {
 	c := Config{
+		MediaURL:         env("JANSETU_MEDIA_DATABASE_URL", "postgres://js_media:js_media-local@localhost:5438/jansetu?sslmode=disable"),
+		MediaWorkerURL:   env("JANSETU_MEDIA_WORKER_DATABASE_URL", "postgres://js_media_worker:js_media_worker-local@localhost:5438/jansetu?sslmode=disable"),
+		MediaDir:         env("JANSETU_MEDIA_DIR", "/tmp/jansetu-media"),
+		OCRBinary:        env("JANSETU_OCR_BINARY", "tesseract"),
 		Environment:      env("JANSETU_ENV", "local"),
 		DatabaseURL:      env("JANSETU_DATABASE_URL", "postgres://js_auth:js_auth-local@localhost:5438/jansetu?sslmode=disable"),
 		SocialURL:        env("JANSETU_SOCIAL_DATABASE_URL", "postgres://js_social:js_social-local@localhost:5438/jansetu?sslmode=disable"),

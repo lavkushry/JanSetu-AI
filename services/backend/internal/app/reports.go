@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,16 +16,43 @@ import (
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/vault"
 )
 
+type OCRCorrection struct {
+	TaskID        uuid.UUID `json:"taskId"`
+	RegionID      string    `json:"regionId"`
+	OriginalText  string    `json:"originalText"`
+	CorrectedText string    `json:"correctedText"`
+	AppliedAt     time.Time `json:"appliedAt"`
+}
 type ReportInput struct {
-	ClientSubmissionID    uuid.UUID `json:"clientSubmissionId"`
-	Statement             string    `json:"statement"`
-	LanguageTag           string    `json:"languageTag"`
-	Category              string    `json:"category"`
-	LocationLabel         string    `json:"locationLabel"`
-	PublicationPreference string    `json:"publicationPreference"`
+	MediaIDs              []uuid.UUID     `json:"mediaIds,omitempty"`
+	OCRCorrections        []OCRCorrection `json:"ocrCorrections,omitempty"`
+	ClientSubmissionID    uuid.UUID       `json:"clientSubmissionId"`
+	Statement             string          `json:"statement"`
+	LanguageTag           string          `json:"languageTag"`
+	Category              string          `json:"category"`
+	LocationLabel         string          `json:"locationLabel"`
+	PublicationPreference string          `json:"publicationPreference"`
 }
 
 func (b *ReportInput) validate() error {
+	if len(b.MediaIDs) > 4 || len(b.OCRCorrections) > 500 {
+		return invalid("Attach up to four photos")
+	}
+	seen := map[uuid.UUID]bool{}
+	for _, mid := range b.MediaIDs {
+		if mid == uuid.Nil || seen[mid] {
+			return invalid("Choose distinct uploaded photos")
+		}
+		seen[mid] = true
+	}
+	regions := map[string]bool{}
+	for _, c := range b.OCRCorrections {
+		key := c.TaskID.String() + ":" + c.RegionID
+		if c.TaskID == uuid.Nil || !textValid(c.RegionID, 1, 50) || !textValid(c.OriginalText, 1, 500) || !textValid(c.CorrectedText, 0, 500) || c.AppliedAt.IsZero() || c.AppliedAt.After(time.Now().Add(time.Minute)) || regions[key] {
+			return invalid("Check your reviewed OCR text")
+		}
+		regions[key] = true
+	}
 	b.Statement = strings.TrimSpace(b.Statement)
 	b.LocationLabel = strings.TrimSpace(b.LocationLabel)
 	if b.LanguageTag == "" {
@@ -101,9 +129,27 @@ func (a *App) submitReport(w http.ResponseWriter, r *http.Request, actor *Actor)
 			return uuid.Nil, nil, e
 		}
 		rid := uuid.New()
-		metadata := jsonBytes(map[string]any{"category": b.Category, "locationLabel": b.LocationLabel})
+		metadata := jsonBytes(map[string]any{"category": b.Category, "locationLabel": b.LocationLabel, "ocrCorrections": b.OCRCorrections})
 		if e = q.InsertReport(r.Context(), dbgen.InsertReportParams{ID: rid, ClientSubmissionID: b.ClientSubmissionID, ReporterRef: &alias, LanguageTag: b.LanguageTag, Statement: b.Statement, PublicationPreference: b.PublicationPreference, IntakeMetadata: metadata, RequestHash: hash[:]}); e != nil {
 			return uuid.Nil, nil, e
+		}
+		for _, mid := range b.MediaIDs {
+			allowed, err := q.ReportMediaAttachable(r.Context(), dbgen.ReportMediaAttachableParams{Mid: mid, Rid: rid})
+			if err != nil {
+				return uuid.Nil, nil, err
+			}
+			if !allowed {
+				return uuid.Nil, nil, invalid("Only ready photos uploaded for this report can be attached")
+			}
+			if e = q.AttachReportMedia(r.Context(), dbgen.AttachReportMediaParams{ReportID: rid, MediaID: mid}); e != nil {
+				return uuid.Nil, nil, e
+			}
+		}
+		for _, c := range b.OCRCorrections {
+			original, err := q.ReportOCRRegion(r.Context(), dbgen.ReportOCRRegionParams{Rid: rid, Tid: c.TaskID, Region: c.RegionID})
+			if err != nil || original != c.OriginalText {
+				return uuid.Nil, nil, invalid("The OCR region does not belong to this report or has changed")
+			}
 		}
 		if e = q.InsertIntakeReview(r.Context(), rid); e != nil {
 			return uuid.Nil, nil, e
@@ -160,7 +206,11 @@ func (a *App) ownProgress(r *http.Request, actor *Actor, reportID uuid.UUID) ([]
 			}
 
 		}
-		items = append(items, map[string]any{"id": v.ID, "statement": v.Statement, "languageTag": v.LanguageTag, "receivedAt": timestamp(v.ReceivedAt), "state": progress, "receiptId": v.ReceiptID, "responsibilities": responsibilities})
+		mediaIDs, err := q.ReportMediaIDs(r.Context(), v.ID)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, map[string]any{"mediaIds": mediaIDs, "id": v.ID, "statement": v.Statement, "languageTag": v.LanguageTag, "receivedAt": timestamp(v.ReceivedAt), "state": progress, "receiptId": v.ReceiptID, "responsibilities": responsibilities})
 	}
 	return items, nil
 }
@@ -192,7 +242,11 @@ func (a *App) intakeQueue(w http.ResponseWriter, r *http.Request, actor *Actor) 
 	rows, e := dbgen.New(a.store(r.Context())).IntakeQueue(r.Context())
 	items := []any{}
 	for _, v := range rows {
-		items = append(items, map[string]any{"id": v.ID, "statement": v.Statement, "languageTag": v.LanguageTag, "publicationPreference": v.PublicationPreference, "metadata": json.RawMessage(v.IntakeMetadata), "receivedAt": timestamp(v.ReceivedAt), "version": v.Version})
+		mediaIDs, err := dbgen.New(a.store(r.Context())).ReportMediaIDs(r.Context(), v.ID)
+		if err != nil {
+			return nil, 0, err
+		}
+		items = append(items, map[string]any{"mediaIds": mediaIDs, "id": v.ID, "statement": v.Statement, "languageTag": v.LanguageTag, "publicationPreference": v.PublicationPreference, "metadata": json.RawMessage(v.IntakeMetadata), "receivedAt": timestamp(v.ReceivedAt), "version": v.Version})
 	}
 	return map[string]any{"items": items}, 200, e
 }

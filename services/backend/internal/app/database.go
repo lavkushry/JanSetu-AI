@@ -25,6 +25,9 @@ func (a *App) requestScope(r *http.Request, trace string) *http.Request {
 	if strings.Contains(r.Pattern, "/authority/") || strings.Contains(r.Pattern, "/service-reports") || strings.Contains(r.Pattern, "/my-reports") {
 		s.Pool = a.Operations
 	}
+	if strings.Contains(r.Pattern, "/media/") || strings.Contains(r.Pattern, "/analyses/") {
+		s.Pool = a.Media
+	}
 	if strings.HasSuffix(r.Pattern, "/publications") {
 		s.Pool = a.Publication
 	}

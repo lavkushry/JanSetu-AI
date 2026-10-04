@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.2.0
+  version: 0.3.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
-    creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an opaque session; fixture shortcuts require explicit demo mode.
-    Real intake and production deployment remain disabled.
+    creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
+    opaque session; fixture shortcuts require explicit demo mode. Real intake and production deployment
+    remain disabled.
 servers:
   - url: /api
 paths:
@@ -28,12 +29,17 @@ paths:
       parameters:
         - name: returnTo
           in: query
-          schema: { type: string, maxLength: 1000, default: / }
+          schema:
+            type: string
+            maxLength: 1000
+            default: /
       responses:
         '302':
           description: Redirect to the configured identity provider; sets HttpOnly login-flow cookie
           headers:
-            Location: { schema: { type: string } }
+            Location:
+              schema:
+                type: string
         '404':
           $ref: '#/components/responses/Problem'
         '422':
@@ -43,23 +49,30 @@ paths:
   /auth/callback:
     get:
       operationId: get_auth_callback
-      description: Provider callback; one-time state and browser-cookie match, PKCE exchange, ID token and nonce validation.
+      description:
+        Provider callback; one-time state and browser-cookie match, PKCE exchange, ID token
+        and nonce validation.
       parameters:
         - name: state
           in: query
           required: true
-          schema: { type: string }
+          schema:
+            type: string
         - name: code
           in: query
-          schema: { type: string }
+          schema:
+            type: string
         - name: error
           in: query
-          schema: { type: string }
+          schema:
+            type: string
       responses:
         '303':
           description: Return to application with a session or a generic sign-in error
           headers:
-            Location: { schema: { type: string } }
+            Location:
+              schema:
+                type: string
   /me/sessions:
     get:
       operationId: get_me_sessions
@@ -70,11 +83,13 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [items]
+                required:
+                  - items
                 properties:
                   items:
                     type: array
-                    items: { $ref: '#/components/schemas/AccountSession' }
+                    items:
+                      $ref: '#/components/schemas/AccountSession'
         '401':
           $ref: '#/components/responses/Problem'
         '503':
@@ -86,13 +101,18 @@ paths:
         - name: id
           in: path
           required: true
-          schema: { type: string, format: uuid }
+          schema:
+            type: string
+            format: uuid
         - name: X-JanSetu-CSRF
           in: header
           required: true
-          schema: { type: string, const: '1' }
+          schema:
+            type: string
+            const: '1'
       responses:
-        '204': { description: Session revoked; clear cookie if current }
+        '204':
+          description: Session revoked; clear cookie if current
         '401':
           $ref: '#/components/responses/Problem'
         '404':
@@ -106,9 +126,12 @@ paths:
         - name: X-JanSetu-CSRF
           in: header
           required: true
-          schema: { type: string, const: '1' }
+          schema:
+            type: string
+            const: '1'
       responses:
-        '204': { description: Other application sessions revoked }
+        '204':
+          description: Other application sessions revoked
         '401':
           $ref: '#/components/responses/Problem'
         '503':
@@ -120,11 +143,14 @@ paths:
         - name: X-JanSetu-CSRF
           in: header
           required: true
-          schema: { type: string, const: '1' }
+          schema:
+            type: string
+            const: '1'
         - name: If-Match
           in: header
           required: true
-          schema: { type: string }
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -1095,6 +1121,366 @@ paths:
             schema:
               $ref: '#/components/schemas/PublicationInput'
       operationId: post_authority_cases_by_id_publications
+  /media/uploads:
+    post:
+      operationId: create_media_upload
+      description: Private report media; live session and vault ownership required.
+      responses:
+        '201':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSession'
+        '401': &id001
+          $ref: '#/components/responses/Problem'
+        '404': *id001
+        '422': *id001
+        '503': *id001
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UploadInput'
+  /media/{id}/upload:
+    get:
+      operationId: get_media_upload
+      description: Private report media; live session and vault ownership required.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSession'
+        '401': *id001
+        '404': *id001
+        '422': *id001
+        '503': *id001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: &id002
+            type: string
+            format: uuid
+    delete:
+      operationId: abort_media_upload
+      description: Private report media; live session and vault ownership required.
+      responses:
+        '204':
+          description: Successful response
+        '401': *id001
+        '404': *id001
+        '422': *id001
+        '503': *id001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: *id002
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            const: '1'
+        - name: If-Match
+          in: header
+          required: true
+          schema: &id003
+            type: string
+  /media/{id}/upload-parts:
+    post:
+      operationId: renew_media_parts
+      description: Private report media; live session and vault ownership required.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSession'
+        '401': *id001
+        '404': *id001
+        '422': *id001
+        '503': *id001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: *id002
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            const: '1'
+        - name: If-Match
+          in: header
+          required: true
+          schema: *id003
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - partNumbers
+              properties:
+                partNumbers:
+                  type: array
+                  items:
+                    type: integer
+                    const: 1
+  /media/{id}/parts/{number}:
+    put:
+      operationId: put_media_part
+      description: Private report media; live session and vault ownership required.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompletedPart'
+        '401': *id001
+        '404': *id001
+        '422': *id001
+        '503': *id001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: *id002
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            const: '1'
+        - name: number
+          in: path
+          required: true
+          schema:
+            const: 1
+        - name: token
+          in: query
+          required: true
+          schema: *id003
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+  /media/{id}/complete:
+    post:
+      operationId: complete_media_upload
+      description: Private report media; live session and vault ownership required.
+      responses:
+        '202':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - mediaId
+                  - state
+                properties:
+                  mediaId: *id002
+                  state: *id003
+        '401': *id001
+        '404': *id001
+        '422': *id001
+        '503': *id001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: *id002
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - parts
+              properties:
+                parts:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/CompletedPart'
+  /media/{id}:
+    get:
+      operationId: get_media
+      description: Private report media; live session and vault ownership required.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Media'
+        '401': *id001
+        '404': *id001
+        '422': *id001
+        '503': *id001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: *id002
+  /media/{id}/content:
+    get:
+      operationId: get_private_media_content
+      description: Private report media; live session and vault ownership required.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '401': *id001
+        '404': *id001
+        '422': *id001
+        '503': *id001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: *id002
+  /media/{id}/analyses:
+    post:
+      operationId: create_analysis
+      description: Private report media; live session and vault ownership required.
+      responses:
+        '202':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Analysis'
+        '401': *id001
+        '404': *id001
+        '422': *id001
+        '503': *id001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: *id002
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalysisInput'
+  /analyses/{id}:
+    get:
+      operationId: get_analysis
+      description: Private report media; live session and vault ownership required.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Analysis'
+        '401': *id001
+        '404': *id001
+        '422': *id001
+        '503': *id001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: *id002
+    delete:
+      operationId: cancel_analysis
+      description: Private report media; live session and vault ownership required.
+      responses:
+        '204':
+          description: Successful response
+        '401': *id001
+        '404': *id001
+        '422': *id001
+        '503': *id001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: *id002
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            const: '1'
+        - name: If-Match
+          in: header
+          required: true
+          schema: *id003
+  /analyses/{id}/retry:
+    post:
+      operationId: retry_analysis
+      description: Private report media; live session and vault ownership required.
+      responses:
+        '202':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Analysis'
+        '401': *id001
+        '404': *id001
+        '422': *id001
+        '503': *id001
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: *id002
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            const: '1'
+        - name: If-Match
+          in: header
+          required: true
+          schema: *id003
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - tasks
+              properties:
+                tasks:
+                  type: array
+                  items: *id003
 components:
   parameters:
     ID:
@@ -1192,29 +1578,67 @@ components:
           type: boolean
     AuthConfig:
       type: object
-      required: [mode, loginPath, synthetic]
+      required:
+        - mode
+        - loginPath
+        - synthetic
       properties:
-        mode: { type: string, enum: [oidc, demo] }
-        loginPath: { type: string }
-        synthetic: { const: true }
+        mode:
+          type: string
+          enum:
+            - oidc
+            - demo
+        loginPath:
+          type: string
+        synthetic:
+          const: true
     AccountSession:
       type: object
-      required: [id, createdAt, lastSeenAt, expiresAt, current, method]
+      required:
+        - id
+        - createdAt
+        - lastSeenAt
+        - expiresAt
+        - current
+        - method
       properties:
-        id: { type: string, format: uuid }
-        createdAt: { type: string, format: date-time }
-        lastSeenAt: { type: string, format: date-time }
-        expiresAt: { type: string, format: date-time }
-        current: { type: boolean }
-        method: { type: string, enum: [oidc, demo] }
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        lastSeenAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+        method:
+          type: string
+          enum:
+            - oidc
+            - demo
     ProfileInput:
       type: object
       additionalProperties: false
-      required: [handle, displayName, bio]
+      required:
+        - handle
+        - displayName
+        - bio
       properties:
-        handle: { type: string, pattern: '^[a-z][a-z0-9_]{2,29}$' }
-        displayName: { type: string, minLength: 1, maxLength: 80 }
-        bio: { type: string, maxLength: 500 }
+        handle:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{2,29}$
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 80
+        bio:
+          type: string
+          maxLength: 500
     Profile:
       type: object
       required:
@@ -1307,6 +1731,8 @@ components:
         - protectedIntake
         - uiLanguages
         - textLanguages
+        - uploads
+        - analysisCapabilities
       properties:
         synthetic:
           const: true
@@ -1324,6 +1750,47 @@ components:
             type: string
         textLanguages:
           type: string
+        uploads:
+          type: object
+          required:
+            - mimeTypes
+            - maxBytes
+            - maxAttachments
+            - maxPixels
+            - purpose
+            - adapter
+          properties:
+            mimeTypes:
+              type: array
+              items: *id003
+            maxBytes: &id004
+              type: integer
+            maxAttachments: *id004
+            maxPixels: *id004
+            purpose:
+              const: REPORT
+            adapter:
+              const: LOCAL_PRIVATE_SINGLE_PART
+        analysisCapabilities:
+          type: array
+          items:
+            type: object
+            required:
+              - kind
+              - status
+              - languageTags
+              - note
+            properties:
+              kind: *id003
+              status:
+                type: string
+                enum:
+                  - EVALUATING
+                  - PLANNED
+              languageTags:
+                type: array
+                items: *id003
+              note: *id003
     Community:
       type: object
       required:
@@ -1823,6 +2290,15 @@ components:
           enum:
             - PRIVATE
             - SANITIZED_RECEIPT
+        mediaIds:
+          type: array
+          items: *id002
+          maxItems: 4
+        ocrCorrections:
+          type: array
+          items:
+            $ref: '#/components/schemas/OCRCorrection'
+          maxItems: 500
     ReportAck:
       type: object
       required:
@@ -1849,6 +2325,7 @@ components:
         - state
         - receiptId
         - responsibilities
+        - mediaIds
       properties:
         id:
           type: string
@@ -1868,6 +2345,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Responsibility'
+        mediaIds:
+          type: array
+          items: *id002
+          maxItems: 4
     Review:
       type: object
       required:
@@ -1908,6 +2389,7 @@ components:
         - metadata
         - receivedAt
         - version
+        - mediaIds
       properties:
         id:
           type: string
@@ -1931,6 +2413,10 @@ components:
           type: string
         version:
           type: integer
+        mediaIds:
+          type: array
+          items: *id002
+          maxItems: 4
     StaffCase:
       type: object
       required:
@@ -2208,3 +2694,266 @@ components:
           maxLength: 80
         reviewed:
           const: true
+    UploadPart:
+      type: object
+      required:
+        - number
+        - url
+        - expiresAt
+      properties:
+        number:
+          type: integer
+          const: 1
+        url: *id003
+        expiresAt: *id003
+    CompletedPart:
+      type: object
+      required:
+        - number
+        - etag
+      properties:
+        number:
+          type: integer
+          const: 1
+        etag: *id003
+    UploadSession:
+      type: object
+      required:
+        - mediaId
+        - uploadId
+        - state
+        - partSize
+        - parts
+        - completedParts
+        - expiresAt
+        - version
+      properties:
+        mediaId: *id002
+        uploadId: *id002
+        state:
+          type: string
+          enum:
+            - OPEN
+            - COMPLETE
+            - ABORTED
+            - EXPIRED
+        partSize: *id004
+        parts:
+          type: array
+          items:
+            $ref: '#/components/schemas/UploadPart'
+        completedParts:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompletedPart'
+        expiresAt: *id003
+        version: *id004
+    UploadInput:
+      type: object
+      required:
+        - clientSubmissionId
+        - mimeType
+        - byteCount
+        - purpose
+      properties:
+        clientSubmissionId: *id002
+        mimeType:
+          type: string
+          enum:
+            - image/jpeg
+            - image/png
+            - image/webp
+        byteCount:
+          type: integer
+          minimum: 1
+          maximum: 10485760
+        purpose:
+          const: REPORT
+    MediaDerivative:
+      type: object
+      required:
+        - id
+        - url
+        - width
+        - height
+      properties:
+        id: *id002
+        url: *id003
+        width: *id004
+        height: *id004
+    Media:
+      type: object
+      required:
+        - id
+        - state
+        - authorizationVersion
+        - rejectionCode
+        - derivatives
+      properties:
+        id: *id002
+        state:
+          type: string
+          enum:
+            - UPLOADING
+            - QUARANTINED
+            - APPROVED
+            - REJECTED
+            - REVOKED
+        authorizationVersion: *id004
+        rejectionCode: &id005
+          type:
+            - string
+            - 'null'
+        derivatives:
+          type: array
+          items:
+            $ref: '#/components/schemas/MediaDerivative'
+    OCRRegion:
+      type: object
+      required:
+        - id
+        - text
+        - languageTag
+        - polygon
+        - confidence
+      properties:
+        id: *id003
+        text: *id003
+        languageTag: *id003
+        polygon:
+          type: array
+          items:
+            type: array
+            items: *id004
+            minItems: 2
+            maxItems: 2
+        confidence:
+          type:
+            - number
+            - 'null'
+    ImageAnalysisResult:
+      type: object
+      required:
+        - schemaVersion
+        - modelVersion
+        - sourceSha256
+        - coordinateSpace
+        - originalSize
+        - regions
+        - empty
+      properties:
+        schemaVersion:
+          const: 1
+        modelVersion: *id003
+        sourceSha256: *id003
+        coordinateSpace:
+          const: ORIGINAL_PIXELS
+        originalSize:
+          type: object
+          required:
+            - width
+            - height
+          properties:
+            width: *id004
+            height: *id004
+        regions:
+          type: array
+          items:
+            $ref: '#/components/schemas/OCRRegion'
+          maxItems: 500
+        codes:
+          type: array
+          items: *id003
+        empty:
+          type: boolean
+    AnalysisTask:
+      type: object
+      required:
+        - id
+        - kind
+        - state
+        - result
+        - errorCode
+        - retryable
+      properties:
+        id: *id002
+        kind: &id006
+          type: string
+          enum:
+            - QUALITY
+            - OCR
+            - ISSUE_DETECTION
+            - REDACTION
+            - VOICE_TRANSCRIPTION
+        state:
+          type: string
+          enum:
+            - QUEUED
+            - RUNNING
+            - SUCCEEDED
+            - FAILED
+            - UNSUPPORTED
+            - CANCELLED
+        result:
+          oneOf:
+            - $ref: '#/components/schemas/ImageAnalysisResult'
+            - type: 'null'
+        errorCode: *id005
+        retryable:
+          type: boolean
+    Analysis:
+      type: object
+      required:
+        - id
+        - mediaId
+        - state
+        - version
+        - tasks
+      properties:
+        id: *id002
+        mediaId: *id002
+        state:
+          type: string
+          enum:
+            - QUEUED
+            - RUNNING
+            - SUCCEEDED
+            - PARTIAL
+            - FAILED
+            - CANCELLED
+        version: *id004
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisTask'
+    AnalysisInput:
+      type: object
+      required:
+        - tasks
+        - languageTag
+      properties:
+        tasks:
+          type: array
+          items: *id006
+          maxItems: 5
+        languageTag: *id003
+    OCRCorrection:
+      type: object
+      required:
+        - taskId
+        - regionId
+        - originalText
+        - correctedText
+        - appliedAt
+      properties:
+        taskId: *id002
+        regionId: *id003
+        originalText:
+          type: string
+          maxLength: 500
+        correctedText:
+          type: string
+          maxLength: 500
+        appliedAt:
+          type: string
+          format: date-time

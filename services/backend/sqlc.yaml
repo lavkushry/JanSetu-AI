@@ -9,6 +9,8 @@ sql:
       - ../../db/migrations/00005_publication_report_scope.sql
       - ../../db/migrations/00006_live_scope.sql
       - ../../db/migrations/00007_alias_grant_expiry.sql
+      - ../../db/migrations/00008_private_media.sql
+      - ../../db/migrations/00009_media_attachment_scope.sql
     queries: internal/store/queries.sql
     gen:
       go:
