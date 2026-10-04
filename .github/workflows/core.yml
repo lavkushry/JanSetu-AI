@@ -22,17 +22,19 @@ jobs:
       - run: npm ci
       - run: make db
       - run: make identity
+      - run: sudo apt-get update -qq && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
       - run: make seed
       - run: make check
       - run: make test-integration
       - run: make generate
       - run: git diff --exit-code -- services/backend/internal/store/dbgen apps/web/src/lib/generated.ts
       - run: npx playwright install --with-deps chromium
-      - name: Start vault, API, worker, and production web
+      - name: Start vault, API, workers, and production web
         run: |
           (cd services/backend && go run ./cmd/vault) > /tmp/jansetu-vault.log 2>&1 &
           (cd services/backend && go run ./cmd/public-api) > /tmp/jansetu-api.log 2>&1 &
           (cd services/backend && go run ./cmd/worker) > /tmp/jansetu-worker.log 2>&1 &
+          (cd services/backend && go run ./cmd/media-worker) > /tmp/jansetu-media.log 2>&1 &
           npm run start --workspace @jansetu/web > /tmp/jansetu-web.log 2>&1 &
           for attempt in $(seq 1 40); do
             if curl -fsS http://127.0.0.1:8081/health/ready && curl -fsS http://localhost:3100/api/capabilities; then exit 0; fi
@@ -44,4 +46,4 @@ jobs:
         if: failure()
         run: |
           docker compose logs --tail=40 db identity
-          cat /tmp/jansetu-api.log /tmp/jansetu-vault.log /tmp/jansetu-worker.log /tmp/jansetu-web.log 2>/dev/null || true
+          cat /tmp/jansetu-api.log /tmp/jansetu-vault.log /tmp/jansetu-worker.log /tmp/jansetu-media.log /tmp/jansetu-web.log 2>/dev/null || true

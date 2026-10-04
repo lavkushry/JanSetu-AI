@@ -307,3 +307,15 @@ INSERT INTO social.post_stats(post_id,up_count,down_count,comment_count,repost_c
 SELECT $1,(SELECT count(*) FROM social.post_vote WHERE post_id=$1 AND value=1),(SELECT count(*) FROM social.post_vote WHERE post_id=$1 AND value=-1),
 (SELECT count(*) FROM social.comment WHERE post_id=$1 AND state='PUBLISHED'),(SELECT count(*) FROM social.repost WHERE post_id=$1),now()
 ON CONFLICT(post_id) DO UPDATE SET up_count=EXCLUDED.up_count,down_count=EXCLUDED.down_count,comment_count=EXCLUDED.comment_count,repost_count=EXCLUDED.repost_count,as_of=now();
+
+-- name: AttachReportMedia :exec
+INSERT INTO ops.report_media(report_id,media_id) VALUES($1,$2);
+
+-- name: ReportMediaIDs :one
+SELECT authz.report_media_ids($1)::uuid[] AS media_ids;
+
+-- name: ReportOCRRegion :one
+SELECT coalesce(authz.report_ocr_region($1,$2,$3),'')::text AS original_text;
+
+-- name: ReportMediaAttachable :one
+SELECT authz.media_attachable($1,$2)::boolean AS allowed;

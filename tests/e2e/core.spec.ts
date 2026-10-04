@@ -330,3 +330,111 @@ test('cross-origin mutations and another resident’s private report are denied'
   ).toBe(403);
   expect((await page.request.get('/api/me')).status()).toBe(200);
 });
+
+test('private photo upload, real OCR correction, draft restore, and report attachment', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Location or landmark').fill('Fictional OCR test crossing');
+  await dialog.getByLabel('Describe the issue').fill('A fictional street light needs attention.');
+  await dialog
+    .getByLabel('Choose report photos')
+    .setInputFiles('services/backend/internal/media/testdata/notice.png');
+  await expect(
+    dialog.getByRole('img', { name: 'Private report photo 1', exact: true }),
+  ).toBeVisible();
+  await dialog.getByRole('button', { name: 'Read text from photo', exact: true }).click();
+  await expect(dialog.getByText('Review extracted text', { exact: true })).toBeVisible();
+  // A text-equivalent word list is usable without a mouse or image overlay.
+  await dialog.getByLabel('Word 1, original: BROKEN').fill('DAMAGED');
+  await dialog
+    .getByRole('button', { name: 'Add reviewed text to description', exact: true })
+    .click();
+  await expect(dialog.getByLabel('Describe the issue')).toHaveValue(/DAMAGED STREET LIGHT/);
+  await dialog.getByLabel('Save this private draft on this device').check();
+  const draft = await page.evaluate(
+    () =>
+      Object.entries(localStorage).find(([key]) => key.startsWith('jansetu.report-draft.'))?.[1],
+  );
+  expect(draft).toBeTruthy();
+  expect(draft).not.toContain('token=');
+  expect(draft).not.toContain('/api/media/');
+  const mediaId = JSON.parse(draft!).mediaIds[0] as string;
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/private-ocr-mobile.png' });
+  await dialog.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.locator('main').getByRole('button', { name: 'Report an issue', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Restore draft', exact: true }).click();
+  await expect(
+    dialog.getByRole('img', { name: 'Private report photo 1', exact: true }),
+  ).toBeVisible();
+  await expect(dialog.getByLabel('Describe the issue')).toHaveValue(/DAMAGED STREET LIGHT/);
+  await dialog.getByRole('button', { name: 'Review report', exact: true }).click();
+  await dialog.getByLabel('I have reviewed this fictional report.').check();
+  await dialog.getByRole('button', { name: 'Submit report', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Your report was received', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('link', { name: 'View my reports', exact: true }).click();
+  await expect(
+    page.getByRole('img', { name: 'Private report evidence photo 1', exact: true }).first(),
+  ).toBeVisible();
+  expect((await page.request.get(`/api/media/${mediaId}/content`)).status()).toBe(200);
+  const otherContext = await browser.newContext();
+  const other = await otherContext.newPage();
+  await other.goto('/');
+  await signIn(other, 'Rohan Mehta');
+  expect((await other.request.get(`/api/media/${mediaId}`)).status()).toBe(404);
+  expect((await other.request.get(`/api/media/${mediaId}/content`)).status()).toBe(404);
+  const publicFeed = JSON.stringify(await (await other.request.get('/api/feed')).json());
+  expect(publicFeed).not.toContain(mediaId);
+  expect(publicFeed).not.toContain('DAMAGED STREET LIGHT');
+  await otherContext.close();
+});
+
+test('invalid photo removal and unsupported OCR preserve manual reporting', async ({ page }) => {
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Choose report photos').setInputFiles({
+    name: 'invalid.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('<svg>not an image</svg>'),
+  });
+  await expect(
+    dialog.getByText(
+      'This file could not be decoded as a supported photo. Choose another image or continue with text.',
+    ),
+  ).toBeVisible();
+  await dialog.getByRole('button', { name: 'Remove photo', exact: true }).click();
+  await expect(dialog.getByRole('article', { name: 'Photo 1' })).toHaveCount(0);
+  await dialog.getByLabel('Text language').selectOption('hi-IN');
+  await dialog
+    .getByLabel('Choose report photos')
+    .setInputFiles('services/backend/internal/media/testdata/notice.png');
+  await expect(
+    dialog.getByRole('img', { name: 'Private report photo 1', exact: true }),
+  ).toBeVisible();
+  await dialog.getByRole('button', { name: 'Read text from photo', exact: true }).click();
+  await expect(
+    dialog.getByText(
+      'OCR for this language is not enabled. Your photo and typed description are still usable.',
+    ),
+  ).toBeVisible();
+  await dialog.getByLabel('Location or landmark').fill('Fictional manual report crossing');
+  await dialog
+    .getByLabel('Describe the issue')
+    .fill('Fictional issue typed manually while Hindi OCR is unavailable.');
+  await dialog.getByRole('button', { name: 'Review report', exact: true }).click();
+  await dialog.getByLabel('I have reviewed this fictional report.').check();
+  await dialog.getByRole('button', { name: 'Submit report', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Your report was received', exact: true }),
+  ).toBeVisible();
+});

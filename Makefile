@@ -1,4 +1,4 @@
-.PHONY: dev db identity vault migrate seed api worker web test test-integration check generate
+.PHONY: dev db identity vault migrate seed api worker media-worker web test test-integration check generate
 db:
 	docker compose up -d --build --wait db
 identity:
@@ -13,6 +13,8 @@ vault:
 	cd services/backend && go run ./cmd/vault
 worker:
 	cd services/backend && go run ./cmd/worker
+media-worker:
+	cd services/backend && go run ./cmd/media-worker
 web:
 	npm run dev
 dev:

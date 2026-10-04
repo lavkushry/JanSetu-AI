@@ -770,6 +770,178 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/media/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Private report media; live session and vault ownership required. */
+        post: operations["create_media_upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/media/{id}/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Private report media; live session and vault ownership required. */
+        get: operations["get_media_upload"];
+        put?: never;
+        post?: never;
+        /** @description Private report media; live session and vault ownership required. */
+        delete: operations["abort_media_upload"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/media/{id}/upload-parts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Private report media; live session and vault ownership required. */
+        post: operations["renew_media_parts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/media/{id}/parts/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Private report media; live session and vault ownership required. */
+        put: operations["put_media_part"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/media/{id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Private report media; live session and vault ownership required. */
+        post: operations["complete_media_upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/media/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Private report media; live session and vault ownership required. */
+        get: operations["get_media"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/media/{id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Private report media; live session and vault ownership required. */
+        get: operations["get_private_media_content"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/media/{id}/analyses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Private report media; live session and vault ownership required. */
+        post: operations["create_analysis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analyses/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Private report media; live session and vault ownership required. */
+        get: operations["get_analysis"];
+        put?: never;
+        post?: never;
+        /** @description Private report media; live session and vault ownership required. */
+        delete: operations["cancel_analysis"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analyses/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Private report media; live session and vault ownership required. */
+        post: operations["retry_analysis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -861,6 +1033,23 @@ export interface components {
             protectedIntake: boolean;
             uiLanguages: string[];
             textLanguages: string;
+            uploads: {
+                mimeTypes: string[];
+                maxBytes: number;
+                maxAttachments: number;
+                maxPixels: number;
+                /** @constant */
+                purpose: "REPORT";
+                /** @constant */
+                adapter: "LOCAL_PRIVATE_SINGLE_PART";
+            };
+            analysisCapabilities: {
+                kind: string;
+                /** @enum {string} */
+                status: "EVALUATING" | "PLANNED";
+                languageTags: string[];
+                note: string;
+            }[];
         };
         Community: {
             id: string;
@@ -1022,6 +1211,8 @@ export interface components {
             locationLabel: string;
             /** @enum {string} */
             publicationPreference: "PRIVATE" | "SANITIZED_RECEIPT";
+            mediaIds?: string[];
+            ocrCorrections?: components["schemas"]["OCRCorrection"][];
         };
         ReportAck: {
             id: string;
@@ -1038,6 +1229,7 @@ export interface components {
             state: string;
             receiptId: string | null;
             responsibilities: components["schemas"]["Responsibility"][];
+            mediaIds: string[];
         };
         Review: {
             id: string;
@@ -1060,6 +1252,7 @@ export interface components {
             };
             receivedAt: string;
             version: number;
+            mediaIds: string[];
         };
         StaffCase: {
             id: string;
@@ -1149,6 +1342,111 @@ export interface components {
             area: string;
             /** @constant */
             reviewed: true;
+        };
+        UploadPart: {
+            /** @constant */
+            number: 1;
+            url: string;
+            expiresAt: string;
+        };
+        CompletedPart: {
+            /** @constant */
+            number: 1;
+            etag: string;
+        };
+        UploadSession: {
+            /** Format: uuid */
+            mediaId: string;
+            /** Format: uuid */
+            uploadId: string;
+            /** @enum {string} */
+            state: "OPEN" | "COMPLETE" | "ABORTED" | "EXPIRED";
+            partSize: number;
+            parts: components["schemas"]["UploadPart"][];
+            completedParts: components["schemas"]["CompletedPart"][];
+            expiresAt: string;
+            version: number;
+        };
+        UploadInput: {
+            /** Format: uuid */
+            clientSubmissionId: string;
+            /** @enum {string} */
+            mimeType: "image/jpeg" | "image/png" | "image/webp";
+            byteCount: number;
+            /** @constant */
+            purpose: "REPORT";
+        };
+        MediaDerivative: {
+            /** Format: uuid */
+            id: string;
+            url: string;
+            width: number;
+            height: number;
+        };
+        Media: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            state: "UPLOADING" | "QUARANTINED" | "APPROVED" | "REJECTED" | "REVOKED";
+            authorizationVersion: number;
+            rejectionCode: string | null;
+            derivatives: components["schemas"]["MediaDerivative"][];
+        };
+        OCRRegion: {
+            id: string;
+            text: string;
+            languageTag: string;
+            polygon: number[][];
+            confidence: number | null;
+        };
+        ImageAnalysisResult: {
+            /** @constant */
+            schemaVersion: 1;
+            modelVersion: string;
+            sourceSha256: string;
+            /** @constant */
+            coordinateSpace: "ORIGINAL_PIXELS";
+            originalSize: {
+                width: number;
+                height: number;
+            };
+            regions: components["schemas"]["OCRRegion"][];
+            codes?: string[];
+            empty: boolean;
+        };
+        AnalysisTask: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "QUALITY" | "OCR" | "ISSUE_DETECTION" | "REDACTION" | "VOICE_TRANSCRIPTION";
+            /** @enum {string} */
+            state: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "UNSUPPORTED" | "CANCELLED";
+            result: components["schemas"]["ImageAnalysisResult"] | null;
+            errorCode: string | null;
+            retryable: boolean;
+        };
+        Analysis: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            mediaId: string;
+            /** @enum {string} */
+            state: "QUEUED" | "RUNNING" | "SUCCEEDED" | "PARTIAL" | "FAILED" | "CANCELLED";
+            version: number;
+            tasks: components["schemas"]["AnalysisTask"][];
+        };
+        AnalysisInput: {
+            tasks: ("QUALITY" | "OCR" | "ISSUE_DETECTION" | "REDACTION" | "VOICE_TRANSCRIPTION")[];
+            languageTag: string;
+        };
+        OCRCorrection: {
+            /** Format: uuid */
+            taskId: string;
+            regionId: string;
+            originalText: string;
+            correctedText: string;
+            /** Format: date-time */
+            appliedAt: string;
         };
     };
     responses: {
@@ -2329,6 +2627,369 @@ export interface operations {
             200: components["responses"]["Command"];
             403: components["responses"]["Problem"];
             412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    create_media_upload: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-JanSetu-CSRF": "1";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UploadInput"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadSession"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_media_upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadSession"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    abort_media_upload: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-JanSetu-CSRF": "1";
+                "If-Match": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    renew_media_parts: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-JanSetu-CSRF": "1";
+                "If-Match": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    partNumbers: 1[];
+                };
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadSession"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    put_media_part: {
+        parameters: {
+            query: {
+                token: string;
+            };
+            header: {
+                "X-JanSetu-CSRF": "1";
+            };
+            path: {
+                id: string;
+                number: 1;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompletedPart"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    complete_media_upload: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-JanSetu-CSRF": "1";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    parts: components["schemas"]["CompletedPart"][];
+                };
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        mediaId: string;
+                        state: string;
+                    };
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_media: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Media"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_private_media_content: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    create_analysis: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-JanSetu-CSRF": "1";
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnalysisInput"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Analysis"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_analysis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Analysis"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    cancel_analysis: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-JanSetu-CSRF": "1";
+                "If-Match": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    retry_analysis: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-JanSetu-CSRF": "1";
+                "If-Match": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    tasks: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Analysis"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };

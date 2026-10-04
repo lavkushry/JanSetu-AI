@@ -16,7 +16,13 @@ import (
 )
 
 func (a *App) capabilities(w http.ResponseWriter, r *http.Request, _ *Actor) (any, int, error) {
-	return map[string]any{"synthetic": true, "mediaUpload": false, "ocr": false, "voice": false, "protectedIntake": false, "uiLanguages": []string{"en-IN"}, "textLanguages": "Unicode text accepted; language-specific AI readiness is not claimed"}, 200, nil
+	return map[string]any{"synthetic": true, "mediaUpload": a.Media != nil && a.Files != nil, "ocr": false,
+		"uploads": map[string]any{"mimeTypes": []string{"image/jpeg", "image/png", "image/webp"}, "maxBytes": 10485760, "maxAttachments": 4, "maxPixels": 12000000, "purpose": "REPORT", "adapter": "LOCAL_PRIVATE_SINGLE_PART"},
+		"analysisCapabilities": []any{
+			map[string]any{"kind": "OCR", "status": "EVALUATING", "languageTags": []string{"en-IN", "en-US", "en-GB", "en"}, "note": "Local Tesseract English preview; review every word. Production language evaluation is pending."},
+			map[string]any{"kind": "QUALITY", "status": "EVALUATING", "languageTags": []string{}, "note": "Resolution check only; no blur, lighting, or truth assessment."},
+			map[string]any{"kind": "ISSUE_DETECTION", "status": "PLANNED", "languageTags": []string{}, "note": "Image recognition is not enabled."},
+			map[string]any{"kind": "REDACTION", "status": "PLANNED", "languageTags": []string{}, "note": "Private photos are not approved for public publication."}}, "voice": false, "protectedIntake": false, "uiLanguages": []string{"en-IN"}, "textLanguages": "Unicode text accepted; language-specific AI readiness is not claimed"}, 200, nil
 }
 func communityJSON(c dbgen.CommunitiesRow) map[string]any {
 	return map[string]any{"id": c.ID, "slug": c.Slug, "title": c.Title, "description": c.Description, "languageTag": c.LanguageTag, "visibility": c.Visibility, "state": c.State, "rules": c.RulesBody, "rulesRevision": c.RulesRevision, "members": c.Members, "following": c.Following, "membershipState": c.MembershipState, "version": c.Version}

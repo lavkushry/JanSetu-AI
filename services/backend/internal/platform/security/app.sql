@@ -1,6 +1,7 @@
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-REVOKE ALL ON ALL TABLES IN SCHEMA identity,ops,infra,social FROM js_auth,js_social,js_ops,js_publication,js_worker,js_vault,js_vault_auth;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA identity,ops,infra,social FROM js_auth,js_social,js_ops,js_publication,js_worker;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA authz FROM PUBLIC,js_auth,js_social,js_ops,js_publication,js_worker,js_vault,js_vault_auth,js_media,js_media_worker;
+REVOKE ALL ON ALL TABLES IN SCHEMA identity,ops,infra,social FROM js_auth,js_social,js_ops,js_publication,js_worker,js_vault,js_vault_auth,js_media,js_media_worker;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA identity,ops,infra,social FROM js_auth,js_social,js_ops,js_publication,js_worker,js_media,js_media_worker;
 GRANT USAGE ON SCHEMA identity,social,infra,ops,authz TO js_auth;
 GRANT SELECT,INSERT,UPDATE ON identity.principal,identity.account_binding,identity.session TO js_auth;
 GRANT SELECT,INSERT,DELETE ON identity.login_flow TO js_auth;
@@ -43,4 +44,14 @@ GRANT UPDATE(id) ON social.post TO js_worker;
 GRANT SELECT,INSERT,UPDATE ON social.post_stats TO js_worker;
 GRANT USAGE ON SCHEMA authz TO js_vault_auth;
 GRANT EXECUTE ON FUNCTION authz.authenticate(bytea,text,text) TO js_vault_auth;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA authz TO js_auth,js_social,js_ops,js_publication;
+GRANT EXECUTE ON FUNCTION authz.authenticate(bytea,text,text),authz.principal(),authz.has_role(text),authz.agency(uuid),authz.owns_alias(uuid),authz.owns_report(uuid),authz.owns_case(uuid),authz.case_access(uuid),authz.lock_principal(uuid),authz.lock_profile(uuid),authz.owner_tasks(uuid) TO js_auth,js_social,js_ops,js_publication;
+GRANT EXECUTE ON FUNCTION authz.media_attachable(uuid,uuid),authz.report_media_ids(uuid),authz.report_ocr_region(uuid,uuid,text) TO js_ops;
+
+GRANT USAGE ON SCHEMA social,infra,authz TO js_media,js_media_worker;
+GRANT SELECT,INSERT,UPDATE ON social.media_asset,infra.upload_session,infra.analysis_job,infra.analysis_task TO js_media;
+GRANT SELECT ON infra.media_derivative TO js_media;
+GRANT SELECT,UPDATE ON social.media_asset,infra.upload_session,infra.analysis_job,infra.analysis_task TO js_media_worker;
+GRANT SELECT,INSERT,UPDATE ON infra.media_derivative TO js_media_worker;
+GRANT SELECT,INSERT ON ops.report_media TO js_ops;
+GRANT EXECUTE ON FUNCTION authz.media_read(uuid),authz.media_owner(uuid),authz.analysis_owner(uuid),authz.owns_alias(uuid),authz.media_attached(uuid) TO js_media;
+GRANT EXECUTE ON FUNCTION authz.media_job_live(uuid),authz.media_retained(uuid) TO js_media_worker;

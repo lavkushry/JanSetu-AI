@@ -12,6 +12,7 @@ import (
 
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/app"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/authn"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/media"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/platform"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/vault"
 )
@@ -66,12 +67,25 @@ func main() {
 		os.Exit(1)
 	}
 	defer publication.Close()
+	mediaDB, e := platform.RuntimePool(ctx, c.MediaURL, "js_media")
+	if e != nil {
+		slog.Error("Restricted media database unavailable")
+		os.Exit(1)
+	}
+	defer mediaDB.Close()
+	files, e := media.NewStorage(c.MediaDir)
+	if e != nil {
+		slog.Error("Private media directory unavailable")
+		os.Exit(1)
+	}
 	vaultClient, e := vault.NewClient(c.VaultURL, c.VaultToken)
 	if e != nil {
 		slog.Error("Configure internal vault service")
 		os.Exit(1)
 	}
 	application := app.New(social, vaultClient, c)
+	application.Media = mediaDB
+	application.Files = files
 	application.Auth = auth
 	application.Operations = operations
 	application.Publication = publication

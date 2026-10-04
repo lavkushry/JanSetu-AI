@@ -1,16 +1,30 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, CheckCircle2, LockKeyhole, ImagePlus, MapPin, FileText } from 'lucide-react';
+import { ArrowRight, CheckCircle2, LockKeyhole, MapPin, FileText } from 'lucide-react';
 import { api, dateLabel, readable, type Receipt, type Schema } from '@/lib/api';
 import { Badge, Modal, FormError, Loading, Empty, ErrorState, useSession } from './ui';
 import { ReceiptCard } from './social';
+import { ReportPhotos, PrivatePhotos } from './media';
 
 export function ReportWizard({ onClose }: { onClose: () => void }) {
   const { me, notify } = useSession();
   const qc = useQueryClient();
   const [step, setStep] = useState(1);
+  const [mediaIds, setMediaIds] = useState<string[]>([]);
+  const [analysisIds, setAnalysisIds] = useState<Record<string, string>>({});
+  const [photoStates, setPhotoStates] = useState<Record<string, string>>({});
+  const [photoCorrections, setPhotoCorrections] = useState<
+    Record<string, Schema['OCRCorrection'][]>
+  >({});
+  const onPhotoState = useCallback(
+    (id: string, state: string) =>
+      setPhotoStates((v) => (v[id] === state ? v : { ...v, [id]: state })),
+    [],
+  );
+  const photosReady = mediaIds.every((id) => photoStates[id] === 'APPROVED');
+  const ocrCorrections = mediaIds.flatMap((id) => photoCorrections[id] || []);
   const [statement, setStatement] = useState('');
   const [category, setCategory] = useState<Schema['ReportInput']['category']>('FOOTPATH');
   const [locationLabel, setLocation] = useState('');
@@ -36,9 +50,23 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
           languageTag,
           publicationPreference,
           submission: submission.current,
+          mediaIds,
+          photoCorrections,
+          analysisIds,
         }),
       );
-  }, [keep, statement, category, locationLabel, languageTag, publicationPreference, draftKey]);
+  }, [
+    keep,
+    statement,
+    category,
+    locationLabel,
+    languageTag,
+    publicationPreference,
+    draftKey,
+    mediaIds,
+    photoCorrections,
+    analysisIds,
+  ]);
   const send = useMutation({
     mutationFn: () =>
       api<Schema['ReportAck']>('service-reports', {
@@ -51,6 +79,8 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
           locationLabel,
           languageTag,
           publicationPreference,
+          mediaIds,
+          ocrCorrections,
         } satisfies Schema['ReportInput'],
       }),
     onSuccess: (result) => {
@@ -68,6 +98,13 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
       setLanguage(d.languageTag || 'en-IN');
       setPreference(d.publicationPreference || 'PRIVATE');
       submission.current = d.submission || crypto.randomUUID();
+      setMediaIds(
+        Array.isArray(d.mediaIds)
+          ? d.mediaIds.slice(0, 4).filter((id: unknown) => typeof id === 'string')
+          : [],
+      );
+      setPhotoCorrections(d.photoCorrections || {});
+      setAnalysisIds(d.analysisIds || {});
       setKeep(true);
       setResume(false);
     } catch {
@@ -101,6 +138,7 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          if (!photosReady) return;
           if (step === 1) setStep(2);
           else send.mutate();
         }}
@@ -166,20 +204,45 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setStatement(e.target.value)}
               />
             </label>
-            <button
-              type="button"
-              className="upload-fallback"
-              onClick={() =>
-                notify(
-                  'Image upload, OCR, and voice are not enabled yet. Please describe the issue in text.',
-                )
-              }
-            >
-              <ImagePlus size={22} />
-              <span>
-                Add a photo <small>Not enabled yet · text descriptions are available</small>
-              </span>
-            </button>
+            <ReportPhotos
+              ids={mediaIds}
+              setIds={setMediaIds}
+              analysisIds={analysisIds}
+              onAnalysisId={(id, job) => setAnalysisIds((v) => ({ ...v, [id]: job }))}
+              submissionId={submission.current}
+              language={languageTag}
+              onState={onPhotoState}
+              onApply={(id, text, corrections) => {
+                if ((statement + '\n' + text).length > 8000) {
+                  notify('Your description is full. Shorten it before adding reviewed text.');
+                  return false;
+                }
+                const nextCorrections = mediaIds.flatMap((mid) =>
+                  mid === id ? corrections : photoCorrections[mid] || [],
+                );
+                const size = new TextEncoder().encode(
+                  JSON.stringify({
+                    clientSubmissionId: submission.current,
+                    statement: statement + '\n' + text,
+                    category,
+                    locationLabel,
+                    languageTag,
+                    publicationPreference,
+                    mediaIds,
+                    ocrCorrections: nextCorrections,
+                  }),
+                ).length;
+                if (nextCorrections.length > 500 || size > 65536) {
+                  notify(
+                    'Select fewer words before adding reviewed text. You can also type your description.',
+                  );
+                  return false;
+                }
+                setStatement((v) => (v ? v + '\n' : '') + text);
+                setPhotoCorrections((v) => ({ ...v, [id]: corrections }));
+                return true;
+              }}
+            />
             <label>
               Text language
               <select value={languageTag} onChange={(e) => setLanguage(e.target.value)}>
@@ -245,6 +308,13 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
               {locationLabel}
             </p>
             <p className="post-body full">{statement}</p>
+            <PrivatePhotos ids={mediaIds} />
+            {mediaIds.length > 0 && (
+              <p className="muted">
+                {mediaIds.length} private photo(s). Photos and raw OCR will not appear on public
+                progress cards.
+              </p>
+            )}
             <dl>
               <div>
                 <dt>Text language</dt>
@@ -278,7 +348,12 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
           >
             {step === 2 ? 'Back' : 'Cancel'}
           </button>
-          <button className="primary" disabled={send.isPending}>
+          {!photosReady && (
+            <p className="photo-help" role="status">
+              Preparing photos. You can remove a photo to continue with text.
+            </p>
+          )}
+          <button className="primary" disabled={send.isPending || !photosReady}>
             {send.isPending ? 'Submitting…' : step === 1 ? 'Review report' : 'Submit report'}
             <ArrowRight size={16} />
           </button>
@@ -331,6 +406,7 @@ export function MyReports({ onReport }: { onReport: () => void }) {
               <Badge state={v.state} />
             </div>
             <p>{v.statement}</p>
+            <PrivatePhotos ids={v.mediaIds} />
             <small>Received {dateLabel(v.receivedAt)}</small>
             {v.responsibilities.map((o, i) => (
               <div className="report-responsibility" key={i}>
