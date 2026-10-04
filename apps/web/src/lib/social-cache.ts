@@ -13,6 +13,9 @@ export async function refreshSocialVisibility(client: QueryClient) {
     'blocked-people',
     'activity',
     'activity-summary',
+    'muted-items',
+    'communities',
+    'community',
   ]);
   const filter = {
     predicate: (query: { queryKey: readonly unknown[] }) => roots.has(String(query.queryKey[0])),

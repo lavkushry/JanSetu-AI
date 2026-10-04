@@ -7,6 +7,7 @@ import { ShieldCheck, LogOut, Check, KeyRound } from 'lucide-react';
 import { api, type Schema, type Me } from '@/lib/api';
 import { Avatar, Modal, Loading, ErrorState, Empty, FormError, useSession } from './ui';
 import { BlockedPeopleSettings } from './profiles';
+import { NotificationSettings, MutedItemsSettings } from './preferences';
 
 export function Accounts({ onClose }: { onClose: () => void }) {
   const q = useQuery({
@@ -203,6 +204,8 @@ export function AccountSecurity() {
       </div>
       <ProfileEditor key={me.profile.version} me={me} />
       <BlockedPeopleSettings />
+      <NotificationSettings />
+      <MutedItemsSettings />
       <Sessions />
     </div>
   );

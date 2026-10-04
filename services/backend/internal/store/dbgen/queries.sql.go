@@ -638,6 +638,7 @@ const communities = `-- name: Communities :many
 SELECT c.id,c.slug::text AS slug,c.title,c.description,c.language_tag,c.visibility,c.state,c.rules_body,c.rules_revision,c.version,
   EXISTS(SELECT 1 FROM social.community_follow cf WHERE cf.community_id = c.id AND cf.profile_id = $1) AS following,
   COALESCE((SELECT cm.state FROM social.community_member cm WHERE cm.community_id = c.id AND cm.profile_id = $1),'LEFT') AS membership_state,
+  EXISTS(SELECT FROM social.mute m WHERE m.profile_id=$1 AND m.muted_community_id=c.id AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) AS muted,
   (SELECT count(*) FROM social.community_member cm WHERE cm.community_id = c.id AND cm.state = 'ACTIVE') AS members
 FROM social.community c WHERE c.visibility IN ('PUBLIC','RESTRICTED') ORDER BY c.created_at,c.id
 `
@@ -655,6 +656,7 @@ type CommunitiesRow struct {
 	Version         int64       `json:"version"`
 	Following       bool        `json:"following"`
 	MembershipState interface{} `json:"membership_state"`
+	Muted           bool        `json:"muted"`
 	Members         int64       `json:"members"`
 }
 
@@ -680,6 +682,7 @@ func (q *Queries) Communities(ctx context.Context, viewerID uuid.UUID) ([]Commun
 			&i.Version,
 			&i.Following,
 			&i.MembershipState,
+			&i.Muted,
 			&i.Members,
 		); err != nil {
 			return nil, err
@@ -769,6 +772,23 @@ type DeleteCommunityFollowParams struct {
 
 func (q *Queries) DeleteCommunityFollow(ctx context.Context, arg DeleteCommunityFollowParams) error {
 	_, err := q.db.Exec(ctx, deleteCommunityFollow, arg.ProfileID, arg.CommunityID)
+	return err
+}
+
+const deleteMute = `-- name: DeleteMute :exec
+DELETE FROM social.mute WHERE profile_id=$1 AND
+ (($2::text='PROFILE' AND muted_profile_id=$3::uuid) OR
+ ($2='COMMUNITY' AND muted_community_id=$3))
+`
+
+type DeleteMuteParams struct {
+	ViewerID   uuid.UUID `json:"viewer_id"`
+	TargetType string    `json:"target_type"`
+	TargetID   uuid.UUID `json:"target_id"`
+}
+
+func (q *Queries) DeleteMute(ctx context.Context, arg DeleteMuteParams) error {
+	_, err := q.db.Exec(ctx, deleteMute, arg.ViewerID, arg.TargetType, arg.TargetID)
 	return err
 }
 
@@ -924,6 +944,15 @@ func (q *Queries) EditPost(ctx context.Context, arg EditPostParams) (EditPostRow
 	return i, err
 }
 
+const ensureNotificationPreference = `-- name: EnsureNotificationPreference :exec
+INSERT INTO social.feed_preference(profile_id,policy_version) VALUES($1,'local-notifications-v1') ON CONFLICT DO NOTHING
+`
+
+func (q *Queries) EnsureNotificationPreference(ctx context.Context, profileID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, ensureNotificationPreference, profileID)
+	return err
+}
+
 const eventProcessed = `-- name: EventProcessed :one
 INSERT INTO infra.processed_event(consumer_name,event_id) VALUES ('core-projector',$1) ON CONFLICT DO NOTHING RETURNING event_id
 `
@@ -942,6 +971,7 @@ WHERE p.state='PUBLISHED' AND (c.id IS NULL OR c.visibility IN ('PUBLIC','RESTRI
   AND (c.id IS NULL OR c.state='ACTIVE') AND (p.author_id IS NULL OR EXISTS(SELECT 1 FROM social.profile author WHERE author.id=p.author_id AND author.state='ACTIVE'))
   AND ($1::uuid='00000000-0000-0000-0000-000000000000'::uuid OR p.community_id=$1)
   AND (NOT $2::boolean OR EXISTS(SELECT 1 FROM social.bookmark bm WHERE bm.profile_id=$3 AND bm.post_id=p.id))
+  AND ($2::boolean OR NOT EXISTS(SELECT FROM social.mute m WHERE m.profile_id=$3 AND (m.muted_profile_id=p.author_id OR m.muted_community_id=p.community_id) AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())))
   AND (NOT $4::boolean OR EXISTS(SELECT 1 FROM social.community_follow cf WHERE cf.profile_id=$3 AND cf.community_id=p.community_id)
     OR EXISTS(SELECT 1 FROM social.profile_follow pf WHERE pf.follower_id=$3 AND pf.followed_id=p.author_id))
   AND ($5::text='' OR strpos(lower(COALESCE((SELECT body||' '||COALESCE(title,'') FROM social.post_revision WHERE post_id=p.id AND revision=p.published_revision),'')),lower($5))>0)
@@ -1036,7 +1066,8 @@ SELECT jsonb_build_object(
     'reposted',EXISTS(SELECT 1 FROM social.repost r WHERE r.profile_id=$1 AND r.post_id=p.id),
     'canEdit',p.author_id=$1 AND p.state IN ('PENDING','PUBLISHED'),
     'canDelete',p.author_id=$1 AND p.state NOT IN ('DELETED'),
-    'canReply',p.state='PUBLISHED' AND $1::uuid <> '00000000-0000-0000-0000-000000000000'::uuid),
+    'canReply',p.state='PUBLISHED' AND $1::uuid <> '00000000-0000-0000-0000-000000000000'::uuid,
+    'mutedAuthor',CASE WHEN p.state='DELETED' THEN false ELSE EXISTS(SELECT FROM social.mute m WHERE m.profile_id=$1 AND m.muted_profile_id=p.author_id AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) END),
   'candidate',CASE WHEN p.author_id=$1 OR $2::boolean THEN
     jsonb_build_object('title',cur.title,'body',cur.body,'revision',cur.revision,'reviewState',cur.review_state) ELSE NULL END
 ) AS data
@@ -1670,6 +1701,22 @@ func (q *Queries) LockModeration(ctx context.Context, id uuid.UUID) (SocialModer
 	return i, err
 }
 
+const lockNotificationPreference = `-- name: LockNotificationPreference :one
+SELECT 'IN_APP'=ANY(notification_channels) AS in_app,version FROM social.feed_preference WHERE profile_id=$1 FOR UPDATE
+`
+
+type LockNotificationPreferenceRow struct {
+	InApp   bool  `json:"in_app"`
+	Version int64 `json:"version"`
+}
+
+func (q *Queries) LockNotificationPreference(ctx context.Context, profileID uuid.UUID) (LockNotificationPreferenceRow, error) {
+	row := q.db.QueryRow(ctx, lockNotificationPreference, profileID)
+	var i LockNotificationPreferenceRow
+	err := row.Scan(&i.InApp, &i.Version)
+	return i, err
+}
+
 const lockObligation = `-- name: LockObligation :one
 SELECT id, case_id, agency_id, obligation_type, state, authority_basis_ref, due_at, accepted_at, completed_at, version, required_for_restoration, parent_obligation_id, work_summary, completion_actor_ref FROM ops.obligation WHERE id=$1 FOR UPDATE
 `
@@ -1854,6 +1901,94 @@ func (q *Queries) ModerationQueue(ctx context.Context) ([]SocialModerationCase, 
 	return items, nil
 }
 
+const mutePage = `-- name: MutePage :many
+SELECT m.id,m.muted_profile_id,m.muted_community_id,m.created_at,m.expires_at,
+ (m.expires_at IS NULL OR m.expires_at>statement_timestamp()) AS active,
+ CASE WHEN p.state='ACTIVE' AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=m.profile_id AND b.blocked_id=p.id) OR (b.blocked_id=m.profile_id AND b.blocker_id=p.id)) THEN p.display_name ELSE '' END::text AS display_name,
+ CASE WHEN p.state='ACTIVE' AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=m.profile_id AND b.blocked_id=p.id) OR (b.blocked_id=m.profile_id AND b.blocker_id=p.id)) THEN p.handle::text ELSE '' END::text AS handle,
+ CASE WHEN c.state='ACTIVE' AND c.visibility IN ('PUBLIC','RESTRICTED') THEN c.title ELSE '' END::text AS community_title,
+ CASE WHEN c.state='ACTIVE' AND c.visibility IN ('PUBLIC','RESTRICTED') THEN c.slug::text ELSE '' END::text AS community_slug
+FROM social.mute m LEFT JOIN social.profile p ON p.id=m.muted_profile_id LEFT JOIN social.community c ON c.id=m.muted_community_id
+WHERE m.profile_id=$1
+ AND (NOT $2::boolean OR (m.created_at,m.id)<($3::timestamptz,$4::uuid))
+ORDER BY m.created_at DESC,m.id DESC LIMIT 21
+`
+
+type MutePageParams struct {
+	ViewerID   uuid.UUID          `json:"viewer_id"`
+	HasCursor  bool               `json:"has_cursor"`
+	BeforeTime pgtype.Timestamptz `json:"before_time"`
+	BeforeID   uuid.UUID          `json:"before_id"`
+}
+
+type MutePageRow struct {
+	ID               uuid.UUID          `json:"id"`
+	MutedProfileID   *uuid.UUID         `json:"muted_profile_id"`
+	MutedCommunityID *uuid.UUID         `json:"muted_community_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+	Active           pgtype.Bool        `json:"active"`
+	DisplayName      string             `json:"display_name"`
+	Handle           string             `json:"handle"`
+	CommunityTitle   string             `json:"community_title"`
+	CommunitySlug    string             `json:"community_slug"`
+}
+
+func (q *Queries) MutePage(ctx context.Context, arg MutePageParams) ([]MutePageRow, error) {
+	rows, err := q.db.Query(ctx, mutePage,
+		arg.ViewerID,
+		arg.HasCursor,
+		arg.BeforeTime,
+		arg.BeforeID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MutePageRow{}
+	for rows.Next() {
+		var i MutePageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.MutedProfileID,
+			&i.MutedCommunityID,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+			&i.Active,
+			&i.DisplayName,
+			&i.Handle,
+			&i.CommunityTitle,
+			&i.CommunitySlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const notificationPreference = `-- name: NotificationPreference :one
+SELECT COALESCE('IN_APP'=ANY(pref.notification_channels),true)::boolean AS in_app,COALESCE(pref.version,1)::bigint AS version
+FROM (SELECT $1::uuid AS id) viewer LEFT JOIN social.feed_preference pref ON pref.profile_id=viewer.id
+`
+
+type NotificationPreferenceRow struct {
+	InApp   bool  `json:"in_app"`
+	Version int64 `json:"version"`
+}
+
+func (q *Queries) NotificationPreference(ctx context.Context, viewerID uuid.UUID) (NotificationPreferenceRow, error) {
+	row := q.db.QueryRow(ctx, notificationPreference, viewerID)
+	var i NotificationPreferenceRow
+	err := row.Scan(&i.InApp, &i.Version)
+	return i, err
+}
+
 const ownReportProgress = `-- name: OwnReportProgress :many
 SELECT r.id,r.received_at,r.statement,r.language_tag,ir.state AS linkage,ir.case_id,pb.receipt_id
 FROM ops.report r JOIN ops.intake_review ir ON ir.report_id=r.id
@@ -1928,6 +2063,24 @@ func (q *Queries) PlatformRoles(ctx context.Context, principalID uuid.UUID) ([]s
 		return nil, err
 	}
 	return items, nil
+}
+
+const postMuted = `-- name: PostMuted :one
+SELECT EXISTS(SELECT FROM social.post p JOIN social.mute m ON m.profile_id=$1
+ AND (m.muted_profile_id=p.author_id OR m.muted_community_id=p.community_id)
+ WHERE p.id=$2 AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp()))
+`
+
+type PostMutedParams struct {
+	ViewerID uuid.UUID `json:"viewer_id"`
+	PostID   uuid.UUID `json:"post_id"`
+}
+
+func (q *Queries) PostMuted(ctx context.Context, arg PostMutedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, postMuted, arg.ViewerID, arg.PostID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const profile = `-- name: Profile :one
@@ -2011,7 +2164,8 @@ func (q *Queries) ProfilePostPage(ctx context.Context, arg ProfilePostPageParams
 
 const publicProfile = `-- name: PublicProfile :one
 SELECT p.id,p.handle::text AS handle,p.display_name,p.bio,p.created_at,
- EXISTS(SELECT FROM social.profile_follow f WHERE f.follower_id=$1 AND f.followed_id=p.id) AS following
+ EXISTS(SELECT FROM social.profile_follow f WHERE f.follower_id=$1 AND f.followed_id=p.id) AS following,
+ EXISTS(SELECT FROM social.mute m WHERE m.profile_id=$1 AND m.muted_profile_id=p.id AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) AS muted
 FROM social.profile p WHERE p.id=$2 AND p.state='ACTIVE'
  AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
  (b.blocker_id=$1 AND b.blocked_id=p.id) OR (b.blocked_id=$1 AND b.blocker_id=p.id))
@@ -2029,6 +2183,7 @@ type PublicProfileRow struct {
 	Bio         string             `json:"bio"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	Following   bool               `json:"following"`
+	Muted       bool               `json:"muted"`
 }
 
 func (q *Queries) PublicProfile(ctx context.Context, arg PublicProfileParams) (PublicProfileRow, error) {
@@ -2041,6 +2196,7 @@ func (q *Queries) PublicProfile(ctx context.Context, arg PublicProfileParams) (P
 		&i.Bio,
 		&i.CreatedAt,
 		&i.Following,
+		&i.Muted,
 	)
 	return i, err
 }
@@ -2336,6 +2492,29 @@ func (q *Queries) RetryEvent(ctx context.Context, arg RetryEventParams) error {
 	return err
 }
 
+const saveNotificationPreference = `-- name: SaveNotificationPreference :one
+UPDATE social.feed_preference SET notification_channels=CASE WHEN $1::boolean THEN array_append(array_remove(notification_channels,'IN_APP'),'IN_APP') ELSE array_remove(notification_channels,'IN_APP') END,
+ policy_version='local-notifications-v1',version=version+1 WHERE profile_id=$2
+RETURNING 'IN_APP'=ANY(notification_channels) AS in_app,version
+`
+
+type SaveNotificationPreferenceParams struct {
+	InApp    bool      `json:"in_app"`
+	ViewerID uuid.UUID `json:"viewer_id"`
+}
+
+type SaveNotificationPreferenceRow struct {
+	InApp   bool  `json:"in_app"`
+	Version int64 `json:"version"`
+}
+
+func (q *Queries) SaveNotificationPreference(ctx context.Context, arg SaveNotificationPreferenceParams) (SaveNotificationPreferenceRow, error) {
+	row := q.db.QueryRow(ctx, saveNotificationPreference, arg.InApp, arg.ViewerID)
+	var i SaveNotificationPreferenceRow
+	err := row.Scan(&i.InApp, &i.Version)
+	return i, err
+}
+
 const savePublicationBinding = `-- name: SavePublicationBinding :exec
 INSERT INTO ops.publication_binding(case_id,receipt_id,approved_case_version,reviewer_ref,decision_ref,approved_at) VALUES ($1,$2,$3,$4,$5,now())
 ON CONFLICT(case_id) DO UPDATE SET approved_case_version=EXCLUDED.approved_case_version,reviewer_ref=EXCLUDED.reviewer_ref,decision_ref=EXCLUDED.decision_ref,approved_at=now()
@@ -2542,6 +2721,29 @@ func (q *Queries) SetCommunityFollow(ctx context.Context, arg SetCommunityFollow
 	return err
 }
 
+const setCommunityMute = `-- name: SetCommunityMute :exec
+INSERT INTO social.mute(id,profile_id,muted_community_id,expires_at) VALUES($1,$2,$3,$4)
+ON CONFLICT(profile_id,muted_community_id) DO UPDATE SET expires_at=EXCLUDED.expires_at,
+ created_at=CASE WHEN social.mute.expires_at IS NOT DISTINCT FROM EXCLUDED.expires_at THEN social.mute.created_at ELSE statement_timestamp() END
+`
+
+type SetCommunityMuteParams struct {
+	ID               uuid.UUID          `json:"id"`
+	ProfileID        uuid.UUID          `json:"profile_id"`
+	MutedCommunityID *uuid.UUID         `json:"muted_community_id"`
+	ExpiresAt        pgtype.Timestamptz `json:"expires_at"`
+}
+
+func (q *Queries) SetCommunityMute(ctx context.Context, arg SetCommunityMuteParams) error {
+	_, err := q.db.Exec(ctx, setCommunityMute,
+		arg.ID,
+		arg.ProfileID,
+		arg.MutedCommunityID,
+		arg.ExpiresAt,
+	)
+	return err
+}
+
 const setMembership = `-- name: SetMembership :exec
 INSERT INTO social.community_member(community_id,profile_id,role,state) VALUES ($1,$2,$3,$4)
 ON CONFLICT(community_id,profile_id) DO UPDATE SET state = EXCLUDED.state, version = social.community_member.version + 1
@@ -2575,6 +2777,29 @@ type SetProfileFollowParams struct {
 
 func (q *Queries) SetProfileFollow(ctx context.Context, arg SetProfileFollowParams) error {
 	_, err := q.db.Exec(ctx, setProfileFollow, arg.FollowerID, arg.FollowedID)
+	return err
+}
+
+const setProfileMute = `-- name: SetProfileMute :exec
+INSERT INTO social.mute(id,profile_id,muted_profile_id,expires_at) VALUES($1,$2,$3,$4)
+ON CONFLICT(profile_id,muted_profile_id) DO UPDATE SET expires_at=EXCLUDED.expires_at,
+ created_at=CASE WHEN social.mute.expires_at IS NOT DISTINCT FROM EXCLUDED.expires_at THEN social.mute.created_at ELSE statement_timestamp() END
+`
+
+type SetProfileMuteParams struct {
+	ID             uuid.UUID          `json:"id"`
+	ProfileID      uuid.UUID          `json:"profile_id"`
+	MutedProfileID *uuid.UUID         `json:"muted_profile_id"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+}
+
+func (q *Queries) SetProfileMute(ctx context.Context, arg SetProfileMuteParams) error {
+	_, err := q.db.Exec(ctx, setProfileMute,
+		arg.ID,
+		arg.ProfileID,
+		arg.MutedProfileID,
+		arg.ExpiresAt,
+	)
 	return err
 }
 

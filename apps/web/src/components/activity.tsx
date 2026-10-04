@@ -5,6 +5,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { Bell, Check, Circle, RefreshCw, ShieldCheck, ArrowUpRight } from 'lucide-react';
 import { api, ago, type Schema } from '@/lib/api';
 import { Avatar, Empty, ErrorState, FormError, Loading, useSession } from './ui';
+import { useNotificationPreference } from './preferences';
 
 export function useActivitySummary(viewer?: string) {
   return useQuery({
@@ -21,6 +22,7 @@ export function ActivityPage() {
   const qc = useQueryClient();
   const viewer = me?.profile.id || 'guest';
   const summary = useActivitySummary(me?.profile.id);
+  const preference = useNotificationPreference(me?.profile.id);
   const list = useInfiniteQuery({
     queryKey: ['activity', filter, viewer],
     initialPageParam: '',
@@ -73,6 +75,9 @@ export function ActivityPage() {
         </span>
         <h1>Activity</h1>
         <p>Your conversations. Your city’s progress.</p>
+        <Link className="text-button" href="/account#activity-settings">
+          Manage Activity preferences
+        </Link>
         <div className="activity-toolbar">
           <span className="muted">
             {summary.data ? `${summary.data.unreadCount} unread` : 'Your private inbox'}
@@ -86,6 +91,12 @@ export function ActivityPage() {
           </button>
         </div>
       </div>
+      {preference.data?.inApp === false && (
+        <p className="activity-paused" role="status">
+          In-app notifications are paused. Updates sent while paused won’t be added.{' '}
+          <Link href="/account#activity-settings">Manage preferences</Link>
+        </p>
+      )}
       <div className="feed-tabs" role="group" aria-label="Activity filters">
         {(
           [

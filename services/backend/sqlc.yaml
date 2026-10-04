@@ -15,6 +15,7 @@ sql:
       - ../../db/migrations/00011_profile_discovery.sql
       - ../../db/migrations/00012_comment_pagination.sql
       - ../../db/migrations/00013_in_app_activity.sql
+      - ../../db/migrations/00014_activity_preferences.sql
     queries: internal/store/queries.sql
     gen:
       go:

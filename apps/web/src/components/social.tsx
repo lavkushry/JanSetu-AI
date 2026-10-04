@@ -31,6 +31,7 @@ import {
 import { Avatar, Badge, Modal, FormError, Loading, ErrorState, Empty, useSession } from './ui';
 import { refreshSocialVisibility } from '@/lib/social-cache';
 import { conversation } from '@/lib/conversation';
+import { MuteControl } from './preferences';
 
 export function PostCard({
   post: p,
@@ -131,6 +132,13 @@ export function PostCard({
                 <button onClick={() => command(`me/following/${p.author!.id}`, { enabled: true })}>
                   Follow {p.author.displayName.split(' ')[0]}
                 </button>
+                <MuteControl
+                  type="PROFILE"
+                  id={p.author.id}
+                  label={p.author.displayName}
+                  active={p.viewer.mutedAuthor}
+                  menu
+                />
                 <button
                   onClick={() => {
                     if (!me) signIn();
@@ -966,6 +974,7 @@ export function CommunityCard({
           >
             {c.following ? 'Following' : 'Follow'}
           </button>
+          {detail && <MuteControl type="COMMUNITY" id={c.id} label={c.title} active={c.muted} />}
           {detail && (
             <button className="text-button" onClick={() => (me ? onCompose(c.id) : signIn())}>
               Create post

@@ -29,7 +29,7 @@ func (a *App) capabilities(w http.ResponseWriter, r *http.Request, _ *Actor) (an
 			map[string]any{"kind": "REDACTION", "status": "PLANNED", "languageTags": []string{}, "note": "Private photos are not approved for public publication."}}, "voice": false, "protectedIntake": false, "uiLanguages": []string{"en-IN"}, "textLanguages": "Unicode text accepted; language-specific AI readiness is not claimed"}, 200, nil
 }
 func communityJSON(c dbgen.CommunitiesRow) map[string]any {
-	return map[string]any{"id": c.ID, "slug": c.Slug, "title": c.Title, "description": c.Description, "languageTag": c.LanguageTag, "visibility": c.Visibility, "state": c.State, "rules": c.RulesBody, "rulesRevision": c.RulesRevision, "members": c.Members, "following": c.Following, "membershipState": c.MembershipState, "version": c.Version}
+	return map[string]any{"id": c.ID, "slug": c.Slug, "title": c.Title, "description": c.Description, "languageTag": c.LanguageTag, "visibility": c.Visibility, "state": c.State, "rules": c.RulesBody, "rulesRevision": c.RulesRevision, "members": c.Members, "following": c.Following, "membershipState": c.MembershipState, "muted": c.Muted, "version": c.Version}
 }
 func (a *App) communities(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
 	rows, e := dbgen.New(a.store(r.Context())).Communities(r.Context(), actorID(actor))
@@ -261,6 +261,15 @@ func (a *App) feedPage(r *http.Request, actor *Actor, saved bool) (any, int, err
 		ref := c.Refs[c.Offset]
 		c.Offset++
 		if ref.Type == "POST" {
+			if !saved {
+				muted, err := q.PostMuted(r.Context(), dbgen.PostMutedParams{ViewerID: actorID(actor), PostID: ref.ID})
+				if err != nil {
+					return nil, 0, err
+				}
+				if muted {
+					continue
+				}
+			}
 			data, err := postData(r.Context(), q, ref.ID, actor, false)
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
@@ -307,6 +316,13 @@ func (a *App) search(w http.ResponseWriter, r *http.Request, actor *Actor) (any,
 	}
 	items := []any{}
 	for _, pid := range ids {
+		muted, err := q.PostMuted(r.Context(), dbgen.PostMutedParams{ViewerID: actorID(actor), PostID: pid})
+		if err != nil {
+			return nil, 0, err
+		}
+		if muted {
+			continue
+		}
 		p, e := postData(r.Context(), q, pid, actor, false)
 		if errors.Is(e, pgx.ErrNoRows) {
 			continue

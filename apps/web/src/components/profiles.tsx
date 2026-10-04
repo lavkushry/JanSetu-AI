@@ -8,6 +8,7 @@ import { api, APIError, dateLabel, type Post, type Schema } from '@/lib/api';
 import { refreshSocialVisibility } from '@/lib/social-cache';
 import { Avatar, Empty, ErrorState, FormError, Loading, Modal, useSession } from './ui';
 import { PostCard } from './social';
+import { MuteControl } from './preferences';
 
 export function PeopleResults({ profiles }: { profiles: Schema['PublicProfile'][] }) {
   if (!profiles.length) return null;
@@ -144,6 +145,12 @@ export function PublicProfilePage({ id, onEdit }: { id: string; onEdit: (post: P
                   <ShieldBan size={16} />
                   Block person
                 </button>
+                <MuteControl
+                  type="PROFILE"
+                  id={id}
+                  label={p.displayName}
+                  active={profile.data.viewer.muted}
+                />
               </>
             )}
           </div>

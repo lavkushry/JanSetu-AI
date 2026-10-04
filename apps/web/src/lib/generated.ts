@@ -611,6 +611,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/notification-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Owner-only local IN_APP consent. Without a stored row, inApp=true and version=1. */
+        get: operations["get_notification_preferences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Versioned desired state. Turning off hides current Activity and suppresses new worker deliveries. Other stored preference fields and channels are preserved. */
+        patch: operations["save_notification_preferences"];
+        trace?: never;
+    };
+    "/me/mutes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Owner-only twenty-item pages, including expired and unavailable target placeholders. Signed viewer-bound cursor has a five-minute deadline. */
+        get: operations["get_mutes"];
+        /** @description Reversible desired-state person/community mute. Active targets must be available; removal can clear an inactive or blocked target. Expiry is optional, otherwise indefinite; a supplied expiry must be future and within one year. Mutes affect feed/search posts and reply Activity, preserving explicit profiles, threads, bookmarks, follows and institutional receipts. */
+        put: operations["set_mute"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/activity": {
         parameters: {
             query?: never;
@@ -1106,6 +1142,54 @@ export interface components {
             bio?: string;
             version?: number;
         };
+        NotificationPreference: {
+            inApp: boolean;
+            /** Format: int64 */
+            version: number;
+        };
+        MuteInput: {
+            /** @enum {string} */
+            targetType: "PROFILE" | "COMMUNITY";
+            /** Format: uuid */
+            targetId: string;
+            active: boolean;
+            /** Format: date-time */
+            expiresAt?: string | null;
+        };
+        MuteState: {
+            /** @enum {string} */
+            targetType: "PROFILE" | "COMMUNITY";
+            /** Format: uuid */
+            targetId: string;
+            active: boolean;
+            /** Format: date-time */
+            expiresAt: string | null;
+        };
+        Mute: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            targetType: "PROFILE" | "COMMUNITY";
+            /** Format: uuid */
+            targetId: string;
+            target: {
+                /** Format: uuid */
+                id: string;
+                label: string;
+                handle: string;
+            } | null;
+            active: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string | null;
+        };
+        MutePage: {
+            items: components["schemas"]["Mute"][];
+            nextCursor: string | null;
+            /** Format: date-time */
+            expiresAt: string;
+        };
         ActivityRead: {
             /** Format: uuid */
             id: string;
@@ -1160,6 +1244,7 @@ export interface components {
             viewer: {
                 self: boolean;
                 following: boolean;
+                muted: boolean;
             };
         };
         ProfilePosts: {
@@ -1251,6 +1336,7 @@ export interface components {
             rulesRevision: number;
             members: number;
             following: boolean;
+            muted: boolean;
             membershipState: string;
             version: number;
         };
@@ -1288,6 +1374,7 @@ export interface components {
                 canEdit: boolean;
                 canDelete: boolean;
                 canReply: boolean;
+                mutedAuthor: boolean;
             };
             candidate: {
                 title: string | null;
@@ -2595,6 +2682,114 @@ export interface operations {
             410: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
+        };
+    };
+    get_notification_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current preference */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPreference"];
+                };
+            };
+            401: components["responses"]["Problem"];
+        };
+    };
+    save_notification_preferences: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["Version"];
+                "X-JanSetu-CSRF": "1";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    inApp: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Saved preference */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPreference"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
+        };
+    };
+    get_mutes: {
+        parameters: {
+            query?: {
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current mute list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutePage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    set_mute: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-JanSetu-CSRF": "1";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MuteInput"];
+            };
+        };
+        responses: {
+            /** @description Desired mute state saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MuteState"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
         };
     };
     get_activity: {

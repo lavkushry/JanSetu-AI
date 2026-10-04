@@ -18,6 +18,10 @@ GRANT SELECT ON social.notification,social.activity_visible,social.activity_repl
 GRANT UPDATE(read_at) ON social.notification TO js_social;
 GRANT SELECT(profile_id,notification_channels) ON social.feed_preference TO js_social,js_worker;
 GRANT SELECT(profile_id,muted_profile_id,muted_community_id,expires_at) ON social.mute TO js_social,js_worker;
+GRANT SELECT(version) ON social.feed_preference TO js_social;
+GRANT INSERT(profile_id,notification_channels,policy_version,version),UPDATE(notification_channels,policy_version,version) ON social.feed_preference TO js_social;
+GRANT SELECT(id,created_at) ON social.mute TO js_social;
+GRANT INSERT(id,profile_id,muted_profile_id,muted_community_id,expires_at),UPDATE(expires_at,created_at),DELETE ON social.mute TO js_social;
 GRANT EXECUTE ON FUNCTION authz.current_profile() TO js_social;
 -- Row locks in social commands need an UPDATE column; actual profile updates stay in auth.
 GRANT UPDATE(id) ON social.profile TO js_social;
