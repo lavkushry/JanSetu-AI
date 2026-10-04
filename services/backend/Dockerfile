@@ -10,11 +10,16 @@ RUN CGO_ENABLED=0 go build -trimpath -o /out/public-api ./cmd/public-api && \
     CGO_ENABLED=0 go build -trimpath -o /out/media-worker ./cmd/media-worker && \
     mkdir -p /private-media
 
-FROM debian:bookworm-slim AS media-runtime
+FROM python:3.12-slim-bookworm AS media-runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr=5.3.0-2 tesseract-ocr-eng=1:4.1.0-2 && \
     rm -rf /var/lib/apt/lists/* && mkdir -p /data/media && chown 65532:65532 /data/media
 WORKDIR /app
+COPY services/vision/ /opt/vision/
+RUN python -m venv /opt/vision/.venv && \
+    /opt/vision/.venv/bin/pip install --no-cache-dir -r /opt/vision/requirements.txt && \
+    /opt/vision/.venv/bin/python /opt/vision/download_model.py && \
+    chmod +x /opt/vision/run && /opt/vision/run --version
 COPY --from=build /out/media-worker /app/media-worker
 USER 65532:65532
 CMD ["/app/media-worker"]

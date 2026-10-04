@@ -1399,6 +1399,14 @@ export interface components {
             polygon: number[][];
             confidence: number | null;
         };
+        DetectionRegion: {
+            id: string;
+            /** @enum {string} */
+            label: "person" | "bicycle" | "car" | "motorcycle" | "bus" | "truck" | "traffic light" | "fire hydrant" | "stop sign" | "bench";
+            polygon: number[][];
+            /** @description Uncalibrated engine scores are not probabilities and are not exposed. */
+            confidence: null;
+        };
         ImageAnalysisResult: {
             /** @constant */
             schemaVersion: 1;
@@ -1410,7 +1418,7 @@ export interface components {
                 width: number;
                 height: number;
             };
-            regions: components["schemas"]["OCRRegion"][];
+            regions: (components["schemas"]["OCRRegion"] | components["schemas"]["DetectionRegion"])[];
             codes?: string[];
             empty: boolean;
         };

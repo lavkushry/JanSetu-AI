@@ -214,6 +214,14 @@ function PhotoCard({
   onApply: (text: string, corrections: Correction[]) => boolean;
 }) {
   const [jobId, setJobId] = useState<string | null>(initialJob || null);
+  const [includeObjects, setIncludeObjects] = useState(false);
+  const capabilities = useQuery({
+    queryKey: ['capabilities'],
+    queryFn: () => api<Schema['Capabilities']>('capabilities'),
+  });
+  const visionEnabled = capabilities.data?.analysisCapabilities.some(
+    (c) => c.kind === 'ISSUE_DETECTION' && c.status === 'EVALUATING',
+  );
   const [retrying, setRetrying] = useState(false);
   const q = useQuery({
     queryKey: ['media', id],
@@ -228,7 +236,14 @@ function PhotoCard({
     mutationFn: () =>
       api<Schema['Analysis']>(`media/${id}/analyses`, {
         method: 'POST',
-        body: { tasks: ['QUALITY', 'OCR'], languageTag: language },
+        body: {
+          tasks: [
+            'QUALITY',
+            'OCR',
+            ...(includeObjects && visionEnabled ? ['ISSUE_DETECTION'] : []),
+          ],
+          languageTag: language,
+        },
       }),
     onSuccess: (v) => {
       setJobId(v.id);
@@ -314,26 +329,151 @@ function PhotoCard({
         )}
         <FormError error={q.error || remove.error || analyze.error} />
         {d && !jobId && (
-          <button
-            type="button"
-            className="secondary small"
-            disabled={analyze.isPending}
-            onClick={() => analyze.mutate()}
-          >
-            <ScanText size={16} />
-            {analyze.isPending ? 'Starting…' : 'Read text from photo'}
-          </button>
+          <>
+            {visionEnabled && (
+              <label className="object-opt-in">
+                <input
+                  type="checkbox"
+                  checked={includeObjects}
+                  onChange={(e) => setIncludeObjects(e.target.checked)}
+                  disabled={analyze.isPending}
+                />
+                Include experimental object recognition
+              </label>
+            )}
+            <button
+              type="button"
+              className="secondary small"
+              disabled={analyze.isPending}
+              onClick={() => analyze.mutate()}
+            >
+              <ScanText size={16} />
+              {analyze.isPending
+                ? 'Starting…'
+                : includeObjects && visionEnabled
+                  ? 'Analyze text and objects'
+                  : 'Read text from photo'}
+            </button>
+          </>
         )}
-        {jobId && <AnalysisReview id={jobId} onApply={onApply} />}
+        {jobId && <AnalysisReview id={jobId} derivative={d} onApply={onApply} />}
       </div>
     </article>
   );
 }
+function ObjectReview({
+  task,
+  derivative,
+  pending,
+  retrying,
+  onRetry,
+}: {
+  task: Schema['AnalysisTask'];
+  derivative?: Schema['MediaDerivative'];
+  pending: boolean;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  const [showRegions, setShowRegions] = useState(true);
+  const result = task.state === 'SUCCEEDED' ? task.result : null;
+  const regions = (result?.regions || []).filter(
+    (r): r is Schema['DetectionRegion'] => 'label' in r,
+  );
+  return (
+    <section className="object-review" aria-label="Object recognition review">
+      <strong>Object candidates · Experimental</strong>
+      <p className="photo-help">
+        Review what is visible yourself. This model cannot identify potholes, leaks, waste, or
+        damage. Your description and category stay under your control.
+      </p>
+      {['QUEUED', 'RUNNING'].includes(task.state) && (
+        <p role="status">Finding object candidates…</p>
+      )}
+      {task.state === 'SUCCEEDED' && regions.length === 0 && (
+        <p className="muted">
+          No supported object candidates found. This does not mean the scene is safe.
+        </p>
+      )}
+      {regions.length > 0 && (
+        <>
+          {derivative && result && (
+            <>
+              <label className="object-opt-in">
+                <input
+                  type="checkbox"
+                  checked={showRegions}
+                  onChange={(e) => setShowRegions(e.target.checked)}
+                />
+                Show object regions
+              </label>
+              <svg
+                className="object-overlay"
+                viewBox={`0 0 ${result.originalSize.width} ${result.originalSize.height}`}
+                role="img"
+                aria-label="Object candidate regions"
+              >
+                <image
+                  href={derivative.url}
+                  width={result.originalSize.width}
+                  height={result.originalSize.height}
+                />
+                {showRegions &&
+                  regions.map((region, i) => (
+                    <polygon
+                      key={region.id}
+                      points={region.polygon.map((point) => point.join(',')).join(' ')}
+                      vectorEffect="non-scaling-stroke"
+                    >
+                      <title>
+                        Region {i + 1}: {region.label}
+                      </title>
+                    </polygon>
+                  ))}
+              </svg>
+            </>
+          )}
+          <ol className="object-candidates">
+            {regions.map((region, i) => (
+              <li key={region.id}>
+                Region {i + 1}: {region.label} <span className="muted">· possible object</span>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+      {task.state === 'FAILED' && (
+        <>
+          <p role="alert">
+            Object recognition failed. Your photo and extracted text are still usable.
+          </p>
+          {task.retryable && (
+            <button
+              type="button"
+              className="secondary small"
+              disabled={pending || retrying}
+              onClick={onRetry}
+            >
+              Retry object recognition
+            </button>
+          )}
+        </>
+      )}
+      {task.state === 'UNSUPPORTED' && (
+        <p className="muted">Object recognition is unavailable. Use your own observations.</p>
+      )}
+      {task.state === 'CANCELLED' && (
+        <p className="muted">Object recognition cancelled. Use your own observations.</p>
+      )}
+    </section>
+  );
+}
 function AnalysisReview({
   id,
+  derivative,
   onApply,
 }: {
   id: string;
+  derivative?: Schema['MediaDerivative'];
   onApply: (text: string, corrections: Correction[]) => boolean;
 }) {
   const { notify } = useSession();
@@ -357,8 +497,12 @@ function AnalysisReview({
   });
   const ocr = q.data?.tasks.find((t) => t.kind === 'OCR');
   const quality = q.data?.tasks.find((t) => t.kind === 'QUALITY');
+  const detection = q.data?.tasks.find((t) => t.kind === 'ISSUE_DETECTION');
   const pending = q.data && ['QUEUED', 'RUNNING'].includes(q.data.state);
-  const regions = ocr?.state === 'SUCCEEDED' ? ocr.result?.regions || [] : [];
+  const regions =
+    ocr?.state === 'SUCCEEDED'
+      ? (ocr.result?.regions || []).filter((r): r is Schema['OCRRegion'] => 'text' in r)
+      : [];
   return (
     <div className="ocr-review" aria-label="OCR review">
       <p className="ocr-heading">
@@ -386,7 +530,7 @@ function AnalysisReview({
             disabled={action.isPending}
             onClick={() => action.mutate({ cancel: true })}
           >
-            Cancel text extraction
+            Cancel photo analysis
           </button>
         </>
       )}
@@ -415,6 +559,15 @@ function AnalysisReview({
       )}
       {ocr?.state === 'SUCCEEDED' && regions.length === 0 && (
         <p className="muted">No readable text was found. Write your own description.</p>
+      )}
+      {detection && (
+        <ObjectReview
+          task={detection}
+          derivative={derivative}
+          pending={Boolean(pending)}
+          retrying={action.isPending}
+          onRetry={() => action.mutate({ cancel: false, kinds: ['ISSUE_DETECTION'] })}
+        />
       )}
       {regions.length > 0 && (
         <>

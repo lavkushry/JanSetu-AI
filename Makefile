@@ -1,4 +1,11 @@
-.PHONY: dev db identity vault migrate seed api worker media-worker web test test-integration check generate
+.PHONY: dev db identity vault migrate seed api worker media-worker vision-setup vision-test web test test-integration check generate
+vision-setup:
+	python3 -m venv services/vision/.venv
+	services/vision/.venv/bin/pip install -r services/vision/requirements.txt
+	services/vision/.venv/bin/python services/vision/download_model.py
+	services/vision/run --version
+vision-test:
+	services/vision/.venv/bin/python -m unittest discover -s services/vision -p '*_test.py'
 db:
 	docker compose up -d --build --wait db
 identity:

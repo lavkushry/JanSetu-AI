@@ -13,3 +13,6 @@ __pycache__/
 !.env.test.example
 .DS_Store
 *.tsbuildinfo
+services/vision/.venv
+services/vision/*.onnx
+services/vision/*.tmp

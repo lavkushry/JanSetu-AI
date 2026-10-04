@@ -34,6 +34,6 @@ The first pilot is a city/district. The full product ships in phases. Indian-lan
 - [Reference repository research](docs/REFERENCE_RESEARCH.md): source-level findings from CampusFix, RoadLens, the OCR notebooks, BlackVision, and ArmMind.
 - [Adjudication and enforcement design](JanSetu_AI_Blueprint_v1_Adjudication_and_Enforcement.md): responsibility disputes, continuity, and escalation.
 
-OCR means reading text from images. The [private photo/OCR guide](docs/PRIVATE_MEDIA_OCR.md) describes the implemented local upload and experimental English Tesseract review flow. Cloud storage, image recognition, and evaluated multilingual OCR remain later milestones.
+OCR means reading text from images. The [private photo/OCR guide](docs/PRIVATE_MEDIA_OCR.md) describes local uploads and experimental English text review. The [recognition guide](docs/PRIVATE_IMAGE_RECOGNITION.md) describes opt-in CPU object candidates and private overlays. Civic-hazard detection, cloud storage and evaluated multilingual OCR remain pending.
 
 Run `python3 scripts/validate_specs.py` to check local Markdown links/anchors, JSON examples, requirement coverage and selected cross-document invariants. See [documentation validation](docs/spec/TRACEABILITY_AND_DELIVERY.md#documentation-validation) for the additional SQL and Mermaid checks. These checks validate the specifications, not application readiness.

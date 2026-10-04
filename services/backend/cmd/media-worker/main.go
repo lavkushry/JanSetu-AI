@@ -35,6 +35,15 @@ func main() {
 		slog.Error("Tesseract OCR engine unavailable")
 		os.Exit(1)
 	}
-	slog.Info("Local private image worker ready", "model", model)
-	(&media.Worker{DB: db, Files: files, Engine: engine, Model: model}).Run(ctx, func(e error) { slog.Error("Media processing failed") })
+	worker := &media.Worker{DB: db, Files: files, Engine: engine, Model: model}
+	if cfg.VisionBinary != "" {
+		worker.Vision = &media.Detector{Binary: cfg.VisionBinary}
+		worker.VisionModel, e = worker.Vision.Version(ctx)
+		if e != nil {
+			slog.Error("Pinned image recognition engine unavailable")
+			os.Exit(1)
+		}
+	}
+	slog.Info("Local private image worker ready", "ocrModel", model, "visionModel", worker.VisionModel)
+	worker.Run(ctx, func(e error) { slog.Error("Media processing failed") })
 }

@@ -19,8 +19,9 @@ import (
 
 type Region struct {
 	ID          string   `json:"id"`
-	Text        string   `json:"text"`
-	LanguageTag string   `json:"languageTag"`
+	Text        string   `json:"text,omitempty"`
+	LanguageTag string   `json:"languageTag,omitempty"`
+	Label       string   `json:"label,omitempty"`
 	Polygon     [][2]int `json:"polygon"`
 	Confidence  *float64 `json:"confidence"`
 }
@@ -91,11 +92,13 @@ func (o OCR) Version(ctx context.Context) (string, error) {
 
 type limitedBuffer struct {
 	bytes.Buffer
-	limit int
+	limit    int
+	exceeded bool
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	if len(p) > b.limit-b.Len() {
+		b.exceeded = true
 		return 0, errors.New("OCR output limit")
 	}
 	return b.Buffer.Write(p)

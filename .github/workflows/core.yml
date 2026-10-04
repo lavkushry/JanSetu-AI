@@ -9,6 +9,8 @@ jobs:
   validate:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      JANSETU_VISION_BINARY: ${{ github.workspace }}/services/vision/run
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -19,10 +21,15 @@ jobs:
         with:
           go-version: '1.26.0'
           cache-dependency-path: services/backend/go.sum
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
       - run: npm ci
       - run: make db
       - run: make identity
       - run: sudo apt-get update -qq && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
+      - run: make vision-setup
+      - run: make vision-test
       - run: make seed
       - run: make check
       - run: make test-integration
