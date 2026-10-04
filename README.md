@@ -2,7 +2,7 @@
 
 JanSetu AI combines local communities and social discussion with accountable civic reporting, case ownership, evidence, and progress tracking. The planned interface draws on Reddit communities and conversations and X-style updates and timelines, with OCR and image recognition to assist reporting.
 
-The repository now includes a runnable first-release core: a responsive community web app, persistent Go API, OIDC sign-in and account security, PostgreSQL/PostGIS migrations, review queues, private service reports, and an agency-to-verifier workflow. This milestone runs with explicitly synthetic local accounts and agencies. It does not enable real public intake or claim full P0 completion.
+The repository now includes a runnable first-release core: a responsive community web app, persistent Go API, OIDC sign-in and account security, restricted database roles and a separate vault service, PostgreSQL/PostGIS migrations, review queues, private service reports, and an agency-to-verifier workflow. This milestone runs with explicitly synthetic local accounts and agencies. It does not enable real public intake or claim full P0 completion.
 
 Implemented stack: **Go 1.26**, Next.js 16.3.8, React 19.3, TypeScript, TanStack Query, PostgreSQL 18/PostGIS, `pgx` v5, `sqlc`, Goose, Keycloak/OIDC, and a durable Go projection worker. React Native/Expo, Redis, private object storage, and the separate Python/FastAPI AI service remain planned modules.
 
@@ -14,7 +14,7 @@ docker compose up --build -d
 
 Open [JanSetu locally](http://localhost:3100), then open the avatar menu and continue to sign in through local Keycloak. Fixture usernames and the fictional password are shown in the menu. Ananya and Rohan are residents; Kiran reviews posts and triages reports; City Works accepts and performs tasks; Neha independently verifies completion. Kiran publishes reviewed public progress separately.
 
-The database uses a named volume. `docker compose down` stops the application while preserving its data. See the [implementation runbook](docs/IMPLEMENTATION_STATUS.md) for development commands, checks, workflow details, and remaining work. The [account security guide](docs/ACCOUNT_SECURITY.md) explains OIDC configuration, private provisioning, public profile settings, and session revocation.
+The database uses a named volume. `docker compose down` stops the application while preserving its data. See the [implementation runbook](docs/IMPLEMENTATION_STATUS.md) for development commands, checks, workflow details, and remaining work. The [database/vault guide](docs/DATABASE_VAULT_ISOLATION.md) explains restricted roles, encrypted ownership, upgrade steps, and remaining privacy gates. The [account security guide](docs/ACCOUNT_SECURITY.md) explains OIDC configuration, private provisioning, public profile settings, and session revocation.
 
 Start with the [specification suite](docs/spec/README.md) and [domain glossary](CONTEXT.md).
 

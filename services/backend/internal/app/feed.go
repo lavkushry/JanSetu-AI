@@ -22,7 +22,7 @@ func communityJSON(c dbgen.CommunitiesRow) map[string]any {
 	return map[string]any{"id": c.ID, "slug": c.Slug, "title": c.Title, "description": c.Description, "languageTag": c.LanguageTag, "visibility": c.Visibility, "state": c.State, "rules": c.RulesBody, "rulesRevision": c.RulesRevision, "members": c.Members, "following": c.Following, "membershipState": c.MembershipState, "version": c.Version}
 }
 func (a *App) communities(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
-	rows, e := dbgen.New(a.DB).Communities(r.Context(), actorID(actor))
+	rows, e := dbgen.New(a.store(r.Context())).Communities(r.Context(), actorID(actor))
 	items := []any{}
 	for _, c := range rows {
 		items = append(items, communityJSON(c))
@@ -34,7 +34,7 @@ func (a *App) community(w http.ResponseWriter, r *http.Request, actor *Actor) (a
 	if e != nil {
 		return nil, 0, e
 	}
-	rows, e := dbgen.New(a.DB).Communities(r.Context(), actorID(actor))
+	rows, e := dbgen.New(a.store(r.Context())).Communities(r.Context(), actorID(actor))
 	if e != nil {
 		return nil, 0, e
 	}
@@ -193,7 +193,7 @@ func (a *App) feedPage(r *http.Request, actor *Actor, saved bool) (any, int, err
 	if saved {
 		query += "|saved"
 	}
-	q := dbgen.New(a.DB)
+	q := dbgen.New(a.store(r.Context()))
 	var c feedCursor
 	if raw := r.URL.Query().Get("cursor"); raw != "" {
 		c, e = a.decodeCursor(raw, actorID(actor), query)
@@ -290,7 +290,7 @@ func (a *App) search(w http.ResponseWriter, r *http.Request, actor *Actor) (any,
 	if !textValid(term, 2, 120) {
 		return nil, 0, invalid("Search with 2 to 120 characters")
 	}
-	q := dbgen.New(a.DB)
+	q := dbgen.New(a.store(r.Context()))
 	ids, e := q.FeedPostIDs(r.Context(), dbgen.FeedPostIDsParams{ViewerID: actorID(actor), CommunityID: uuid.Nil, SearchText: term})
 	if e != nil {
 		return nil, 0, e

@@ -13,6 +13,7 @@ import (
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/app"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/authn"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/platform"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/vault"
 )
 
 func main() {
@@ -41,19 +42,39 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	db, e := platform.Pool(ctx, c.DatabaseURL)
+	social, e := platform.RuntimePool(ctx, c.SocialURL, "js_social")
 	if e != nil {
-		slog.Error("Application database unavailable")
+		slog.Error("Restricted social database unavailable")
 		os.Exit(1)
 	}
-	defer db.Close()
-	vault, e := platform.Pool(ctx, c.VaultURL)
+	defer social.Close()
+	auth, e := platform.RuntimePool(ctx, c.DatabaseURL, "js_auth")
 	if e != nil {
-		slog.Error("Vault database unavailable")
+		slog.Error("Restricted account database unavailable")
 		os.Exit(1)
 	}
-	defer vault.Close()
-	application := app.New(db, vault, c)
+	defer auth.Close()
+	operations, e := platform.RuntimePool(ctx, c.OperationsURL, "js_ops")
+	if e != nil {
+		slog.Error("Restricted operations database unavailable")
+		os.Exit(1)
+	}
+	defer operations.Close()
+	publication, e := platform.RuntimePool(ctx, c.PublicationURL, "js_publication")
+	if e != nil {
+		slog.Error("Restricted publication database unavailable")
+		os.Exit(1)
+	}
+	defer publication.Close()
+	vaultClient, e := vault.NewClient(c.VaultURL, c.VaultToken)
+	if e != nil {
+		slog.Error("Configure internal vault service")
+		os.Exit(1)
+	}
+	application := app.New(social, vaultClient, c)
+	application.Auth = auth
+	application.Operations = operations
+	application.Publication = publication
 	if c.AuthMode == "oidc" {
 		discoveryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		application.Identity, e = authn.Discover(discoveryCtx, c)

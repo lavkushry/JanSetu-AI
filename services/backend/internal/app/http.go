@@ -23,13 +23,15 @@ import (
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/authn"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/platform"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/vault"
 )
 
 type App struct {
-	DB, Vault *pgxpool.Pool
-	Config    platform.Config
-	cursorKey []byte
-	Identity  *authn.Provider
+	DB, Auth, Operations, Publication, Worker *pgxpool.Pool
+	Vault                                     *vault.Client
+	Config                                    platform.Config
+	cursorKey                                 []byte
+	Identity                                  *authn.Provider
 }
 type Actor struct {
 	PrincipalID, ProfileID, SessionID uuid.UUID
@@ -99,12 +101,12 @@ func nullableUUID(v *uuid.UUID) any {
 }
 func ptr[T any](v T) *T { return &v }
 
-func New(db, vault *pgxpool.Pool, c platform.Config) *App {
+func New(db *pgxpool.Pool, vault *vault.Client, c platform.Config) *App {
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		panic(err)
 	}
-	return &App{DB: db, Vault: vault, Config: c, cursorKey: key}
+	return &App{DB: db, Auth: db, Operations: db, Publication: db, Worker: db, Vault: vault, Config: c, cursorKey: key}
 }
 
 type endpoint func(http.ResponseWriter, *http.Request, *Actor) (any, int, error)
@@ -130,7 +132,7 @@ func (a *App) route(fn endpoint) http.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
-		r = r.WithContext(ctx)
+		r = a.requestScope(r.WithContext(ctx), requestID)
 		actor, err := a.actor(r)
 		if err != nil {
 			a.respondError(w, err, requestID)
@@ -163,11 +165,17 @@ func (a *App) respondError(w http.ResponseWriter, err error, id string) {
 		} else {
 			var databaseError *pgconn.PgError
 			if errors.As(err, &databaseError) {
-				slog.Error("database operation failed", "requestId", id, "code", databaseError.Code, "constraint", databaseError.ConstraintName)
+				if databaseError.Code == "23505" && databaseError.ConstraintName == "report_client_submission_id_key" {
+					problem = &Problem{Status: 404, Code: "UNAVAILABLE", Title: "This item is unavailable"}
+				} else {
+					slog.Error("database operation failed", "requestId", id, "code", databaseError.Code, "constraint", databaseError.ConstraintName)
+				}
 			} else {
 				slog.Error("request failed", "requestId", id, "errorType", fmt.Sprintf("%T", err))
 			}
-			problem = &Problem{Status: 503, Code: "DEPENDENCY_UNAVAILABLE", Title: "Please try again. Your draft is preserved", Retryable: true}
+			if problem == nil {
+				problem = &Problem{Status: 503, Code: "DEPENDENCY_UNAVAILABLE", Title: "Please try again. Your draft is preserved", Retryable: true}
+			}
 		}
 	}
 	copy := *problem
@@ -247,7 +255,7 @@ func (a *App) actor(r *http.Request) (*Actor, error) {
 		return nil, nil
 	}
 	hash := sha256.Sum256([]byte(c.Value))
-	q := dbgen.New(a.DB)
+	q := dbgen.New(a.Auth)
 	s, e := q.SessionActor(r.Context(), dbgen.SessionActorParams{TokenHash: hash[:], AuthMethod: a.Config.AuthMode, OidcIssuer: pgtype.Text{String: a.Config.OIDCIssuer, Valid: true}})
 	if errors.Is(e, pgx.ErrNoRows) {
 		return nil, nil
@@ -258,7 +266,7 @@ func (a *App) actor(r *http.Request) (*Actor, error) {
 	if s.ProfileID == nil {
 		return nil, nil
 	}
-	if _, e = a.DB.Exec(r.Context(), "UPDATE identity.session SET last_seen_at=now() WHERE id=$1 AND revoked_at IS NULL AND expires_at>now() AND last_seen_at>now()-interval '30 minutes'", s.SessionID); e != nil {
+	if _, e = a.Auth.Exec(r.Context(), "UPDATE identity.session SET last_seen_at=now() WHERE id=$1 AND revoked_at IS NULL AND expires_at>now() AND last_seen_at>now()-interval '30 minutes'", s.SessionID); e != nil {
 		return nil, e
 	}
 	p, e := q.Profile(r.Context(), *s.ProfileID)
@@ -286,10 +294,10 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request, _ *Actor) (any, i
 		return nil, 0, unavailable()
 	}
 	items := []map[string]any{}
-	q := dbgen.New(a.DB)
+	q := dbgen.New(a.Auth)
 	for _, pid := range DemoPrincipals {
 		var profileID uuid.UUID
-		err := a.DB.QueryRow(r.Context(), "SELECT profile_id FROM identity.principal WHERE id=$1 AND state='ACTIVE'", pid).Scan(&profileID)
+		err := a.Auth.QueryRow(r.Context(), "SELECT profile_id FROM identity.principal WHERE id=$1 AND state='ACTIVE'", pid).Scan(&profileID)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -347,7 +355,7 @@ func (a *App) signIn(w http.ResponseWriter, r *http.Request, _ *Actor) (any, int
 	if old, e := r.Cookie("jansetu_session"); e == nil {
 		oldHash = tokenHash(old.Value)
 	}
-	err = pgx.BeginTxFunc(r.Context(), a.DB, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	err = pgx.BeginTxFunc(r.Context(), a.Auth, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		return a.insertAccountSession(r.Context(), tx, body.PrincipalID, token, "demo", oldHash, authn.Identity{})
 	})
 	if err != nil {
@@ -386,7 +394,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		if a.DB.Ping(ctx) != nil || a.Vault.Ping(ctx) != nil {
+		if a.DB.Ping(ctx) != nil || a.Auth.Ping(ctx) != nil || a.Operations.Ping(ctx) != nil || a.Publication.Ping(ctx) != nil || a.Vault.Ready(ctx) != nil {
 			writeJSON(w, 503, map[string]bool{"ok": false})
 			return
 		}

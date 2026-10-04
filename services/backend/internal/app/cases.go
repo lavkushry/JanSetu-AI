@@ -31,7 +31,7 @@ func (a *App) cases(w http.ResponseWriter, r *http.Request, actor *Actor) (any, 
 	if !staffAll(actor) && len(actor.Agencies) == 0 {
 		return nil, 0, forbidden()
 	}
-	rows, e := dbgen.New(a.DB).Cases(r.Context(), dbgen.CasesParams{AllCases: staffAll(actor), AgencyIds: agencyIDs(actor)})
+	rows, e := dbgen.New(a.store(r.Context())).Cases(r.Context(), dbgen.CasesParams{AllCases: staffAll(actor), AgencyIds: agencyIDs(actor)})
 	items := []any{}
 	for _, c := range rows {
 		items = append(items, map[string]any{"id": c.ID, "title": c.Title, "state": c.State, "category": c.CategoryCode, "urgencyTier": c.UrgencyTier, "firstReportedAt": timestamp(c.FirstValidReportAt), "version": c.Version})
@@ -83,7 +83,7 @@ func (a *App) caseDetail(w http.ResponseWriter, r *http.Request, actor *Actor) (
 	if e != nil {
 		return nil, 0, e
 	}
-	data, e := a.caseData(r, dbgen.New(a.DB), cid, actor)
+	data, e := a.caseData(r, dbgen.New(a.store(r.Context())), cid, actor)
 	return data, 200, e
 }
 func (a *App) acceptObligation(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
@@ -256,7 +256,7 @@ func (a *App) getReceipt(w http.ResponseWriter, r *http.Request, actor *Actor) (
 	if e != nil {
 		return nil, 0, e
 	}
-	data, e := a.receiptData(r, dbgen.New(a.DB), rid, actor, true)
+	data, e := a.receiptData(r, dbgen.New(a.store(r.Context())), rid, actor, true)
 	return data, 200, e
 }
 func (a *App) caseFollow(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {

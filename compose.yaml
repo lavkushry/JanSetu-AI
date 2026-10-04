@@ -2,19 +2,23 @@ name: jansetu
 services:
   identity:
     image: quay.io/keycloak/keycloak:26.8.0@sha256:b0f60d489d51c5d113390bdf5461d4c06e6051be026c05549f2e1e10ec352bcc
-    command: ['start-dev', '--import-realm', '--hostname=http://localhost:8180']
-    ports: ['127.0.0.1:8180:8080']
-    volumes: ['./infra/identity/jansetu-realm.json:/opt/keycloak/data/import/jansetu-realm.json:ro']
+    command:
+      - start-dev
+      - --import-realm
+      - --hostname=http://localhost:8180
+    ports:
+      - 127.0.0.1:8180:8080
+    volumes:
+      - ./infra/identity/jansetu-realm.json:/opt/keycloak/data/import/jansetu-realm.json:ro
     environment:
       KC_HEALTH_ENABLED: 'true'
     healthcheck:
       test:
-        [
-          'CMD',
-          'bash',
-          '-c',
-          'exec 3<>/dev/tcp/localhost/9000; printf "GET /health/ready HTTP/1.0\r\n\r\n" >&3; read -r response <&3; [[ $$response == *200* ]]',
-        ]
+        - CMD
+        - bash
+        - -c
+        - exec 3<>/dev/tcp/localhost/9000; printf "GET /health/ready HTTP/1.0\r\n\r\n"
+          >&3; read -r response <&3; [[ $$response == *200* ]]
       interval: 5s
       timeout: 3s
       start_period: 40s
@@ -27,61 +31,151 @@ services:
       POSTGRES_USER: jansetu
       POSTGRES_PASSWORD: jansetu-local
       POSTGRES_DB: jansetu
-    ports: ['127.0.0.1:5438:5432']
-    volumes: ['jansetu-data:/var/lib/postgresql']
+    ports:
+      - 127.0.0.1:5438:5432
+    volumes:
+      - jansetu-data:/var/lib/postgresql
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U jansetu -d jansetu']
+      test:
+        - CMD-SHELL
+        - pg_isready -U jansetu -d jansetu
       interval: 3s
       timeout: 3s
       retries: 20
+    networks:
+      - database
   migrate:
     build:
       context: .
       dockerfile: services/backend/Dockerfile
-    command: ['/app/migrate', '-dir', '/app/db/migrations', '-seed', '/app/db/seed/local.sql']
-    environment: &backend-env
+    command:
+      - /app/migrate
+      - -dir
+      - /app/db/migrations
+      - -seed
+      - /app/db/seed/local.sql
+    environment:
+      JANSETU_ENV: local
       JANSETU_AUTH_MODE: oidc
       JANSETU_OIDC_ISSUER: http://localhost:8180/realms/jansetu
       JANSETU_OIDC_CLIENT_ID: jansetu-web
-      JANSETU_OIDC_BACKCHANNEL: http://identity:8080
-      JANSETU_ENV: local
-      JANSETU_DATABASE_URL: postgres://jansetu:jansetu-local@db:5432/jansetu?sslmode=disable
-      JANSETU_VAULT_URL: postgres://jansetu:jansetu-local@db:5432/jansetu_vault?sslmode=disable
-      JANSETU_HTTP_ADDR: :8080
-      JANSETU_WEB_ORIGIN: http://localhost:3100
+      JANSETU_MIGRATION_DATABASE_URL: postgres://jansetu:jansetu-local@db:5432/jansetu?sslmode=disable
+      JANSETU_MIGRATION_VAULT_DATABASE_URL: postgres://jansetu:jansetu-local@db:5432/jansetu_vault?sslmode=disable
+      JANSETU_VAULT_KEYS_FILE: /run/secrets/vault_keys
     depends_on:
-      db: { condition: service_healthy }
+      db:
+        condition: service_healthy
+    secrets:
+      - vault_keys
+    networks:
+      - database
   api:
     build:
       context: .
       dockerfile: services/backend/Dockerfile
-    command: ['/app/public-api']
-    environment: *backend-env
-    ports: ['127.0.0.1:8081:8080']
+    command:
+      - /app/public-api
+    environment:
+      JANSETU_ENV: local
+      JANSETU_AUTH_MODE: oidc
+      JANSETU_OIDC_ISSUER: http://localhost:8180/realms/jansetu
+      JANSETU_OIDC_CLIENT_ID: jansetu-web
+      JANSETU_OIDC_BACKCHANNEL: http://identity:8080
+      JANSETU_DATABASE_URL: postgres://js_auth:js_auth-local@db:5432/jansetu?sslmode=disable
+      JANSETU_SOCIAL_DATABASE_URL: postgres://js_social:js_social-local@db:5432/jansetu?sslmode=disable
+      JANSETU_OPERATIONS_DATABASE_URL: postgres://js_ops:js_ops-local@db:5432/jansetu?sslmode=disable
+      JANSETU_PUBLICATION_DATABASE_URL: postgres://js_publication:js_publication-local@db:5432/jansetu?sslmode=disable
+      JANSETU_VAULT_SERVICE_URL: http://vault:8082
+      JANSETU_HTTP_ADDR: :8080
+      JANSETU_WEB_ORIGIN: http://localhost:3100
+    ports:
+      - 127.0.0.1:8081:8080
     depends_on:
-      migrate: { condition: service_completed_successfully }
-      identity: { condition: service_healthy }
+      migrate:
+        condition: service_completed_successfully
+      identity:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
     healthcheck:
-      test: ['CMD', '/app/public-api', '-healthcheck']
+      test:
+        - CMD
+        - /app/public-api
+        - -healthcheck
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      - default
+      - vault_rpc
+      - database
   worker:
     build:
       context: .
       dockerfile: services/backend/Dockerfile
-    command: ['/app/worker']
-    environment: *backend-env
+    command:
+      - /app/worker
+    environment:
+      JANSETU_ENV: local
+      JANSETU_AUTH_MODE: oidc
+      JANSETU_OIDC_ISSUER: http://localhost:8180/realms/jansetu
+      JANSETU_OIDC_CLIENT_ID: jansetu-web
+      JANSETU_WORKER_DATABASE_URL: postgres://js_worker:js_worker-local@db:5432/jansetu?sslmode=disable
     depends_on:
-      migrate: { condition: service_completed_successfully }
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - database
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
     environment:
       JANSETU_API_URL: http://api:8080
-    ports: ['127.0.0.1:3100:3000']
+    ports:
+      - 127.0.0.1:3100:3000
     depends_on:
-      api: { condition: service_healthy }
+      api:
+        condition: service_healthy
+  vault:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    command:
+      - /app/vault
+    environment:
+      JANSETU_ENV: local
+      JANSETU_AUTH_MODE: oidc
+      JANSETU_OIDC_ISSUER: http://localhost:8180/realms/jansetu
+      JANSETU_OIDC_CLIENT_ID: jansetu-web
+      JANSETU_VAULT_DATABASE_URL: postgres://js_vault:js_vault-local@db:5432/jansetu_vault?sslmode=disable
+      JANSETU_VAULT_AUTH_DATABASE_URL: postgres://js_vault_auth:js_vault_auth-local@db:5432/jansetu?sslmode=disable
+      JANSETU_VAULT_HTTP_ADDR: :8082
+      JANSETU_VAULT_KEYS_FILE: /run/secrets/vault_keys
+    secrets:
+      - vault_keys
+    expose:
+      - '8082'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - /app/vault
+        - -healthcheck
+      interval: 5s
+      timeout: 4s
+      retries: 10
+    networks:
+      - vault_rpc
+      - database
 volumes:
-  jansetu-data:
+  jansetu-data: null
+networks:
+  vault_rpc:
+    internal: true
+  database: {}
+secrets:
+  vault_keys:
+    file: ./infra/vault/local-keys.json

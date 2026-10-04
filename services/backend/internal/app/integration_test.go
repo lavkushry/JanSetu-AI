@@ -18,13 +18,45 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/platform"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/vault"
 	"github.com/pressly/goose/v3"
 )
 
 var integrationApp *App
+var integrationAdmin, integrationVaultAdmin, integrationVaultRuntime, integrationVaultAuth *pgxpool.Pool
+var integrationKeys vault.Keys
+
+func administratorURL() string {
+	if v := os.Getenv("JANSETU_MIGRATION_DATABASE_URL"); v != "" {
+		return v
+	}
+	return "postgres://jansetu:jansetu-local@localhost:5438/jansetu?sslmode=disable"
+}
+func roleURL(adminURL, role string) string {
+	u, _ := url.Parse(adminURL)
+	u.User = url.UserPassword(role, role+"-local")
+	return u.String()
+}
+func cloneTestApp(t *testing.T, cfg platform.Config) *App {
+	t.Helper()
+	base := testApp(t)
+	server := httptest.NewServer((&vault.Service{DB: integrationVaultRuntime, Auth: integrationVaultAuth, Keys: integrationKeys, Token: cfg.VaultToken, Mode: cfg.AuthMode, Issuer: cfg.OIDCIssuer}).Handler())
+	t.Cleanup(server.Close)
+	vc, err := vault.NewClient(server.URL, cfg.VaultToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(base.DB, vc, cfg)
+	a.Auth = base.Auth
+	a.Operations = base.Operations
+	a.Publication = base.Publication
+	a.Worker = base.Worker
+	return a
+}
 
 func TestMain(m *testing.M) {
 	if os.Getenv("JANSETU_INTEGRATION") != "1" {
@@ -37,12 +69,16 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, e)
 			return 1
 		}
-		admin, e := pgx.Connect(ctx, cfg.DatabaseURL)
+		admin, e := pgx.Connect(ctx, administratorURL())
 		if e != nil {
 			fmt.Fprintln(os.Stderr, "start the local Postgres service before integration tests")
 			return 1
 		}
 		defer admin.Close(ctx)
+		if e = platform.BootstrapRoles(ctx, admin); e != nil {
+			fmt.Fprintln(os.Stderr, e)
+			return 1
+		}
 		name := "jansetu_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
 		names := []string{name, name + "_vault"}
 		for _, n := range names {
@@ -57,7 +93,7 @@ func TestMain(m *testing.M) {
 		goose.SetLogger(goose.NopLogger())
 		_ = goose.SetDialect("postgres")
 		for i, n := range names {
-			u, _ := url.Parse(cfg.DatabaseURL)
+			u, _ := url.Parse(administratorURL())
 			u.Path = "/" + n
 			dsn := u.String()
 			dsns = append(dsns, dsn)
@@ -79,11 +115,11 @@ func TestMain(m *testing.M) {
 			return 1
 		}
 		defer db.Close()
-		vault, e := platform.Pool(ctx, cfg.VaultURL)
+		vaultDB, e := platform.Pool(ctx, cfg.VaultURL)
 		if e != nil {
 			return 1
 		}
-		defer vault.Close()
+		defer vaultDB.Close()
 		seed, e := os.ReadFile("../../../../db/seed/local.sql")
 		if e != nil {
 			return 1
@@ -92,8 +128,61 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, e)
 			return 1
 		}
+		keys, e := vault.LoadKeys("../../../../infra/vault/local-keys.json")
+		if e != nil {
+			fmt.Fprintln(os.Stderr, e)
+			return 1
+		}
+		integrationKeys = keys
+		for i, dsn := range dsns {
+			conn, e := pgx.Connect(ctx, dsn)
+			if e != nil {
+				return 1
+			}
+			kind := "app"
+			if i == 1 {
+				kind = "vault"
+				e = vault.UpgradeLegacy(ctx, conn, keys)
+			}
+			if e == nil {
+				e = platform.InstallPrivileges(ctx, conn, kind, keys.SigningKey)
+			}
+			conn.Close(ctx)
+			if e != nil {
+				fmt.Fprintln(os.Stderr, e)
+				return 1
+			}
+		}
+		pools := map[string]*pgxpool.Pool{}
+		for _, role := range []string{"js_auth", "js_social", "js_ops", "js_publication", "js_worker", "js_vault", "js_vault_auth"} {
+			dsn := dsns[0]
+			if role == "js_vault" {
+				dsn = dsns[1]
+			}
+			pool, e := platform.RuntimePool(ctx, roleURL(dsn, role), role)
+			if e != nil {
+				fmt.Fprintln(os.Stderr, e)
+				return 1
+			}
+			pools[role] = pool
+			defer pool.Close()
+		}
+		integrationAdmin = db
+		integrationVaultAdmin = vaultDB
+		integrationVaultRuntime = pools["js_vault"]
+		integrationVaultAuth = pools["js_vault_auth"]
 		cfg.AuthMode = "demo"
-		integrationApp = New(db, vault, cfg)
+		server := httptest.NewServer((&vault.Service{DB: integrationVaultRuntime, Auth: integrationVaultAuth, Keys: keys, Token: cfg.VaultToken, Mode: cfg.AuthMode, Issuer: cfg.OIDCIssuer}).Handler())
+		defer server.Close()
+		vc, e := vault.NewClient(server.URL, cfg.VaultToken)
+		if e != nil {
+			return 1
+		}
+		integrationApp = New(pools["js_social"], vc, cfg)
+		integrationApp.Auth = pools["js_auth"]
+		integrationApp.Operations = pools["js_ops"]
+		integrationApp.Publication = pools["js_publication"]
+		integrationApp.Worker = pools["js_worker"]
 		return m.Run()
 	}()
 	os.Exit(code)
@@ -282,7 +371,7 @@ func TestSocialPublicationAndDesiredState(t *testing.T) {
 		}
 	}
 	var count int
-	if e := a.DB.QueryRow(context.Background(), "SELECT up_count FROM social.post_stats WHERE post_id=$1", p.ID).Scan(&count); e != nil || count != 1 {
+	if e := integrationAdmin.QueryRow(context.Background(), "SELECT up_count FROM social.post_stats WHERE post_id=$1", p.ID).Scan(&count); e != nil || count != 1 {
 		t.Fatalf("desired vote count: %d %v", count, e)
 	}
 	mustStatus(t, resident.request("PUT", "posts/"+p.ID.String()+"/vote", map[string]any{"value": 0}, 0, ""), 200)
@@ -467,13 +556,13 @@ func TestAuthorizationRevocationAndLeaseFencing(t *testing.T) {
 	a := testApp(t)
 	mod := login(t, a, 2)
 	ctx := context.Background()
-	_, e := a.DB.Exec(ctx, "UPDATE identity.platform_grant SET revoked_at=now() WHERE principal_id=$1 AND role='PLATFORM_MODERATOR'", DemoPrincipals[2])
+	_, e := integrationAdmin.Exec(ctx, "UPDATE identity.platform_grant SET revoked_at=now() WHERE principal_id=$1 AND role='PLATFORM_MODERATOR'", DemoPrincipals[2])
 	if e != nil {
 		t.Fatal(e)
 	}
 	mustStatus(t, mod.request("GET", "moderation", nil, 0, ""), 403)
-	_, _ = a.DB.Exec(ctx, "UPDATE identity.platform_grant SET revoked_at=NULL WHERE principal_id=$1 AND role='PLATFORM_MODERATOR'", DemoPrincipals[2])
-	q := dbgen.New(a.DB)
+	_, _ = integrationAdmin.Exec(ctx, "UPDATE identity.platform_grant SET revoked_at=NULL WHERE principal_id=$1 AND role='PLATFORM_MODERATOR'", DemoPrincipals[2])
+	q := dbgen.New(integrationAdmin)
 	eid := uuid.New()
 	if e = addEvent(ctx, q, "CASE", uuid.New(), 1, "SyntheticFenceTest", map[string]any{}); e != nil {
 		t.Fatal(e)
@@ -485,7 +574,7 @@ func TestAuthorizationRevocationAndLeaseFencing(t *testing.T) {
 		t.Fatal(e)
 	}
 	eid = claim.ID
-	_, _ = a.DB.Exec(ctx, "UPDATE infra.outbox SET lease_until=now()-interval '1 second' WHERE id=$1", eid)
+	_, _ = integrationAdmin.Exec(ctx, "UPDATE infra.outbox SET lease_until=now()-interval '1 second' WHERE id=$1", eid)
 	freshToken := uuid.New()
 	freshOwner := pgtype.Text{String: "new-worker", Valid: true}
 	_, e = q.ClaimEvent(ctx, dbgen.ClaimEventParams{LeaseOwner: freshOwner, LeaseToken: &freshToken})
@@ -500,7 +589,7 @@ func TestAuthorizationRevocationAndLeaseFencing(t *testing.T) {
 		t.Fatal(e)
 	}
 	var delivered bool
-	if e = a.DB.QueryRow(ctx, "SELECT delivered_at IS NOT NULL FROM infra.outbox WHERE id=$1", eid).Scan(&delivered); e != nil || delivered {
+	if e = integrationAdmin.QueryRow(ctx, "SELECT delivered_at IS NOT NULL FROM infra.outbox WHERE id=$1", eid).Scan(&delivered); e != nil || delivered {
 		t.Fatal("stale worker acknowledged reclaimed event")
 	}
 }
