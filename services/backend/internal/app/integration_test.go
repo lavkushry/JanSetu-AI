@@ -222,6 +222,18 @@ func TestSocialPublicationAndDesiredState(t *testing.T) {
 	changed := body
 	changed.Body = "Different content using the same key"
 	mustStatus(t, owner.request("POST", "posts", changed, 0, key), 409)
+	initialQueue := parsed[struct {
+		Items []reviewItem `json:"items"`
+	}](t, mod.request("GET", "moderation", nil, 0, ""))
+	var obsolete reviewItem
+	for _, m := range initialQueue.Items {
+		if m.PostID != nil && *m.PostID == p.ID && m.TargetRevision == 1 {
+			obsolete = m
+		}
+	}
+	if obsolete.ID == uuid.Nil {
+		t.Fatal("initial review was not queued")
+	}
 	edit := map[string]any{"title": "Updated discussion", "body": "An improved fictional discussion.", "languageTag": "en-IN", "mediaIds": []string{}, "submitForReview": true}
 	w := owner.request("PATCH", "posts/"+p.ID.String(), edit, p.Version, "")
 	mustStatus(t, w, 200)
@@ -231,9 +243,10 @@ func TestSocialPublicationAndDesiredState(t *testing.T) {
 	}](t, mod.request("GET", "moderation", nil, 0, ""))
 	for _, m := range queue.Items {
 		if m.PostID != nil && *m.PostID == p.ID && m.TargetRevision == 1 {
-			mustStatus(t, mod.request("POST", "moderation/"+m.ID.String()+"/decisions", map[string]any{"action": "ALLOW", "reason": "Obsolete revision must be rejected", "targetRevision": 1}, m.Version, ""), 409)
+			t.Fatal("superseded revision remained actionable")
 		}
 	}
+	mustStatus(t, mod.request("POST", "moderation/"+obsolete.ID.String()+"/decisions", map[string]any{"action": "ALLOW", "reason": "Obsolete revision must be rejected", "targetRevision": 1}, obsolete.Version, ""), 409)
 	review(t, mod, p.ID, uuid.Nil, 2)
 	w = anon.request("GET", "posts/"+p.ID.String(), nil, 0, "")
 	mustStatus(t, w, 200)
@@ -278,6 +291,16 @@ func TestSocialPublicationAndDesiredState(t *testing.T) {
 	mustStatus(t, resident.request("PUT", "posts/"+p.ID.String()+"/bookmark", map[string]any{"enabled": false}, 0, ""), 200)
 	mustStatus(t, resident.request("PUT", "me/following/"+ownerProfile().String(), map[string]any{"enabled": true}, 0, ""), 403)
 	mustStatus(t, resident.request("PUT", "me/blocks/"+ownerProfile().String(), map[string]any{"enabled": false}, 0, ""), 200)
+	current := parsed[testPost](t, owner.request("GET", "posts/"+p.ID.String(), nil, 0, ""))
+	mustStatus(t, owner.request("DELETE", "posts/"+p.ID.String(), nil, current.Version, ""), 204)
+	remaining := parsed[struct {
+		Items []reviewItem `json:"items"`
+	}](t, mod.request("GET", "moderation", nil, 0, ""))
+	for _, m := range remaining.Items {
+		if m.PostID != nil && *m.PostID == p.ID {
+			t.Fatal("deleted content remained in the publication queue")
+		}
+	}
 }
 func ownerProfile() uuid.UUID { return uuid.MustParse("20000000-0000-4000-8000-000000000001") }
 func TestNullablePublishedTitleDoesNotExposeEdit(t *testing.T) {

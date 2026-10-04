@@ -175,7 +175,11 @@ SELECT EXISTS(SELECT 1 FROM social.profile_block WHERE (blocker_id=$1 AND blocke
 -- name: InsertModeration :exec
 INSERT INTO social.moderation_case(id,post_id,comment_id,target_version,reason_code,grounds,state) VALUES ($1,$2,$3,$4,'PUBLICATION_REVIEW','Review the submitted revision','OPEN');
 -- name: ModerationQueue :many
-SELECT m.* FROM social.moderation_case m WHERE state IN ('OPEN','REVIEWING') ORDER BY created_at,id LIMIT 100;
+SELECT m.* FROM social.moderation_case m WHERE m.state IN ('OPEN','REVIEWING')
+AND (EXISTS(SELECT 1 FROM social.post p WHERE p.id=m.post_id AND p.state IN ('PENDING','PUBLISHED') AND p.current_revision=m.target_version)
+OR EXISTS(SELECT 1 FROM social.comment c JOIN social.post p ON p.id=c.post_id WHERE c.id=m.comment_id
+AND c.state IN ('PENDING','PUBLISHED') AND c.current_revision=m.target_version AND p.state='PUBLISHED'))
+ORDER BY m.created_at,m.id LIMIT 100;
 -- name: LockModeration :one
 SELECT * FROM social.moderation_case WHERE id=$1 FOR UPDATE;
 -- name: FinishModeration :exec

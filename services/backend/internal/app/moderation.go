@@ -1,7 +1,9 @@
 package app
 
 import (
+	"errors"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
 	"net/http"
 )
@@ -20,6 +22,9 @@ func (a *App) moderationQueue(w http.ResponseWriter, r *http.Request, actor *Act
 		entry := map[string]any{"id": m.ID, "version": m.Version, "targetRevision": m.TargetVersion, "postId": m.PostID, "commentId": m.CommentID, "createdAt": timestamp(m.CreatedAt)}
 		if m.PostID != nil {
 			p, e := postData(r.Context(), q, *m.PostID, actor, true)
+			if errors.Is(e, pgx.ErrNoRows) {
+				continue
+			}
 			if e != nil {
 				return nil, 0, e
 			}

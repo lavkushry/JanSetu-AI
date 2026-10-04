@@ -1605,7 +1605,11 @@ func (q *Queries) Membership(ctx context.Context, arg MembershipParams) (Members
 }
 
 const moderationQueue = `-- name: ModerationQueue :many
-SELECT m.id, m.post_id, m.comment_id, m.media_id, m.profile_id, m.target_version, m.reporter_ref, m.reason_code, m.grounds, m.state, m.version, m.created_at FROM social.moderation_case m WHERE state IN ('OPEN','REVIEWING') ORDER BY created_at,id LIMIT 100
+SELECT m.id, m.post_id, m.comment_id, m.media_id, m.profile_id, m.target_version, m.reporter_ref, m.reason_code, m.grounds, m.state, m.version, m.created_at FROM social.moderation_case m WHERE m.state IN ('OPEN','REVIEWING')
+AND (EXISTS(SELECT 1 FROM social.post p WHERE p.id=m.post_id AND p.state IN ('PENDING','PUBLISHED') AND p.current_revision=m.target_version)
+OR EXISTS(SELECT 1 FROM social.comment c JOIN social.post p ON p.id=c.post_id WHERE c.id=m.comment_id
+AND c.state IN ('PENDING','PUBLISHED') AND c.current_revision=m.target_version AND p.state='PUBLISHED'))
+ORDER BY m.created_at,m.id LIMIT 100
 `
 
 func (q *Queries) ModerationQueue(ctx context.Context) ([]SocialModerationCase, error) {
