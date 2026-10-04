@@ -1,0 +1,129 @@
+{
+  "realm": "jansetu",
+  "enabled": true,
+  "displayName": "JanSetu \u00b7 local demonstration",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "loginWithEmailAllowed": false,
+  "sslRequired": "none",
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 43200,
+  "clients": [
+    {
+      "clientId": "jansetu-web",
+      "name": "JanSetu",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:3100/api/auth/callback"],
+      "webOrigins": ["http://localhost:3100"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ],
+  "users": [
+    {
+      "id": "90000000-0000-4000-8000-000000000001",
+      "username": "ananya",
+      "firstName": "Ananya",
+      "lastName": "Rao",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "jansetu-demo",
+          "temporary": false
+        }
+      ],
+      "email": "ananya@local.example.test",
+      "emailVerified": true
+    },
+    {
+      "id": "90000000-0000-4000-8000-000000000002",
+      "username": "rohan",
+      "firstName": "Rohan",
+      "lastName": "Mehta",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "jansetu-demo",
+          "temporary": false
+        }
+      ],
+      "email": "rohan@local.example.test",
+      "emailVerified": true
+    },
+    {
+      "id": "90000000-0000-4000-8000-000000000004",
+      "username": "coordinator",
+      "firstName": "Kiran",
+      "lastName": "Shah",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "jansetu-demo",
+          "temporary": false
+        }
+      ],
+      "email": "coordinator@local.example.test",
+      "emailVerified": true
+    },
+    {
+      "id": "90000000-0000-4000-8000-000000000005",
+      "username": "cityworks",
+      "firstName": "City Works",
+      "lastName": "team",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "jansetu-demo",
+          "temporary": false
+        }
+      ],
+      "email": "cityworks@local.example.test",
+      "emailVerified": true
+    },
+    {
+      "id": "90000000-0000-4000-8000-000000000006",
+      "username": "verifier",
+      "firstName": "Neha",
+      "lastName": "Sen",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "jansetu-demo",
+          "temporary": false
+        }
+      ],
+      "email": "verifier@local.example.test",
+      "emailVerified": true
+    },
+    {
+      "id": "90000000-0000-4000-8000-000000000007",
+      "username": "new-neighbour",
+      "firstName": "Private provider name",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "jansetu-demo",
+          "temporary": false
+        }
+      ],
+      "email": "new-neighbour@local.example.test",
+      "emailVerified": true,
+      "lastName": "Fixture"
+    }
+  ]
+}

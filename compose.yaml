@@ -1,5 +1,24 @@
 name: jansetu
 services:
+  identity:
+    image: quay.io/keycloak/keycloak:26.8.0@sha256:b0f60d489d51c5d113390bdf5461d4c06e6051be026c05549f2e1e10ec352bcc
+    command: ['start-dev', '--import-realm', '--hostname=http://localhost:8180']
+    ports: ['127.0.0.1:8180:8080']
+    volumes: ['./infra/identity/jansetu-realm.json:/opt/keycloak/data/import/jansetu-realm.json:ro']
+    environment:
+      KC_HEALTH_ENABLED: 'true'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'bash',
+          '-c',
+          'exec 3<>/dev/tcp/localhost/9000; printf "GET /health/ready HTTP/1.0\r\n\r\n" >&3; read -r response <&3; [[ $$response == *200* ]]',
+        ]
+      interval: 5s
+      timeout: 3s
+      start_period: 40s
+      retries: 20
   db:
     build:
       context: .
@@ -21,6 +40,10 @@ services:
       dockerfile: services/backend/Dockerfile
     command: ['/app/migrate', '-dir', '/app/db/migrations', '-seed', '/app/db/seed/local.sql']
     environment: &backend-env
+      JANSETU_AUTH_MODE: oidc
+      JANSETU_OIDC_ISSUER: http://localhost:8180/realms/jansetu
+      JANSETU_OIDC_CLIENT_ID: jansetu-web
+      JANSETU_OIDC_BACKCHANNEL: http://identity:8080
       JANSETU_ENV: local
       JANSETU_DATABASE_URL: postgres://jansetu:jansetu-local@db:5432/jansetu?sslmode=disable
       JANSETU_VAULT_URL: postgres://jansetu:jansetu-local@db:5432/jansetu_vault?sslmode=disable
@@ -37,6 +60,7 @@ services:
     ports: ['127.0.0.1:8081:8080']
     depends_on:
       migrate: { condition: service_completed_successfully }
+      identity: { condition: service_healthy }
     healthcheck:
       test: ['CMD', '/app/public-api', '-healthcheck']
       interval: 5s

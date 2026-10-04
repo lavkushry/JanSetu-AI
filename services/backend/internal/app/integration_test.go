@@ -92,6 +92,7 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, e)
 			return 1
 		}
+		cfg.AuthMode = "demo"
 		integrationApp = New(db, vault, cfg)
 		return m.Run()
 	}()
@@ -393,6 +394,13 @@ func TestPrivateReportAndStaffLifecycle(t *testing.T) {
 	w = coordinator.request("POST", "authority/cases/"+cid.String()+"/publications", publication, 1, "")
 	mustStatus(t, w, 200)
 	rid := parsed[struct{ ReceiptID uuid.UUID }](t, w).ReceiptID
+	publication["area"] = "Bengaluru East"
+	mustStatus(t, coordinator.request("POST", "authority/cases/"+cid.String()+"/publications", publication, 1, ""), 200)
+	corrected := resident.request("GET", "case-receipts/"+rid.String(), nil, 0, "")
+	mustStatus(t, corrected, 200)
+	if !strings.Contains(corrected.Body.String(), "Bengaluru East") || strings.Contains(corrected.Body.String(), `"area":"Indiranagar"`) {
+		t.Fatal("receipt correction retained the previous public area")
+	}
 	if rid == cid {
 		t.Fatal("public receipt shares operational ID")
 	}

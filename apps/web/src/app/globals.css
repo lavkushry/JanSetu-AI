@@ -1331,7 +1331,9 @@ body:has(dialog[open]) {
 .modal select,
 .staff-card input,
 .staff-card textarea,
-.staff-card select {
+.staff-card select,
+.account-panel input,
+.account-panel textarea {
   width: 100%;
   padding: 11px 12px;
   min-height: 42px;
@@ -1348,7 +1350,9 @@ body:has(dialog[open]) {
 .modal select:focus,
 .staff-card input:focus,
 .staff-card textarea:focus,
-.staff-card select:focus {
+.staff-card select:focus,
+.account-panel input:focus,
+.account-panel textarea:focus {
   border-color: var(--blue);
   box-shadow: 0 0 0 2px var(--blue-soft);
 }
@@ -2336,5 +2340,122 @@ textarea {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* Account controls share the app's semantic light/dark tokens. */
+.login-link,
+.account-security-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-decoration: none;
+}
+.account-security-link {
+  padding: 16px 0;
+}
+.account-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.account-identity small {
+  display: block;
+  color: var(--muted);
+}
+.demo-credentials {
+  margin-top: 20px;
+  font-size: 13px;
+}
+.demo-credentials summary {
+  cursor: pointer;
+}
+.demo-credentials dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.demo-credentials dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.account-panel {
+  padding: 24px;
+  margin: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.account-panel h2 {
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.account-panel .muted {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.account-panel form {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+.account-panel label {
+  display: block;
+  font-weight: 650;
+  font-size: 12px;
+}
+.account-panel #profile-handle-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: normal;
+  line-height: 1.5;
+}
+.sessions-list {
+  padding: 0;
+  margin: 16px 0;
+  list-style: none;
+}
+.sessions-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.sessions-list small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.auth-error {
+  padding: 16px;
+  margin: 0;
+  text-align: center;
+  color: var(--danger);
+  background: var(--surface);
+}
+@media (max-width: 480px) {
+  .account-panel {
+    padding: 18px;
+    margin: 12px;
+  }
+  .sessions-list li {
+    flex-wrap: wrap;
+  }
+  .demo-credentials dl {
+    grid-template-columns: 1fr;
   }
 }

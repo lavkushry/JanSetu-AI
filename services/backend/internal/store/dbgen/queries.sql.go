@@ -1202,27 +1202,6 @@ func (q *Queries) InsertReport(ctx context.Context, arg InsertReportParams) erro
 	return err
 }
 
-const insertSession = `-- name: InsertSession :exec
-INSERT INTO identity.session(id,principal_id,token_hash,expires_at) VALUES ($1,$2,$3,$4)
-`
-
-type InsertSessionParams struct {
-	ID          uuid.UUID          `json:"id"`
-	PrincipalID uuid.UUID          `json:"principal_id"`
-	TokenHash   []byte             `json:"token_hash"`
-	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
-}
-
-func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) error {
-	_, err := q.db.Exec(ctx, insertSession,
-		arg.ID,
-		arg.PrincipalID,
-		arg.TokenHash,
-		arg.ExpiresAt,
-	)
-	return err
-}
-
 const insertVerification = `-- name: InsertVerification :exec
 INSERT INTO ops.verification_decision(id,case_id,obligation_id,reviewer_ref,result,reason,decided_at) VALUES ($1,$2,$3,$4,$5,$6,now())
 `
@@ -1995,15 +1974,6 @@ func (q *Queries) RetryEvent(ctx context.Context, arg RetryEventParams) error {
 	return err
 }
 
-const revokeSession = `-- name: RevokeSession :exec
-UPDATE identity.session SET revoked_at = now() WHERE token_hash = $1
-`
-
-func (q *Queries) RevokeSession(ctx context.Context, tokenHash []byte) error {
-	_, err := q.db.Exec(ctx, revokeSession, tokenHash)
-	return err
-}
-
 const savePublicationBinding = `-- name: SavePublicationBinding :exec
 INSERT INTO ops.publication_binding(case_id,receipt_id,approved_case_version,reviewer_ref,decision_ref,approved_at) VALUES ($1,$2,$3,$4,$5,now())
 ON CONFLICT(case_id) DO UPDATE SET approved_case_version=EXCLUDED.approved_case_version,reviewer_ref=EXCLUDED.reviewer_ref,decision_ref=EXCLUDED.decision_ref,approved_at=now()
@@ -2031,7 +2001,7 @@ func (q *Queries) SavePublicationBinding(ctx context.Context, arg SavePublicatio
 const saveReceipt = `-- name: SaveReceipt :exec
 INSERT INTO social.case_receipt(id,title,safe_summary,area_label,public_state,urgency_tier,first_reported_at,responsibilities,projection_version,publication_state,published_at,updated_at,policy_version)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'PUBLISHED',now(),now(),'local-publication-v1')
-ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,safe_summary=EXCLUDED.safe_summary,public_state=EXCLUDED.public_state,urgency_tier=EXCLUDED.urgency_tier,responsibilities=EXCLUDED.responsibilities,projection_version=EXCLUDED.projection_version,publication_state='PUBLISHED',updated_at=now()
+ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,safe_summary=EXCLUDED.safe_summary,area_label=EXCLUDED.area_label,public_state=EXCLUDED.public_state,urgency_tier=EXCLUDED.urgency_tier,responsibilities=EXCLUDED.responsibilities,projection_version=EXCLUDED.projection_version,publication_state='PUBLISHED',updated_at=now()
 `
 
 type SaveReceiptParams struct {
@@ -2062,23 +2032,37 @@ func (q *Queries) SaveReceipt(ctx context.Context, arg SaveReceiptParams) error 
 }
 
 const sessionActor = `-- name: SessionActor :one
-SELECT ip.id AS principal_id, ip.profile_id, ip.authorization_version
+SELECT ip.id AS principal_id, ip.profile_id, ip.authorization_version, s.id AS session_id
 FROM identity.session s JOIN identity.principal ip ON ip.id = s.principal_id
 JOIN social.profile p ON p.id = ip.profile_id
-WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
+WHERE s.token_hash = $1 AND s.auth_method = $2 AND s.revoked_at IS NULL AND s.expires_at > now()
+  AND s.last_seen_at > now() - interval '30 minutes'
+  AND (s.auth_method='demo' OR (s.provider=$3 AND EXISTS(SELECT 1 FROM identity.account_binding b WHERE b.provider=s.provider AND b.provider_subject=s.provider_subject AND b.principal_id=ip.id AND b.state='ACTIVE')))
   AND ip.state = 'ACTIVE' AND p.state = 'ACTIVE'
 `
+
+type SessionActorParams struct {
+	TokenHash  []byte      `json:"token_hash"`
+	AuthMethod string      `json:"auth_method"`
+	OidcIssuer pgtype.Text `json:"oidc_issuer"`
+}
 
 type SessionActorRow struct {
 	PrincipalID          uuid.UUID  `json:"principal_id"`
 	ProfileID            *uuid.UUID `json:"profile_id"`
 	AuthorizationVersion int64      `json:"authorization_version"`
+	SessionID            uuid.UUID  `json:"session_id"`
 }
 
-func (q *Queries) SessionActor(ctx context.Context, tokenHash []byte) (SessionActorRow, error) {
-	row := q.db.QueryRow(ctx, sessionActor, tokenHash)
+func (q *Queries) SessionActor(ctx context.Context, arg SessionActorParams) (SessionActorRow, error) {
+	row := q.db.QueryRow(ctx, sessionActor, arg.TokenHash, arg.AuthMethod, arg.OidcIssuer)
 	var i SessionActorRow
-	err := row.Scan(&i.PrincipalID, &i.ProfileID, &i.AuthorizationVersion)
+	err := row.Scan(
+		&i.PrincipalID,
+		&i.ProfileID,
+		&i.AuthorizationVersion,
+		&i.SessionID,
+	)
 	return i, err
 }
 

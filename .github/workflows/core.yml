@@ -21,6 +21,7 @@ jobs:
           cache-dependency-path: services/backend/go.sum
       - run: npm ci
       - run: make db
+      - run: make identity
       - run: make seed
       - run: make check
       - run: make test-integration
@@ -41,5 +42,5 @@ jobs:
       - name: Local service diagnostics
         if: failure()
         run: |
-          docker compose logs --tail=40 db
+          docker compose logs --tail=40 db identity
           cat /tmp/jansetu-api.log /tmp/jansetu-worker.log /tmp/jansetu-web.log 2>/dev/null || true

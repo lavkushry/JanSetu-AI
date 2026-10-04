@@ -2,10 +2,32 @@ import { test, expect, type Page, type Browser } from '@playwright/test';
 import type { components } from '../../apps/web/src/lib/generated';
 type Schema = components['schemas'];
 async function signIn(page: Page, name: string) {
-  await page.getByRole('button', { name: 'Switch demo account' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Choose a demo account' });
-  await dialog.getByRole('button', { name: new RegExp(name) }).click();
-  await expect(dialog).not.toBeVisible();
+  await page.getByRole('button', { name: 'Open account', exact: true }).click();
+  const users: Record<string, string> = {
+    'Ananya Rao': 'ananya',
+    'Rohan Mehta': 'rohan',
+    'Kiran Shah': 'coordinator',
+    'City Works team': 'cityworks',
+    'City Works': 'cityworks',
+    'Neha Sen': 'verifier',
+    'New neighbour': 'new-neighbour',
+  };
+  await page
+    .getByRole('dialog')
+    .getByRole('link', { name: /Continue to sign in|Sign in to another account/ })
+    .click();
+  await expect(
+    page.getByRole('heading', { name: 'Sign in to your account', exact: true }),
+  ).toBeVisible();
+  const restart = page.getByRole('button', { name: 'Restart login', exact: true });
+  if (await restart.isVisible()) await restart.click();
+  if (!users[name]) throw new Error('Unknown fixture account: ' + name);
+  await page.getByRole('textbox', { name: /Username/ }).fill(users[name]);
+  await page.getByLabel('Password', { exact: true }).fill('jansetu-demo');
+  await page.getByRole('button', { name: 'Sign In', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Open account', exact: true })).toBeVisible();
+  await expect.poll(async () => (await page.request.get('/api/me')).status()).toBe(200);
+  await expect(page.locator('.account-control strong')).not.toHaveText('Explore JanSetu');
 }
 async function staffPage(browser: Browser, name: string) {
   const context = await browser.newContext();
@@ -15,6 +37,55 @@ async function staffPage(browser: Browser, name: string) {
   await page.goto('/studio');
   return { page, context };
 }
+test('OIDC account provisioning, profile settings, and session revocation', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'New neighbour');
+  await page.goto('/account');
+  await expect(page.getByRole('heading', { name: 'Your public profile' })).toBeVisible();
+  const me = (await (await page.request.get('/api/me')).json()) as Schema['Me'];
+  expect(me.roles).toEqual([]);
+  expect(me.agencies).toEqual([]);
+  expect(JSON.stringify(me)).not.toContain('Private provider name');
+  await expect(page.getByRole('link', { name: 'Staff workspace' })).toHaveCount(0);
+  const handle = 'local_' + Date.now();
+  await page.getByLabel('Display name', { exact: true }).fill('Local neighbour');
+  await page.getByLabel('Handle', { exact: true }).fill(handle);
+  await page.getByLabel('Bio', { exact: true }).fill('A public bio chosen in JanSetu.');
+  await page.getByRole('button', { name: 'Save profile', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Your public profile is updated');
+  await page.reload();
+  await expect(page.getByLabel('Handle', { exact: true })).toHaveValue(handle);
+  await expect(page.getByLabel('Bio', { exact: true })).toHaveValue(
+    'A public bio chosen in JanSetu.',
+  );
+  const secondContext = await browser.newContext();
+  const second = await secondContext.newPage();
+  await second.goto('/');
+  await signIn(second, 'New neighbour');
+  await page.reload();
+  await expect(page.getByText('Another session', { exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Sign out other sessions', exact: true }).click();
+  await expect.poll(async () => (await second.request.get('/api/me')).status()).toBe(401);
+  await second.goto('/account');
+  await expect(second.getByRole('heading', { name: 'Your account, your control' })).toBeVisible();
+  expect((await page.request.get('/api/me')).status()).toBe(200);
+  const sessions = await (await page.request.get('/api/me/sessions')).json();
+  expect(sessions.items).toHaveLength(1);
+  expect(sessions.items[0].current).toBe(true);
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: 'test-results/account-mobile.png' });
+  await page.getByRole('button', { name: 'Sign out here', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Your account, your control' })).toBeVisible();
+  expect((await page.request.get('/api/dev/accounts')).status()).toBe(404);
+  await secondContext.close();
+});
 test('post review, votes, bookmarks, comments, edits, and deletion survive refresh', async ({
   page,
   browser,
@@ -241,27 +312,21 @@ test('responsive layouts, theme persistence, search, and community membership', 
   await expect(page.getByRole('dialog')).not.toBeVisible();
 });
 test('cross-origin mutations and another resident’s private report are denied', async ({
-  request,
+  page,
 }) => {
-  const login = await request.post('/api/dev/session', {
-    headers: { 'x-jansetu-csrf': '1' },
-    data: { principalId: '10000000-0000-4000-8000-000000000001' },
-  });
-  expect(login.ok()).toBe(true);
-  const reports = await request.get('/api/my-reports');
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const reports = await page.request.get('/api/my-reports');
   const own = (await reports.json()).items as Schema['ReportProgress'][];
   expect(own.length).toBeGreaterThan(0);
-  await request.post('/api/dev/session', {
-    headers: { 'x-jansetu-csrf': '1' },
-    data: { principalId: '10000000-0000-4000-8000-000000000002' },
-  });
-  expect((await request.get(`/api/my-reports/${own[0].id}`)).status()).toBe(404);
+  await signIn(page, 'Rohan Mehta');
+  expect((await page.request.get(`/api/my-reports/${own[0].id}`)).status()).toBe(404);
   expect(
     (
-      await request.post('/api/dev/session', {
+      await page.request.post('/api/me/logout', {
         headers: { origin: 'https://unrelated.example', 'x-jansetu-csrf': '1' },
-        data: { principalId: '10000000-0000-4000-8000-000000000004' },
       })
     ).status(),
   ).toBe(403);
+  expect((await page.request.get('/api/me')).status()).toBe(200);
 });

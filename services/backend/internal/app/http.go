@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/authn"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/platform"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
 )
@@ -29,12 +29,13 @@ type App struct {
 	DB, Vault *pgxpool.Pool
 	Config    platform.Config
 	cursorKey []byte
+	Identity  *authn.Provider
 }
 type Actor struct {
-	PrincipalID, ProfileID uuid.UUID
-	Roles                  []string
-	Agencies               []dbgen.AgencyGrantsRow
-	Profile                dbgen.ProfileRow
+	PrincipalID, ProfileID, SessionID uuid.UUID
+	Roles                             []string
+	Agencies                          []dbgen.AgencyGrantsRow
+	Profile                           dbgen.ProfileRow
 }
 type Problem struct {
 	Status    int    `json:"status"`
@@ -247,7 +248,7 @@ func (a *App) actor(r *http.Request) (*Actor, error) {
 	}
 	hash := sha256.Sum256([]byte(c.Value))
 	q := dbgen.New(a.DB)
-	s, e := q.SessionActor(r.Context(), hash[:])
+	s, e := q.SessionActor(r.Context(), dbgen.SessionActorParams{TokenHash: hash[:], AuthMethod: a.Config.AuthMode, OidcIssuer: pgtype.Text{String: a.Config.OIDCIssuer, Valid: true}})
 	if errors.Is(e, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -256,6 +257,9 @@ func (a *App) actor(r *http.Request) (*Actor, error) {
 	}
 	if s.ProfileID == nil {
 		return nil, nil
+	}
+	if _, e = a.DB.Exec(r.Context(), "UPDATE identity.session SET last_seen_at=now() WHERE id=$1 AND revoked_at IS NULL AND expires_at>now() AND last_seen_at>now()-interval '30 minutes'", s.SessionID); e != nil {
+		return nil, e
 	}
 	p, e := q.Profile(r.Context(), *s.ProfileID)
 	if e != nil {
@@ -269,7 +273,7 @@ func (a *App) actor(r *http.Request) (*Actor, error) {
 	if e != nil {
 		return nil, e
 	}
-	return &Actor{PrincipalID: s.PrincipalID, ProfileID: *s.ProfileID, Roles: roles, Agencies: agencies, Profile: p}, nil
+	return &Actor{PrincipalID: s.PrincipalID, ProfileID: *s.ProfileID, SessionID: s.SessionID, Roles: roles, Agencies: agencies, Profile: p}, nil
 }
 
 var DemoPrincipals = []uuid.UUID{
@@ -278,6 +282,9 @@ var DemoPrincipals = []uuid.UUID{
 }
 
 func (a *App) accounts(w http.ResponseWriter, r *http.Request, _ *Actor) (any, int, error) {
+	if a.Config.AuthMode != "demo" {
+		return nil, 0, unavailable()
+	}
 	items := []map[string]any{}
 	q := dbgen.New(a.DB)
 	for _, pid := range DemoPrincipals {
@@ -314,6 +321,9 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request, _ *Actor) (any, i
 	return map[string]any{"items": items, "synthetic": true}, 200, nil
 }
 func (a *App) signIn(w http.ResponseWriter, r *http.Request, _ *Actor) (any, int, error) {
+	if a.Config.AuthMode != "demo" {
+		return nil, 0, unavailable()
+	}
 	var body struct {
 		PrincipalID uuid.UUID `json:"principalId"`
 	}
@@ -329,28 +339,36 @@ func (a *App) signIn(w http.ResponseWriter, r *http.Request, _ *Actor) (any, int
 	if !allowed {
 		return nil, 0, forbidden()
 	}
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return nil, 0, err
-	}
-	token := base64.RawURLEncoding.EncodeToString(raw)
-	hash := sha256.Sum256([]byte(token))
-	expires := time.Now().Add(24 * time.Hour)
-	err := dbgen.New(a.DB).InsertSession(r.Context(), dbgen.InsertSessionParams{ID: uuid.New(), PrincipalID: body.PrincipalID, TokenHash: hash[:], ExpiresAt: pgtype.Timestamptz{Time: expires, Valid: true}})
+	token, err := randomSecret()
 	if err != nil {
 		return nil, 0, err
 	}
-	http.SetCookie(w, &http.Cookie{Name: "jansetu_session", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: 86400})
+	var oldHash []byte
+	if old, e := r.Cookie("jansetu_session"); e == nil {
+		oldHash = tokenHash(old.Value)
+	}
+	err = pgx.BeginTxFunc(r.Context(), a.DB, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return a.insertAccountSession(r.Context(), tx, body.PrincipalID, token, "demo", oldHash, authn.Identity{})
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	a.sessionCookie(w, token, int(sessionLifetime.Seconds()))
 	return map[string]any{"signedIn": true}, 200, nil
 }
-func (a *App) logout(w http.ResponseWriter, r *http.Request, _ *Actor) (any, int, error) {
-	if c, e := r.Cookie("jansetu_session"); e == nil {
-		hash := sha256.Sum256([]byte(c.Value))
-		if e = dbgen.New(a.DB).RevokeSession(r.Context(), hash[:]); e != nil {
-			return nil, 0, e
+func (a *App) logout(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
+	if actor != nil {
+		err := a.securityTransaction(r, actor, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(r.Context(), "UPDATE identity.session SET revoked_at=now() WHERE id=$1", actor.SessionID); err != nil {
+				return err
+			}
+			return accountAudit(r.Context(), tx, actor.PrincipalID, actor.SessionID, "SESSION", "SESSION_LOGOUT")
+		})
+		if err != nil {
+			return nil, 0, err
 		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: "jansetu_session", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	a.sessionCookie(w, "", -1)
 	return nil, 204, nil
 }
 func (a *App) me(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
@@ -362,6 +380,8 @@ func (a *App) me(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int
 
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/auth/login", a.loginRedirect)
+	mux.HandleFunc("GET /v1/auth/callback", a.loginCallback)
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]bool{"ok": true}) })
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -374,6 +394,7 @@ func (a *App) Handler() http.Handler {
 	})
 	for pattern, fn := range map[string]endpoint{
 		"GET /v1/dev/accounts": a.accounts, "POST /v1/dev/session": a.signIn, "POST /v1/me/logout": a.logout, "GET /v1/me": a.me,
+		"GET /v1/auth/config": a.authConfig, "GET /v1/me/sessions": a.listSessions, "DELETE /v1/me/sessions/{id}": a.revokeSession, "POST /v1/me/sessions/revoke-others": a.revokeOtherSessions, "PATCH /v1/me/profile": a.updateProfile,
 		"GET /v1/capabilities": a.capabilities, "GET /v1/communities": a.communities, "GET /v1/communities/{id}": a.community,
 		"PUT /v1/communities/{id}/membership": a.membership, "PUT /v1/communities/{id}/follow": a.communityFollow,
 		"GET /v1/feed": a.feed, "GET /v1/search": a.search, "GET /v1/me/bookmarks": a.bookmarks,

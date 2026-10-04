@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/app"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/authn"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/platform"
 )
 
@@ -52,14 +53,24 @@ func main() {
 		os.Exit(1)
 	}
 	defer vault.Close()
-	server := http.Server{Addr: c.Addr, Handler: app.New(db, vault, c).Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32768}
+	application := app.New(db, vault, c)
+	if c.AuthMode == "oidc" {
+		discoveryCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		application.Identity, e = authn.Discover(discoveryCtx, c)
+		cancel()
+		if e != nil {
+			slog.Error("OIDC discovery failed; check the configured issuer and local provider")
+			os.Exit(1)
+		}
+	}
+	server := http.Server{Addr: c.Addr, Handler: application.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32768}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
-	slog.Info("JanSetu synthetic local API ready", "address", c.Addr)
+	slog.Info("JanSetu synthetic local API ready", "address", c.Addr, "authMode", c.AuthMode)
 	if e = server.ListenAndServe(); e != nil && e != http.ErrServerClosed {
 		slog.Error("API server failed")
 		os.Exit(1)

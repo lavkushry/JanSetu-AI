@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"time"
 
@@ -10,7 +11,8 @@ import (
 )
 
 type Config struct {
-	Environment, DatabaseURL, VaultURL, Addr, WebOrigin string
+	Environment, DatabaseURL, VaultURL, Addr, WebOrigin                   string
+	AuthMode, OIDCIssuer, OIDCClientID, OIDCClientSecret, OIDCBackchannel string
 }
 
 func env(key, fallback string) string {
@@ -22,18 +24,58 @@ func env(key, fallback string) string {
 
 func Load() (Config, error) {
 	c := Config{
-		Environment: env("JANSETU_ENV", "local"),
-		DatabaseURL: env("JANSETU_DATABASE_URL", "postgres://jansetu:jansetu-local@localhost:5438/jansetu?sslmode=disable"),
-		VaultURL:    env("JANSETU_VAULT_URL", "postgres://jansetu:jansetu-local@localhost:5438/jansetu_vault?sslmode=disable"),
-		Addr:        env("JANSETU_HTTP_ADDR", "127.0.0.1:8081"),
-		WebOrigin:   env("JANSETU_WEB_ORIGIN", "http://localhost:3100"),
+		Environment:      env("JANSETU_ENV", "local"),
+		DatabaseURL:      env("JANSETU_DATABASE_URL", "postgres://jansetu:jansetu-local@localhost:5438/jansetu?sslmode=disable"),
+		VaultURL:         env("JANSETU_VAULT_URL", "postgres://jansetu:jansetu-local@localhost:5438/jansetu_vault?sslmode=disable"),
+		Addr:             env("JANSETU_HTTP_ADDR", "127.0.0.1:8081"),
+		WebOrigin:        env("JANSETU_WEB_ORIGIN", "http://localhost:3100"),
+		AuthMode:         env("JANSETU_AUTH_MODE", "oidc"),
+		OIDCIssuer:       env("JANSETU_OIDC_ISSUER", "http://localhost:8180/realms/jansetu"),
+		OIDCClientID:     env("JANSETU_OIDC_CLIENT_ID", "jansetu-web"),
+		OIDCClientSecret: os.Getenv("JANSETU_OIDC_CLIENT_SECRET"),
+		OIDCBackchannel:  os.Getenv("JANSETU_OIDC_BACKCHANNEL"),
 	}
-	// The first milestone intentionally requires synthetic, local accounts.
-	// A deployment cannot silently enable development identity in production.
+	return c, c.Validate()
+}
+
+func (c Config) Validate() error {
+	// OIDC is implemented; privacy isolation and launch gates still constrain this release.
 	if c.Environment != "local" && c.Environment != "test" {
-		return c, errors.New("this release requires local/test mode; configure production OIDC and launch gates before enabling real intake")
+		return errors.New("this release requires local/test mode; complete privacy isolation and launch gates before enabling real intake")
 	}
-	return c, nil
+	if c.AuthMode != "demo" && c.AuthMode != "oidc" {
+		return errors.New("JANSETU_AUTH_MODE must be oidc or explicitly demo in local/test mode")
+	}
+	u, err := url.Parse(c.WebOrigin)
+	if err != nil || !validOrigin(u) {
+		return errors.New("JANSETU_WEB_ORIGIN must be an exact HTTP(S) origin")
+	}
+	if c.AuthMode == "oidc" {
+		issuer, err := url.Parse(c.OIDCIssuer)
+		if err != nil || issuer.Host == "" || issuer.User != nil || issuer.RawQuery != "" || issuer.Fragment != "" ||
+			(issuer.Scheme != "https" && !(issuer.Scheme == "http" && loopback(issuer.Hostname()))) ||
+			c.OIDCClientID == "" {
+			return errors.New("OIDC requires an exact HTTPS issuer (loopback HTTP for local tests) and client ID")
+		}
+		if c.OIDCBackchannel != "" {
+			back, err := url.Parse(c.OIDCBackchannel)
+			if err != nil || !validOrigin(back) || back.Scheme != "http" || issuer.Scheme != "http" {
+				return errors.New("OIDC backchannel override is only for local HTTP container networking")
+			}
+		}
+	}
+	return nil
+}
+
+func loopback(host string) bool { return host == "localhost" || host == "127.0.0.1" || host == "::1" }
+func validOrigin(u *url.URL) bool {
+	return u != nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" && u.User == nil &&
+		u.Path == "" && u.RawQuery == "" && u.Fragment == ""
+}
+
+func (c Config) SecureCookies() bool {
+	u, err := url.Parse(c.WebOrigin)
+	return err == nil && u.Scheme == "https"
 }
 
 func Pool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {

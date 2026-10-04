@@ -1,12 +1,11 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   QueryClient,
   QueryClientProvider,
   useInfiniteQuery,
-  useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
@@ -26,7 +25,6 @@ import {
   Moon,
   Menu,
   X,
-  LogOut,
   SlidersHorizontal,
   ArrowLeft,
   Check,
@@ -38,6 +36,7 @@ import { SessionContext, Avatar, Modal, Loading, Empty, ErrorState, useSession }
 import { PostCard, ReceiptCard, Composer, Thread, Communities, CommunityCard } from './social';
 import { ReportWizard, MyReports, ReceiptDetail } from './reports';
 import { Studio } from './studio';
+import { Accounts, AccountSecurity } from './accounts';
 
 export default function JanSetu() {
   const [client] = useState(
@@ -86,6 +85,7 @@ function Application() {
   const qc = useQueryClient();
   const session = useQuery({
     queryKey: ['me'],
+    refetchInterval: 30000,
     queryFn: async () => {
       try {
         return await api<Me>('me');
@@ -96,6 +96,15 @@ function Application() {
     },
   });
   const me = session.data || null;
+  const previousProfile = useRef<string | null>(null);
+  useEffect(() => {
+    const next = me?.profile.id || null;
+    if (previousProfile.current && previousProfile.current !== next) {
+      void qc.cancelQueries({ predicate: (query) => query.queryKey[0] !== 'me' });
+      qc.removeQueries({ predicate: (query) => query.queryKey[0] !== 'me' });
+    }
+    previousProfile.current = next;
+  }, [me?.profile.id, qc]);
   const [account, setAccount] = useState(false);
   const [composer, setComposer] = useState<{ edit?: Post; communityId?: string } | null>(null);
   const [report, setReport] = useState(false);
@@ -153,6 +162,7 @@ function Application() {
     { href: '/communities', label: 'Communities', icon: Users },
     { href: '/bookmarks', label: 'Bookmarks', icon: Bookmark },
     { href: '/my-reports', label: 'My reports', icon: FileText },
+    { href: '/account', label: 'Account', icon: ShieldCheck },
   ];
   const isStaff = !!me && (me.roles.length > 0 || me.agencies.length > 0);
   return (
@@ -206,13 +216,18 @@ function Application() {
           </button>
           <button
             className="avatar-button"
-            aria-label="Switch demo account"
+            aria-label="Open account"
             onClick={() => setAccount(true)}
           >
             <Avatar name={me?.profile.displayName || 'Demo account'} size="small" />
           </button>
         </div>
       </header>
+      {params.get('auth') === 'failed' && (
+        <p className="auth-error" role="alert">
+          Sign-in could not be completed. Open your account to try again.
+        </p>
+      )}
       <div className="app-layout">
         {menu && (
           <button
@@ -282,7 +297,7 @@ function Application() {
               <Avatar name={me?.profile.displayName || 'Choose account'} />
               <span>
                 <strong>{me?.profile.displayName || 'Explore JanSetu'}</strong>
-                <small>{me ? `@${me.profile.handle}` : 'Choose a demo account'}</small>
+                <small>{me ? `@${me.profile.handle}` : 'Sign in to JanSetu'}</small>
               </span>
               <ChevronDown size={15} />
             </button>
@@ -365,77 +380,6 @@ function Application() {
         </Modal>
       )}
     </SessionContext.Provider>
-  );
-}
-function Accounts({ onClose }: { onClose: () => void }) {
-  const qc = useQueryClient();
-  const { me, notify } = useSession();
-  const q = useQuery({
-    queryKey: ['accounts'],
-    queryFn: () => api<Schema['Accounts']>('dev/accounts'),
-  });
-  const choose = useMutation({
-    mutationFn: async (id: string | null) => {
-      await qc.cancelQueries();
-      if (id) {
-        await api('dev/session', { method: 'POST', body: { principalId: id } });
-        return api<Me>('me');
-      }
-      await api('me/logout', { method: 'POST' });
-      return null;
-    },
-    onSuccess: (next) => {
-      qc.clear();
-      qc.setQueryData(['me'], next);
-      notify('Demo account updated');
-      onClose();
-    },
-  });
-  return (
-    <Modal title="Choose a demo account" onClose={onClose}>
-      <p className="muted">
-        Use fictional accounts to try resident and staff workflows. This demonstration does not
-        collect real service reports.
-      </p>
-      {q.isPending ? (
-        <Loading />
-      ) : q.error ? (
-        <ErrorState error={q.error} retry={() => q.refetch()} />
-      ) : (
-        <div className="accounts-list">
-          {q.data.items.map((a) => (
-            <button
-              className="account-option"
-              disabled={choose.isPending}
-              key={a.id}
-              onClick={() => choose.mutate(a.id)}
-            >
-              <Avatar name={a.profile.displayName} />
-              <span>
-                <strong>{a.profile.displayName}</strong>
-                <small>{a.role}</small>
-              </span>
-              {me?.profile.id === a.profile.id && <Check size={18} />}
-            </button>
-          ))}
-        </div>
-      )}
-      {choose.error && (
-        <p className="form-error" role="alert">
-          {choose.error.message}
-        </p>
-      )}
-      {me && (
-        <button
-          className="text-button logout"
-          disabled={choose.isPending}
-          onClick={() => choose.mutate(null)}
-        >
-          <LogOut size={16} />
-          Sign out
-        </button>
-      )}
-    </Modal>
   );
 }
 function SidebarCommunities() {
@@ -572,6 +516,7 @@ function Page({
     );
   if (pathname === '/my-reports') return <MyReports onReport={onReport} />;
   if (pathname === '/studio') return <Studio />;
+  if (pathname === '/account') return <AccountSecurity />;
   if (pathname === '/communities')
     return (
       <>
@@ -761,9 +706,9 @@ function Feed({
       </div>
       {needsAccount && !me ? (
         <Empty title={saved ? 'Your bookmarks stay with you' : 'Follow what matters to you'}>
-          <p>Choose a demo account to continue.</p>
+          <p>Sign in to continue.</p>
           <button className="primary" onClick={signIn}>
-            Choose demo account
+            Sign in
           </button>
         </Empty>
       ) : q.isPending ? (

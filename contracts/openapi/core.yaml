@@ -1,14 +1,151 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.1.0
+  version: 0.2.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
-    creations require Idempotency-Key; versioned changes require If-Match. Production identity and real
-    intake are disabled.
+    creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an opaque session; fixture shortcuts require explicit demo mode.
+    Real intake and production deployment remain disabled.
 servers:
   - url: /api
 paths:
+  /auth/config:
+    get:
+      operationId: get_auth_config
+      responses:
+        '200':
+          description: Enabled account flow
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthConfig'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /auth/login:
+    get:
+      operationId: get_auth_login
+      description: Starts a browser-bound OIDC authorization-code flow. Navigate through the BFF.
+      parameters:
+        - name: returnTo
+          in: query
+          schema: { type: string, maxLength: 1000, default: / }
+      responses:
+        '302':
+          description: Redirect to the configured identity provider; sets HttpOnly login-flow cookie
+          headers:
+            Location: { schema: { type: string } }
+        '404':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /auth/callback:
+    get:
+      operationId: get_auth_callback
+      description: Provider callback; one-time state and browser-cookie match, PKCE exchange, ID token and nonce validation.
+      parameters:
+        - name: state
+          in: query
+          required: true
+          schema: { type: string }
+        - name: code
+          in: query
+          schema: { type: string }
+        - name: error
+          in: query
+          schema: { type: string }
+      responses:
+        '303':
+          description: Return to application with a session or a generic sign-in error
+          headers:
+            Location: { schema: { type: string } }
+  /me/sessions:
+    get:
+      operationId: get_me_sessions
+      responses:
+        '200':
+          description: Owner's active sessions; no tokens, IP addresses, or provider identity
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AccountSession' }
+        '401':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /me/sessions/{id}:
+    delete:
+      operationId: delete_me_session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema: { type: string, const: '1' }
+      responses:
+        '204': { description: Session revoked; clear cookie if current }
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /me/sessions/revoke-others:
+    post:
+      operationId: post_me_revoke_other_sessions
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema: { type: string, const: '1' }
+      responses:
+        '204': { description: Other application sessions revoked }
+        '401':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /me/profile:
+    patch:
+      operationId: patch_me_profile
+      parameters:
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema: { type: string, const: '1' }
+        - name: If-Match
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileInput'
+      responses:
+        '200':
+          $ref: '#/components/responses/Command'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
   /me:
     get:
       responses:
@@ -27,12 +164,14 @@ paths:
     get:
       responses:
         '200':
-          description: Synthetic identities
+          description: Synthetic identities (explicit demo mode only)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Accounts'
         '503':
+          $ref: '#/components/responses/Problem'
+        '404':
           $ref: '#/components/responses/Problem'
       operationId: get_dev_accounts
   /dev/session:
@@ -55,6 +194,8 @@ paths:
         '403':
           $ref: '#/components/responses/Problem'
         '503':
+          $ref: '#/components/responses/Problem'
+        '404':
           $ref: '#/components/responses/Problem'
       operationId: post_dev_session
       parameters:
@@ -1049,6 +1190,31 @@ components:
           type: string
         signedIn:
           type: boolean
+    AuthConfig:
+      type: object
+      required: [mode, loginPath, synthetic]
+      properties:
+        mode: { type: string, enum: [oidc, demo] }
+        loginPath: { type: string }
+        synthetic: { const: true }
+    AccountSession:
+      type: object
+      required: [id, createdAt, lastSeenAt, expiresAt, current, method]
+      properties:
+        id: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        current: { type: boolean }
+        method: { type: string, enum: [oidc, demo] }
+    ProfileInput:
+      type: object
+      additionalProperties: false
+      required: [handle, displayName, bio]
+      properties:
+        handle: { type: string, pattern: '^[a-z][a-z0-9_]{2,29}$' }
+        displayName: { type: string, minLength: 1, maxLength: 80 }
+        bio: { type: string, maxLength: 500 }
     Profile:
       type: object
       required:

@@ -4,6 +4,7 @@ sql:
     schema:
       - ../../db/migrations/00001_foundation.sql
       - ../../db/migrations/00002_core_enforcement.sql
+      - ../../db/migrations/00003_account_security.sql
     queries: internal/store/queries.sql
     gen:
       go:

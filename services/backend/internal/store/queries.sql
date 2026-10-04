@@ -1,8 +1,10 @@
 -- name: SessionActor :one
-SELECT ip.id AS principal_id, ip.profile_id, ip.authorization_version
+SELECT ip.id AS principal_id, ip.profile_id, ip.authorization_version, s.id AS session_id
 FROM identity.session s JOIN identity.principal ip ON ip.id = s.principal_id
 JOIN social.profile p ON p.id = ip.profile_id
-WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
+WHERE s.token_hash = $1 AND s.auth_method = $2 AND s.revoked_at IS NULL AND s.expires_at > now()
+  AND s.last_seen_at > now() - interval '30 minutes'
+  AND (s.auth_method='demo' OR (s.provider=sqlc.arg(oidc_issuer) AND EXISTS(SELECT 1 FROM identity.account_binding b WHERE b.provider=s.provider AND b.provider_subject=s.provider_subject AND b.principal_id=ip.id AND b.state='ACTIVE')))
   AND ip.state = 'ACTIVE' AND p.state = 'ACTIVE';
 
 -- name: Profile :one
@@ -14,12 +16,6 @@ SELECT role FROM identity.platform_grant WHERE principal_id = $1 AND revoked_at 
 -- name: AgencyGrants :many
 SELECT g.agency_id, g.role, a.name FROM identity.organization_grant g JOIN ops.agency a ON a.id = g.agency_id
 WHERE g.principal_id = $1 AND g.revoked_at IS NULL AND g.valid_from <= now() AND g.valid_to > now() AND a.state = 'ACTIVE';
-
--- name: InsertSession :exec
-INSERT INTO identity.session(id,principal_id,token_hash,expires_at) VALUES ($1,$2,$3,$4);
-
--- name: RevokeSession :exec
-UPDATE identity.session SET revoked_at = now() WHERE token_hash = $1;
 
 -- name: LockPrincipal :one
 SELECT id,state FROM identity.principal WHERE id = $1 FOR UPDATE;
@@ -283,7 +279,7 @@ ON CONFLICT(case_id) DO UPDATE SET approved_case_version=EXCLUDED.approved_case_
 -- name: SaveReceipt :exec
 INSERT INTO social.case_receipt(id,title,safe_summary,area_label,public_state,urgency_tier,first_reported_at,responsibilities,projection_version,publication_state,published_at,updated_at,policy_version)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'PUBLISHED',now(),now(),'local-publication-v1')
-ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,safe_summary=EXCLUDED.safe_summary,public_state=EXCLUDED.public_state,urgency_tier=EXCLUDED.urgency_tier,responsibilities=EXCLUDED.responsibilities,projection_version=EXCLUDED.projection_version,publication_state='PUBLISHED',updated_at=now();
+ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,safe_summary=EXCLUDED.safe_summary,area_label=EXCLUDED.area_label,public_state=EXCLUDED.public_state,urgency_tier=EXCLUDED.urgency_tier,responsibilities=EXCLUDED.responsibilities,projection_version=EXCLUDED.projection_version,publication_state='PUBLISHED',updated_at=now();
 -- name: DeleteReceiptEvents :exec
 DELETE FROM social.case_receipt_event WHERE receipt_id=$1;
 -- name: InsertReceiptEvent :exec
