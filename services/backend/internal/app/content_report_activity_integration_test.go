@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/vault"
 )
@@ -68,8 +70,10 @@ func TestContentReportActivityOutcomeOwnershipAndRetries(t *testing.T) {
 				recipient uuid.UUID
 				version   int64
 			}{{myProfileID(t, author), 2}, {myProfileID(t, reporter), 99}} {
-				if _, e := a.Worker.Exec(context.Background(), "INSERT INTO social.notification(id,recipient_id,event_id,channel,kind,source_version,content_report_id,state) VALUES($1,$2,$3,'IN_APP','CONTENT_REPORT_OUTCOME',$4,$5,'SENT')", uuid.New(), forged.recipient, uuid.New(), forged.version, r.ID); e == nil {
-					t.Fatal("worker forged report owner/version")
+				_, e := a.Worker.Exec(context.Background(), "INSERT INTO social.notification(id,recipient_id,event_id,channel,kind,source_version,content_report_id,state) VALUES($1,$2,$3,'IN_APP','CONTENT_REPORT_OUTCOME',$4,$5,'SENT')", uuid.New(), forged.recipient, uuid.New(), forged.version, r.ID)
+				var denial *pgconn.PgError
+				if !errors.As(e, &denial) || denial.Code != "42501" {
+					t.Fatalf("forged report owner/version must be denied by row policy: %v", e)
 				}
 			}
 			path := "me/activity/" + items[0].ID.String() + "/read"
