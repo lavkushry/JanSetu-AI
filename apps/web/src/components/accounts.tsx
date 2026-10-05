@@ -10,6 +10,7 @@ import { BlockedPeopleSettings } from './profiles';
 import { NotificationSettings, MutedItemsSettings } from './preferences';
 import { MyContentReports } from './content-reports';
 import { MyModerationDecisions } from './moderation-decisions';
+import { MyAppeals } from './appeals';
 
 export function Accounts({ onClose }: { onClose: () => void }) {
   const q = useQuery({
@@ -209,6 +210,7 @@ export function AccountSecurity() {
       <NotificationSettings />
       <MutedItemsSettings />
       <MyModerationDecisions />
+      <MyAppeals />
       <MyContentReports />
       <Sessions />
     </div>

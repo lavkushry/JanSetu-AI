@@ -18,6 +18,8 @@ export async function refreshSocialVisibility(client: QueryClient) {
     'community',
     'content-reports',
     'moderation-decisions',
+    'appeals',
+    'appeal-review',
     'reviews',
   ]);
   const filter = {

@@ -132,6 +132,28 @@ type SocialActivityVisible struct {
 	Title       pgtype.Text        `json:"title"`
 }
 
+type SocialAppeal struct {
+	ID           uuid.UUID          `json:"id"`
+	DecisionID   uuid.UUID          `json:"decision_id"`
+	AppellantRef uuid.UUID          `json:"appellant_ref"`
+	Grounds      string             `json:"grounds"`
+	State        string             `json:"state"`
+	ReviewerRef  *uuid.UUID         `json:"reviewer_ref"`
+	Version      int64              `json:"version"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type SocialAppealDecision struct {
+	ID                uuid.UUID          `json:"id"`
+	AppealID          uuid.UUID          `json:"appeal_id"`
+	Result            string             `json:"result"`
+	AuthorReason      string             `json:"author_reason"`
+	RestorationState  string             `json:"restoration_state"`
+	RestorationReason string             `json:"restoration_reason"`
+	ReviewerRef       uuid.UUID          `json:"reviewer_ref"`
+	DecidedAt         pgtype.Timestamptz `json:"decided_at"`
+}
+
 type SocialAuthorModerationDecision struct {
 	ID             uuid.UUID          `json:"id"`
 	TargetType     string             `json:"target_type"`

@@ -6,6 +6,7 @@ import { CheckCircle2, ShieldCheck, ClipboardList } from 'lucide-react';
 import { api, dateLabel, readable, type Schema, type Me } from '@/lib/api';
 import { Badge, Empty, Loading, ErrorState, FormError, useSession } from './ui';
 import { ContentReportQueue } from './content-reports';
+import { AppealQueue } from './appeals';
 
 export function Studio() {
   const { me, signIn } = useSession();
@@ -28,7 +29,7 @@ export function Studio() {
         This account can participate in conversations and submit service reports.
       </Empty>
     );
-  const active = tab || (moderator ? 'reviews' : 'cases');
+  const active = tab || (agency ? 'cases' : moderator ? 'reviews' : 'cases');
   return (
     <>
       <div className="section-intro studio-intro">
@@ -57,6 +58,14 @@ export function Studio() {
             Reported content
           </button>
         )}
+        {moderator && (
+          <button
+            className={active === 'appeals' ? 'selected' : ''}
+            onClick={() => setTab('appeals')}
+          >
+            Appeals
+          </button>
+        )}
         {coordinator && (
           <button
             className={active === 'intake' ? 'selected' : ''}
@@ -69,7 +78,9 @@ export function Studio() {
           Service cases
         </button>
       </div>
-      {active === 'reviews' ? (
+      {active === 'appeals' ? (
+        <AppealQueue />
+      ) : active === 'reviews' ? (
         <Reviews />
       ) : active === 'content-reports' ? (
         <ContentReportQueue />

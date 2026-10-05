@@ -3148,3 +3148,14 @@ textarea {
     margin-left: 50px;
   }
 }
+
+.appeal-copy {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.appeal-preview,
+.appeal-outcome {
+  border-left: 3px solid var(--blue);
+  padding-left: 1rem;
+  margin-block: 1rem;
+}

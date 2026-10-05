@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { ShieldCheck } from 'lucide-react';
+import { AppealControl } from './appeals';
 import { api, dateLabel, type Schema } from '@/lib/api';
 import { Badge, Empty, ErrorState, Loading, useSession } from './ui';
 
@@ -32,7 +33,8 @@ export function MyModerationDecisions() {
       </h2>
       <p className="muted">
         Private decisions about your posts and replies. A rejected initial submission can be edited
-        and resubmitted from its thread. Published content that was removed stays unavailable.
+        and resubmitted from its thread. Restrictions and removals can receive independent appeal
+        review.
       </p>
       <button type="button" className="text-button" onClick={refresh} disabled={q.isFetching}>
         Refresh moderation decisions
@@ -78,6 +80,7 @@ export function MyModerationDecisions() {
               <small>
                 {dateLabel(d.decidedAt)} · Policy {d.ruleVersion}
               </small>
+              <AppealControl decision={d} />
               <Link
                 className="text-button"
                 href={`/posts/${d.target.postId}${d.target.type === 'COMMENT' ? `#comment-${d.target.id}` : ''}`}

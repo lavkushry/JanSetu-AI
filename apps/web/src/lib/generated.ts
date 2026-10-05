@@ -650,6 +650,135 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/moderation/decisions/{id}/appeals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Author-only RESTRICT/REMOVE appeals. One per decision for life; identical grounds return the existing receipt, different grounds conflict. Ten new appeals per hour. Principal-bound 72-hour idempotency receipts contain no source preview or internal notes. */
+        post: operations["post_author_appeal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/appeals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Private newest-first twenty-item pages with author/endpoint-bound five-minute cursors. No source text, original internal notes, reviewer or reporter identities. */
+        get: operations["get_own_appeals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/appeals/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /** @description Owner-only receipt. Foreign IDs return 404; deleted source content does not remove this record. */
+        get: operations["get_own_appeal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/moderation/appeals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Fresh platform moderators see oldest-first twenty-item pages. Appellants, original decision makers and reporters are excluded. Claims restrict records to the assigned reviewer. Staff-only source previews recheck current source availability; original internal notes never enter owner receipts. */
+        get: operations["get_appeal_queue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/moderation/appeals/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /** @description Independent moderator review context; same conflict and assignment rules as the queue. */
+        get: operations["get_appeal_review"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/moderation/appeals/{id}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Claims an OPEN appeal for a fresh independent moderator; repeated same-reviewer claims with the current version are harmless. Closed or ineligible records return 404. */
+        post: operations["post_claim_appeal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/moderation/appeals/{id}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Assigned independent reviewer records UPHELD or REVERSED with a separate author-facing reason. Requires original revision and current source version; stale source returns 409. Reversal restores only the exact current reviewed revision after fresh author, community and reply-parent policy checks. Deleted sources, later candidates and other removals remain unavailable. Result, optional publication and outbox commit atomically. Closed appeals return 404 and cannot reopen. */
+        post: operations["post_appeal_decision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/moderation-decisions": {
         parameters: {
             query?: never;
@@ -1805,6 +1934,7 @@ export interface components {
             languageTag: string;
         };
         AuthorModerationDecision: {
+            appeal: components["schemas"]["AppealSummary"] | null;
             /** Format: uuid */
             id: string;
             target: {
@@ -1980,6 +2110,96 @@ export interface components {
             correctedText: string;
             /** Format: date-time */
             appliedAt: string;
+        };
+        AppealSummary: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            state: "OPEN" | "REVIEWING" | "UPHELD" | "REVERSED" | "WITHDRAWN";
+        };
+        AppealOutcome: {
+            /** @enum {string} */
+            result: "UPHELD" | "REVERSED";
+            reason: string;
+            /** @enum {string} */
+            restorationState: "UNCHANGED" | "RESTORED" | "NOT_RESTORED";
+            /** @enum {string} */
+            restorationReason: "NONE" | "TARGET_CHANGED" | "TARGET_UNAVAILABLE" | "POSTING_NOT_ALLOWED" | "PARENT_UNAVAILABLE";
+            /** Format: date-time */
+            decidedAt: string;
+        };
+        AppealReceipt: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            decisionId: string;
+            grounds: string;
+            /** @enum {string} */
+            state: "OPEN" | "REVIEWING" | "UPHELD" | "REVERSED" | "WITHDRAWN";
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            outcome: components["schemas"]["AppealOutcome"] | null;
+        };
+        AppealReview: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            decisionId: string;
+            grounds: string;
+            /** @enum {string} */
+            state: "OPEN" | "REVIEWING" | "UPHELD" | "REVERSED" | "WITHDRAWN";
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            outcome: components["schemas"]["AppealOutcome"] | null;
+            original: {
+                /** @enum {string} */
+                action: "RESTRICT" | "REMOVE";
+                ruleVersion: string;
+                /** @description Staff-only original note; never included in an owner receipt. */
+                internalReason: string;
+                target: {
+                    /** @enum {string} */
+                    type: "POST" | "COMMENT";
+                    /** Format: uuid */
+                    id: string;
+                    /** Format: uuid */
+                    postId: string;
+                    revision: number;
+                };
+            };
+            /** @description Current source aggregate version; zero if the original revision is unavailable. */
+            targetVersion: number;
+            /** @enum {string} */
+            restorationReason: "NONE" | "TARGET_CHANGED" | "TARGET_UNAVAILABLE" | "POSTING_NOT_ALLOWED" | "PARENT_UNAVAILABLE";
+            assignedToMe: boolean;
+            preview: {
+                title: string;
+                body: string;
+            } | null;
+        };
+        AppealInput: {
+            grounds: string;
+        };
+        AppealDecisionInput: {
+            /** @enum {string} */
+            result: "UPHELD" | "REVERSED";
+            authorReason: string;
+            targetRevision: number;
+            targetVersion: number;
+        };
+        AppealPage: {
+            items: components["schemas"]["AppealReceipt"][];
+            nextCursor: string | null;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        AppealReviewPage: {
+            items: components["schemas"]["AppealReview"][];
+            nextCursor: string | null;
+            /** Format: date-time */
+            expiresAt: string;
         };
     };
     responses: {
@@ -3002,6 +3222,237 @@ export interface operations {
             403: components["responses"]["Problem"];
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    post_author_appeal: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["Idempotency"];
+            };
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppealInput"];
+            };
+        };
+        responses: {
+            /** @description Private appeal record */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppealReceipt"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_own_appeals: {
+        parameters: {
+            query?: {
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Private appeal record */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppealPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_own_appeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Private appeal record */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppealReceipt"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_appeal_queue: {
+        parameters: {
+            query?: {
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Private appeal record */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppealReviewPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_appeal_review: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Private appeal record */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppealReview"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    post_claim_appeal: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["Version"];
+            };
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Private appeal record */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppealReceipt"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    post_appeal_decision: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["Version"];
+            };
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppealDecisionInput"];
+            };
+        };
+        responses: {
+            /** @description Private appeal record */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppealReceipt"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
             503: components["responses"]["Problem"];

@@ -161,6 +161,208 @@ func (q *Queries) AgencyGrants(ctx context.Context, principalID uuid.UUID) ([]Ag
 	return items, nil
 }
 
+const appealCount = `-- name: AppealCount :one
+SELECT count(*) FROM social.appeal WHERE appellant_ref=$1 AND created_at>statement_timestamp()-interval '1 hour'
+`
+
+func (q *Queries) AppealCount(ctx context.Context, appellantRef uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, appealCount, appellantRef)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const appealDecision = `-- name: AppealDecision :one
+SELECT id, appeal_id, result, author_reason, restoration_state, restoration_reason, reviewer_ref, decided_at FROM social.appeal_decision WHERE appeal_id=$1
+`
+
+func (q *Queries) AppealDecision(ctx context.Context, appealID uuid.UUID) (SocialAppealDecision, error) {
+	row := q.db.QueryRow(ctx, appealDecision, appealID)
+	var i SocialAppealDecision
+	err := row.Scan(
+		&i.ID,
+		&i.AppealID,
+		&i.Result,
+		&i.AuthorReason,
+		&i.RestorationState,
+		&i.RestorationReason,
+		&i.ReviewerRef,
+		&i.DecidedAt,
+	)
+	return i, err
+}
+
+const appealOriginal = `-- name: AppealOriginal :one
+SELECT d.id,d.action,d.rule_version,d.actor_ref,d.reason AS internal_reason,m.post_id,m.comment_id,m.target_version,m.reporter_ref
+FROM social.moderation_decision d JOIN social.moderation_case m ON m.id=d.moderation_case_id
+JOIN social.appeal appeal ON appeal.decision_id=d.id
+WHERE d.id=$1 AND authz.has_role('PLATFORM_MODERATOR') AND appeal.appellant_ref<>authz.principal()
+AND (appeal.reviewer_ref IS NULL OR appeal.reviewer_ref=authz.principal())
+`
+
+type AppealOriginalRow struct {
+	ID             uuid.UUID  `json:"id"`
+	Action         string     `json:"action"`
+	RuleVersion    string     `json:"rule_version"`
+	ActorRef       uuid.UUID  `json:"actor_ref"`
+	InternalReason string     `json:"internal_reason"`
+	PostID         *uuid.UUID `json:"post_id"`
+	CommentID      *uuid.UUID `json:"comment_id"`
+	TargetVersion  int64      `json:"target_version"`
+	ReporterRef    *uuid.UUID `json:"reporter_ref"`
+}
+
+func (q *Queries) AppealOriginal(ctx context.Context, id uuid.UUID) (AppealOriginalRow, error) {
+	row := q.db.QueryRow(ctx, appealOriginal, id)
+	var i AppealOriginalRow
+	err := row.Scan(
+		&i.ID,
+		&i.Action,
+		&i.RuleVersion,
+		&i.ActorRef,
+		&i.InternalReason,
+		&i.PostID,
+		&i.CommentID,
+		&i.TargetVersion,
+		&i.ReporterRef,
+	)
+	return i, err
+}
+
+const appealQueue = `-- name: AppealQueue :many
+SELECT id, decision_id, appellant_ref, grounds, state, reviewer_ref, version, created_at FROM social.appeal WHERE state IN ('OPEN','REVIEWING') AND appellant_ref<>authz.principal()
+AND (reviewer_ref IS NULL OR reviewer_ref=authz.principal())
+AND (NOT $1::boolean OR (created_at,id)>($2::timestamptz,$3::uuid))
+ORDER BY created_at,id LIMIT 21
+`
+
+type AppealQueueParams struct {
+	HasCursor bool               `json:"has_cursor"`
+	AfterTime pgtype.Timestamptz `json:"after_time"`
+	AfterID   uuid.UUID          `json:"after_id"`
+}
+
+func (q *Queries) AppealQueue(ctx context.Context, arg AppealQueueParams) ([]SocialAppeal, error) {
+	rows, err := q.db.Query(ctx, appealQueue, arg.HasCursor, arg.AfterTime, arg.AfterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SocialAppeal{}
+	for rows.Next() {
+		var i SocialAppeal
+		if err := rows.Scan(
+			&i.ID,
+			&i.DecisionID,
+			&i.AppellantRef,
+			&i.Grounds,
+			&i.State,
+			&i.ReviewerRef,
+			&i.Version,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const appealReviewPreview = `-- name: AppealReviewPreview :one
+WITH eligible AS (SELECT FROM social.appeal WHERE decision_id=$1::uuid
+AND authz.has_role('PLATFORM_MODERATOR') AND appellant_ref<>authz.principal()
+AND (reviewer_ref IS NULL OR reviewer_ref=authz.principal()))
+SELECT p.id AS post_id,r.title,r.body FROM social.post p JOIN social.profile a ON a.id=p.author_id AND a.state='ACTIVE'
+JOIN social.post_revision r ON r.post_id=p.id AND r.revision=$2::bigint
+LEFT JOIN social.community community ON community.id=p.community_id
+WHERE p.id=$3::uuid AND EXISTS(SELECT FROM eligible) AND p.state IN ('HIDDEN','PUBLISHED')
+AND (community.id IS NULL OR (community.state='ACTIVE' AND community.visibility IN ('PUBLIC','RESTRICTED')))
+UNION ALL
+SELECT p.id,NULL::text,candidate.body FROM social.comment c JOIN social.post p ON p.id=c.post_id AND p.state='PUBLISHED'
+JOIN social.profile a ON a.id=c.author_id AND a.state='ACTIVE'
+JOIN social.profile pa ON pa.id=p.author_id AND pa.state='ACTIVE'
+JOIN social.comment_revision candidate ON candidate.comment_id=c.id AND candidate.version=$2::bigint
+LEFT JOIN social.community community ON community.id=p.community_id
+WHERE c.id=$4::uuid AND EXISTS(SELECT FROM eligible) AND c.state IN ('HIDDEN','PUBLISHED')
+AND (community.id IS NULL OR (community.state='ACTIVE' AND community.visibility IN ('PUBLIC','RESTRICTED')))
+`
+
+type AppealReviewPreviewParams struct {
+	DecisionID     uuid.UUID `json:"decision_id"`
+	TargetRevision int64     `json:"target_revision"`
+	PostID         uuid.UUID `json:"post_id"`
+	CommentID      uuid.UUID `json:"comment_id"`
+}
+
+type AppealReviewPreviewRow struct {
+	PostID uuid.UUID   `json:"post_id"`
+	Title  pgtype.Text `json:"title"`
+	Body   string      `json:"body"`
+}
+
+func (q *Queries) AppealReviewPreview(ctx context.Context, arg AppealReviewPreviewParams) (AppealReviewPreviewRow, error) {
+	row := q.db.QueryRow(ctx, appealReviewPreview,
+		arg.DecisionID,
+		arg.TargetRevision,
+		arg.PostID,
+		arg.CommentID,
+	)
+	var i AppealReviewPreviewRow
+	err := row.Scan(&i.PostID, &i.Title, &i.Body)
+	return i, err
+}
+
+const appealSourceStatus = `-- name: AppealSourceStatus :one
+SELECT p.id AS target_id,p.id AS post_id,p.version,p.current_revision::bigint AS current_revision,coalesce(p.published_revision,0)::bigint AS published_revision,
+p.state,p.author_id,p.community_id,NULL::uuid AS parent_id,r.review_state
+FROM social.post p JOIN social.post_revision r ON r.post_id=p.id AND r.revision=$1::bigint
+WHERE p.id=$2::uuid
+UNION ALL
+SELECT c.id,c.post_id,c.version,c.current_revision,coalesce(c.published_version,0)::bigint,c.state,c.author_id,p.community_id,c.parent_id,r.review_state
+FROM social.comment c JOIN social.post p ON p.id=c.post_id JOIN social.comment_revision r ON r.comment_id=c.id AND r.version=$1::bigint
+WHERE c.id=$3::uuid
+`
+
+type AppealSourceStatusParams struct {
+	TargetRevision int64     `json:"target_revision"`
+	PostID         uuid.UUID `json:"post_id"`
+	CommentID      uuid.UUID `json:"comment_id"`
+}
+
+type AppealSourceStatusRow struct {
+	TargetID          uuid.UUID  `json:"target_id"`
+	PostID            uuid.UUID  `json:"post_id"`
+	Version           int64      `json:"version"`
+	CurrentRevision   int64      `json:"current_revision"`
+	PublishedRevision int64      `json:"published_revision"`
+	State             string     `json:"state"`
+	AuthorID          *uuid.UUID `json:"author_id"`
+	CommunityID       *uuid.UUID `json:"community_id"`
+	ParentID          *uuid.UUID `json:"parent_id"`
+	ReviewState       string     `json:"review_state"`
+}
+
+func (q *Queries) AppealSourceStatus(ctx context.Context, arg AppealSourceStatusParams) (AppealSourceStatusRow, error) {
+	row := q.db.QueryRow(ctx, appealSourceStatus, arg.TargetRevision, arg.PostID, arg.CommentID)
+	var i AppealSourceStatusRow
+	err := row.Scan(
+		&i.TargetID,
+		&i.PostID,
+		&i.Version,
+		&i.CurrentRevision,
+		&i.PublishedRevision,
+		&i.State,
+		&i.AuthorID,
+		&i.CommunityID,
+		&i.ParentID,
+		&i.ReviewState,
+	)
+	return i, err
+}
+
 const approveComment = `-- name: ApproveComment :exec
 UPDATE social.comment_revision SET review_state='APPROVED' WHERE comment_id=$1 AND version=$2
 `
@@ -568,6 +770,20 @@ func (q *Queries) ChangeObligation(ctx context.Context, arg ChangeObligationPara
 		arg.WorkSummary,
 		arg.CompletionActorRef,
 	)
+	return err
+}
+
+const claimAppeal = `-- name: ClaimAppeal :exec
+UPDATE social.appeal SET state='REVIEWING',reviewer_ref=$2,version=version+1 WHERE id=$1
+`
+
+type ClaimAppealParams struct {
+	ID          uuid.UUID  `json:"id"`
+	ReviewerRef *uuid.UUID `json:"reviewer_ref"`
+}
+
+func (q *Queries) ClaimAppeal(ctx context.Context, arg ClaimAppealParams) error {
+	_, err := q.db.Exec(ctx, claimAppeal, arg.ID, arg.ReviewerRef)
 	return err
 }
 
@@ -1246,6 +1462,20 @@ func (q *Queries) FeedPostIDs(ctx context.Context, arg FeedPostIDsParams) ([]uui
 	return items, nil
 }
 
+const finishAppeal = `-- name: FinishAppeal :exec
+UPDATE social.appeal SET state=$2,version=version+1 WHERE id=$1
+`
+
+type FinishAppealParams struct {
+	ID    uuid.UUID `json:"id"`
+	State string    `json:"state"`
+}
+
+func (q *Queries) FinishAppeal(ctx context.Context, arg FinishAppealParams) error {
+	_, err := q.db.Exec(ctx, finishAppeal, arg.ID, arg.State)
+	return err
+}
+
 const finishModeration = `-- name: FinishModeration :exec
 UPDATE social.moderation_case SET state='DECIDED',version=version+1 WHERE id=$1
 `
@@ -1383,6 +1613,65 @@ UPDATE social.post SET state=CASE WHEN published_revision IS NULL THEN 'HIDDEN' 
 
 func (q *Queries) HideUnpublishedPost(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, hideUnpublishedPost, id)
+	return err
+}
+
+const insertAppeal = `-- name: InsertAppeal :one
+INSERT INTO social.appeal(id,decision_id,appellant_ref,grounds,state) VALUES($1,$2,$3,$4,'OPEN') RETURNING id, decision_id, appellant_ref, grounds, state, reviewer_ref, version, created_at
+`
+
+type InsertAppealParams struct {
+	ID           uuid.UUID `json:"id"`
+	DecisionID   uuid.UUID `json:"decision_id"`
+	AppellantRef uuid.UUID `json:"appellant_ref"`
+	Grounds      string    `json:"grounds"`
+}
+
+func (q *Queries) InsertAppeal(ctx context.Context, arg InsertAppealParams) (SocialAppeal, error) {
+	row := q.db.QueryRow(ctx, insertAppeal,
+		arg.ID,
+		arg.DecisionID,
+		arg.AppellantRef,
+		arg.Grounds,
+	)
+	var i SocialAppeal
+	err := row.Scan(
+		&i.ID,
+		&i.DecisionID,
+		&i.AppellantRef,
+		&i.Grounds,
+		&i.State,
+		&i.ReviewerRef,
+		&i.Version,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const insertAppealDecision = `-- name: InsertAppealDecision :exec
+INSERT INTO social.appeal_decision(id,appeal_id,result,author_reason,restoration_state,restoration_reason,reviewer_ref) VALUES($1,$2,$3,$4,$5,$6,$7)
+`
+
+type InsertAppealDecisionParams struct {
+	ID                uuid.UUID `json:"id"`
+	AppealID          uuid.UUID `json:"appeal_id"`
+	Result            string    `json:"result"`
+	AuthorReason      string    `json:"author_reason"`
+	RestorationState  string    `json:"restoration_state"`
+	RestorationReason string    `json:"restoration_reason"`
+	ReviewerRef       uuid.UUID `json:"reviewer_ref"`
+}
+
+func (q *Queries) InsertAppealDecision(ctx context.Context, arg InsertAppealDecisionParams) error {
+	_, err := q.db.Exec(ctx, insertAppealDecision,
+		arg.ID,
+		arg.AppealID,
+		arg.Result,
+		arg.AuthorReason,
+		arg.RestorationState,
+		arg.RestorationReason,
+		arg.ReviewerRef,
+	)
 	return err
 }
 
@@ -1874,6 +2163,26 @@ func (q *Queries) LinkIntake(ctx context.Context, arg LinkIntakeParams) error {
 	return err
 }
 
+const lockAppeal = `-- name: LockAppeal :one
+SELECT id, decision_id, appellant_ref, grounds, state, reviewer_ref, version, created_at FROM social.appeal WHERE id=$1 FOR UPDATE
+`
+
+func (q *Queries) LockAppeal(ctx context.Context, id uuid.UUID) (SocialAppeal, error) {
+	row := q.db.QueryRow(ctx, lockAppeal, id)
+	var i SocialAppeal
+	err := row.Scan(
+		&i.ID,
+		&i.DecisionID,
+		&i.AppellantRef,
+		&i.Grounds,
+		&i.State,
+		&i.ReviewerRef,
+		&i.Version,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const lockCase = `-- name: LockCase :one
 SELECT id, category_code, state, first_valid_report_at, operational_location, accuracy_m, urgency_tier, urgency_review_ref, version, created_at, updated_at FROM ops.case_record WHERE id=$1 FOR UPDATE
 `
@@ -2317,6 +2626,53 @@ func (q *Queries) NotificationPreference(ctx context.Context, viewerID uuid.UUID
 	return i, err
 }
 
+const ownAppealPage = `-- name: OwnAppealPage :many
+SELECT id, decision_id, appellant_ref, grounds, state, reviewer_ref, version, created_at FROM social.appeal WHERE appellant_ref=$1
+AND (NOT $2::boolean OR (created_at,id)<($3::timestamptz,$4::uuid))
+ORDER BY created_at DESC,id DESC LIMIT 21
+`
+
+type OwnAppealPageParams struct {
+	AppellantRef uuid.UUID          `json:"appellant_ref"`
+	HasCursor    bool               `json:"has_cursor"`
+	BeforeTime   pgtype.Timestamptz `json:"before_time"`
+	BeforeID     uuid.UUID          `json:"before_id"`
+}
+
+func (q *Queries) OwnAppealPage(ctx context.Context, arg OwnAppealPageParams) ([]SocialAppeal, error) {
+	rows, err := q.db.Query(ctx, ownAppealPage,
+		arg.AppellantRef,
+		arg.HasCursor,
+		arg.BeforeTime,
+		arg.BeforeID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SocialAppeal{}
+	for rows.Next() {
+		var i SocialAppeal
+		if err := rows.Scan(
+			&i.ID,
+			&i.DecisionID,
+			&i.AppellantRef,
+			&i.Grounds,
+			&i.State,
+			&i.ReviewerRef,
+			&i.Version,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const ownContentReportPage = `-- name: OwnContentReportPage :many
 SELECT id, post_id, comment_id, media_id, profile_id, target_version, reporter_ref, reason_code, grounds, state, version, created_at FROM social.moderation_case WHERE reporter_ref=$1
 AND (NOT $2::boolean OR (created_at,id)<($3::timestamptz,$4::uuid))
@@ -2418,6 +2774,56 @@ func (q *Queries) OwnReportProgress(ctx context.Context, arg OwnReportProgressPa
 		return nil, err
 	}
 	return items, nil
+}
+
+const ownedAppeal = `-- name: OwnedAppeal :one
+SELECT id, decision_id, appellant_ref, grounds, state, reviewer_ref, version, created_at FROM social.appeal WHERE id=$1 AND appellant_ref=$2
+`
+
+type OwnedAppealParams struct {
+	ID           uuid.UUID `json:"id"`
+	AppellantRef uuid.UUID `json:"appellant_ref"`
+}
+
+func (q *Queries) OwnedAppeal(ctx context.Context, arg OwnedAppealParams) (SocialAppeal, error) {
+	row := q.db.QueryRow(ctx, ownedAppeal, arg.ID, arg.AppellantRef)
+	var i SocialAppeal
+	err := row.Scan(
+		&i.ID,
+		&i.DecisionID,
+		&i.AppellantRef,
+		&i.Grounds,
+		&i.State,
+		&i.ReviewerRef,
+		&i.Version,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const ownedAppealForDecision = `-- name: OwnedAppealForDecision :one
+SELECT id, decision_id, appellant_ref, grounds, state, reviewer_ref, version, created_at FROM social.appeal WHERE decision_id=$1 AND appellant_ref=$2
+`
+
+type OwnedAppealForDecisionParams struct {
+	DecisionID   uuid.UUID `json:"decision_id"`
+	AppellantRef uuid.UUID `json:"appellant_ref"`
+}
+
+func (q *Queries) OwnedAppealForDecision(ctx context.Context, arg OwnedAppealForDecisionParams) (SocialAppeal, error) {
+	row := q.db.QueryRow(ctx, ownedAppealForDecision, arg.DecisionID, arg.AppellantRef)
+	var i SocialAppeal
+	err := row.Scan(
+		&i.ID,
+		&i.DecisionID,
+		&i.AppellantRef,
+		&i.Grounds,
+		&i.State,
+		&i.ReviewerRef,
+		&i.Version,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const ownedContentReport = `-- name: OwnedContentReport :one
@@ -2948,6 +3354,27 @@ type RetryEventParams struct {
 func (q *Queries) RetryEvent(ctx context.Context, arg RetryEventParams) error {
 	_, err := q.db.Exec(ctx, retryEvent, arg.ID, arg.LeaseToken)
 	return err
+}
+
+const reviewerAppeal = `-- name: ReviewerAppeal :one
+SELECT id, decision_id, appellant_ref, grounds, state, reviewer_ref, version, created_at FROM social.appeal WHERE id=$1 AND appellant_ref<>authz.principal()
+AND (reviewer_ref IS NULL OR reviewer_ref=authz.principal())
+`
+
+func (q *Queries) ReviewerAppeal(ctx context.Context, id uuid.UUID) (SocialAppeal, error) {
+	row := q.db.QueryRow(ctx, reviewerAppeal, id)
+	var i SocialAppeal
+	err := row.Scan(
+		&i.ID,
+		&i.DecisionID,
+		&i.AppellantRef,
+		&i.Grounds,
+		&i.State,
+		&i.ReviewerRef,
+		&i.Version,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const saveNotificationPreference = `-- name: SaveNotificationPreference :one

@@ -2104,3 +2104,204 @@ test('authors see private moderation decisions and safely correct rejected initi
   await expect(decisions).not.toContainText(internalReason);
   await staff.context.close();
 });
+
+async function rejectedAppealFixture(owner: Page, staff: Page, marker: string) {
+  const response = await owner.request.post('/api/posts', {
+    headers: { 'x-jansetu-csrf': '1', 'idempotency-key': crypto.randomUUID() },
+    data: { kind: 'SHORT', body: marker, submitForReview: true },
+  });
+  expect(response.status()).toBe(201);
+  const post = (await response.json()) as Schema['Post'];
+  await staff.reload();
+  const card = staff.getByTestId('review-card').filter({ hasText: marker });
+  await card.getByLabel('Review reason').fill('PRIVATE ORIGINAL APPEAL REVIEW NOTE');
+  await card
+    .getByLabel('Reason shared with author')
+    .fill('Please check this fictional publication policy.');
+  await card.getByRole('button', { name: 'Restrict revision' }).click();
+  await expect(card).toHaveCount(0);
+  const history = (await (
+    await owner.request.get('/api/me/moderation-decisions')
+  ).json()) as Schema['AuthorModerationDecisionPage'];
+  const decision = history.items.find((d) => d.target.id === post.id);
+  if (!decision) throw new Error('Missing appeal decision fixture');
+  return { post, decision };
+}
+test('private appeals retry safely and an independent reviewer restores the exact rejected revision', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const original = await staffPage(browser, 'Kiran Shah');
+  const reviewer = await staffPage(browser, 'Neha Sen');
+  const marker = `Independent appeal original ${Date.now()}`;
+  const { post, decision } = await rejectedAppealFixture(page, original.page, marker);
+  await page.goto('/account#moderation-decisions');
+  const notice = page.getByTestId(`moderation-decision-${decision.id}`);
+  await notice.getByRole('button', { name: 'Appeal decision', exact: true }).click();
+  let dialog = page.getByRole('dialog', { name: 'Appeal this decision' });
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await notice.getByRole('button', { name: 'Appeal decision', exact: true }).click();
+  dialog = page.getByRole('dialog', { name: 'Appeal this decision' });
+  await expect(dialog.getByRole('button', { name: 'Submit appeal', exact: true })).toBeDisabled();
+  const grounds = 'This fictional text follows the rule. Please review independently.';
+  await dialog.getByLabel('Appeal grounds').fill(grounds);
+  let first = true;
+  const keys: string[] = [];
+  const pattern = `**/api/moderation/decisions/${decision.id}/appeals`;
+  await page.route(pattern, async (route) => {
+    keys.push(route.request().headers()['idempotency-key']);
+    const response = await route.fetch();
+    if (first) {
+      first = false;
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 'ACK_LOST',
+          title: 'Acknowledgement lost. Retry your appeal.',
+        }),
+      });
+    } else await route.fulfill({ response });
+  });
+  await dialog.getByRole('button', { name: 'Submit appeal', exact: true }).click();
+  await expect(dialog).toContainText('Acknowledgement lost');
+  await dialog.getByRole('button', { name: 'Submit appeal', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.unroute(pattern);
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).toBe(keys[1]);
+  const appeals = (await (
+    await page.request.get('/api/me/appeals')
+  ).json()) as Schema['AppealPage'];
+  const matches = appeals.items.filter((v) => v.decisionId === decision.id);
+  expect(matches).toHaveLength(1);
+  const appeal = matches[0];
+  expect(JSON.stringify(appeals)).not.toContain(marker);
+  expect(JSON.stringify(appeals)).not.toContain('PRIVATE ORIGINAL APPEAL REVIEW NOTE');
+  expect((await original.page.request.get(`/api/moderation/appeals/${appeal.id}`)).status()).toBe(
+    404,
+  );
+  expect((await reviewer.page.request.get(`/api/me/appeals/${appeal.id}`)).status()).toBe(404);
+  await reviewer.page.getByRole('button', { name: 'Appeals', exact: true }).click();
+  let review = reviewer.page.getByTestId(`appeal-review-${appeal.id}`);
+  await expect(review).toContainText(marker);
+  await expect(review).toContainText(grounds);
+  await review.getByRole('button', { name: 'Take review', exact: true }).click();
+  await expect(review.getByLabel('Reason shared with author')).toBeVisible();
+  await review
+    .getByLabel('Reason shared with author')
+    .fill('Independent review found this fictional revision follows the rule.');
+  const assignedToast = reviewer.page.getByRole('button', {
+    name: 'Dismiss notification',
+    exact: true,
+  });
+  if (await assignedToast.isVisible()) await assignedToast.click();
+  await reviewer.page.setViewportSize({ width: 320, height: 740 });
+  await review.evaluate((el) =>
+    window.scrollTo({
+      top: el.getBoundingClientRect().top + window.scrollY - 150,
+      behavior: 'instant',
+    }),
+  );
+  await expect(review).toBeInViewport();
+  expect(
+    await reviewer.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+  await reviewer.page.screenshot({ path: 'test-results/appeal-review-mobile.png' });
+  await reviewer.page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+  await reviewer.page.screenshot({ path: 'test-results/appeal-review-mobile-dark.png' });
+  await review.getByRole('button', { name: 'Overturn decision', exact: true }).click();
+  const confirm = reviewer.page.getByRole('dialog', { name: 'Overturn this decision?' });
+  await expect(confirm).toContainText('exact reviewed revision');
+  await confirm.getByRole('button', { name: 'Confirm appeal outcome', exact: true }).click();
+  await expect(review).toHaveCount(0);
+  await page.getByRole('button', { name: 'Refresh appeals', exact: true }).click();
+  const receipt = page.getByTestId(`appeal-${appeal.id}`);
+  await expect(receipt).toContainText('Decision overturned');
+  await expect(receipt).toContainText('Reviewed revision published.');
+  await expect(receipt).not.toContainText(marker);
+  await page.setViewportSize({ width: 320, height: 740 });
+  await receipt.evaluate((el) =>
+    window.scrollTo({
+      top: el.getBoundingClientRect().top + window.scrollY - 150,
+      behavior: 'instant',
+    }),
+  );
+  await expect(receipt).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  const toast = page.getByRole('button', { name: 'Dismiss notification', exact: true });
+  if (await toast.isVisible()) await toast.click();
+  await page.screenshot({ path: 'test-results/appeal-receipt-mobile.png' });
+  const publicPost = await page.request.get(`/api/posts/${post.id}`);
+  expect(publicPost.status()).toBe(200);
+  expect(await publicPost.text()).toContain(marker);
+  await original.context.close();
+  await reviewer.context.close();
+});
+test('appeal reviewers recover stale source context and never publish a later pending edit', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  const original = await staffPage(browser, 'Kiran Shah');
+  const reviewer = await staffPage(browser, 'Neha Sen');
+  const marker = `Stale appeal original ${Date.now()}`;
+  const { post, decision } = await rejectedAppealFixture(page, original.page, marker);
+  const created = await page.request.post(`/api/moderation/decisions/${decision.id}/appeals`, {
+    headers: { 'x-jansetu-csrf': '1', 'idempotency-key': crypto.randomUUID() },
+    data: { grounds: 'Please independently review this fictional restriction.' },
+  });
+  expect(created.status()).toBe(201);
+  const appeal = (await created.json()) as Schema['AppealReceipt'];
+  await reviewer.page.getByRole('button', { name: 'Appeals', exact: true }).click();
+  const card = reviewer.page.getByTestId(`appeal-review-${appeal.id}`);
+  await card.getByRole('button', { name: 'Take review', exact: true }).click();
+  await card
+    .getByLabel('Reason shared with author')
+    .fill('The original decision is overturned; the later edit still needs its own review.');
+  const current = (await (
+    await page.request.get(`/api/posts/${post.id}`)
+  ).json()) as Schema['Post'];
+  const later = `LATER PRIVATE CANDIDATE ${Date.now()}`;
+  const edit = await page.request.patch(`/api/posts/${post.id}`, {
+    headers: { 'x-jansetu-csrf': '1', 'if-match': `"${current.version}"` },
+    data: { title: 'Later edit', body: later, submitForReview: true },
+  });
+  expect(edit.status()).toBe(200);
+  await card.getByRole('button', { name: 'Overturn decision', exact: true }).click();
+  let dialog = reviewer.page.getByRole('dialog', { name: 'Overturn this decision?' });
+  await dialog.getByRole('button', { name: 'Confirm appeal outcome', exact: true }).click();
+  await expect(dialog).toContainText('source changed');
+  await dialog.getByRole('button', { name: 'Refresh review context', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(card).toContainText('later revision');
+  await expect(card).not.toContainText(later);
+  await card
+    .getByLabel('Reason shared with author')
+    .fill('The original decision is overturned; the later edit still needs its own review.');
+  await card.getByRole('button', { name: 'Overturn decision', exact: true }).click();
+  dialog = reviewer.page.getByRole('dialog', { name: 'Overturn this decision?' });
+  await expect(dialog).toContainText('content will remain unavailable');
+  await dialog.getByRole('button', { name: 'Confirm appeal outcome', exact: true }).click();
+  await expect(card).toHaveCount(0);
+  await page.goto('/account#appeals');
+  const receipt = page.getByTestId(`appeal-${appeal.id}`);
+  await expect(receipt).toContainText('Content was not restored');
+  await expect(receipt).toContainText('later revision');
+  await expect(receipt).not.toContainText(later);
+  expect((await original.page.request.get(`/api/posts/${post.id}`)).status()).toBe(404);
+  const outcome = (await (
+    await page.request.get(`/api/me/appeals/${appeal.id}`)
+  ).json()) as Schema['AppealReceipt'];
+  expect(outcome.outcome?.restorationReason).toBe('TARGET_CHANGED');
+  await original.context.close();
+  await reviewer.context.close();
+});
