@@ -217,3 +217,12 @@ type SocialPost struct {
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	Version           int64              `json:"version"`
 }
+
+type SocialSelectedResponse struct {
+	PostID          uuid.UUID          `json:"post_id"`
+	CommentID       uuid.UUID          `json:"comment_id"`
+	SelectedBy      uuid.UUID          `json:"selected_by"`
+	SelectedAt      pgtype.Timestamptz `json:"selected_at"`
+	PostRevision    int32              `json:"post_revision"`
+	CommentRevision int64              `json:"comment_revision"`
+}

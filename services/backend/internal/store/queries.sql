@@ -91,6 +91,12 @@ SELECT jsonb_build_object(
   'author',CASE WHEN p.author_id IS NULL OR p.state='DELETED' THEN NULL ELSE jsonb_build_object('id',a.id,'handle',a.handle,'displayName',a.display_name) END,
   'community',CASE WHEN c.id IS NULL THEN NULL ELSE jsonb_build_object('id',c.id,'slug',c.slug,'title',c.title) END,
   'media','[]'::jsonb,
+  'selectedResponse',(SELECT jsonb_build_object('commentId',e.comment_id,'postRevision',e.post_revision,'commentRevision',e.comment_revision,
+    'body',e.body,'author',jsonb_build_object('id',e.author_id,'handle',e.handle,'displayName',e.display_name),
+    'selectedBy',CASE WHEN s.selected_by=p.author_id THEN 'AUTHOR' ELSE 'COMMUNITY_MODERATOR' END)
+    FROM social.selected_response s JOIN social.eligible_question_response e ON e.post_id=s.post_id AND e.comment_id=s.comment_id
+    AND e.post_revision=s.post_revision AND e.comment_revision=s.comment_revision WHERE s.post_id=p.id
+    AND NOT EXISTS(SELECT FROM social.profile_block b WHERE (b.blocker_id=sqlc.arg(viewer_id) AND b.blocked_id=e.author_id) OR (b.blocked_id=sqlc.arg(viewer_id) AND b.blocker_id=e.author_id))),
   'stats',jsonb_build_object('score',COALESCE(st.up_count-st.down_count,0),'comments',COALESCE(st.comment_count,0),'reposts',COALESCE(st.repost_count,0),'asOf',COALESCE(st.as_of,p.created_at)),
   'viewer',jsonb_build_object('vote',COALESCE((SELECT value FROM social.post_vote v WHERE v.profile_id=sqlc.arg(viewer_id) AND v.post_id=p.id),0),
     'bookmarked',EXISTS(SELECT 1 FROM social.bookmark b WHERE b.profile_id=sqlc.arg(viewer_id) AND b.post_id=p.id),
@@ -98,6 +104,8 @@ SELECT jsonb_build_object(
     'canEdit',p.author_id=sqlc.arg(viewer_id) AND p.state IN ('PENDING','PUBLISHED'),
     'canDelete',p.author_id=sqlc.arg(viewer_id) AND p.state NOT IN ('DELETED'),
     'canReply',p.state='PUBLISHED' AND sqlc.arg(viewer_id)::uuid <> '00000000-0000-0000-0000-000000000000'::uuid,
+    'canSelectResponse',COALESCE(p.kind='QUESTION' AND p.state='PUBLISHED' AND (p.author_id=sqlc.arg(viewer_id)
+      OR EXISTS(SELECT FROM social.community_member m WHERE m.community_id=p.community_id AND m.profile_id=sqlc.arg(viewer_id) AND m.state='ACTIVE' AND m.role IN ('MODERATOR','OWNER'))),false),
     'mutedAuthor',CASE WHEN p.state='DELETED' THEN false ELSE EXISTS(SELECT FROM social.mute m WHERE m.profile_id=sqlc.arg(viewer_id) AND m.muted_profile_id=p.author_id AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) END),
   'candidate',CASE WHEN p.author_id=sqlc.arg(viewer_id) OR sqlc.arg(review_access)::boolean THEN
     jsonb_build_object('title',cur.title,'body',cur.body,'revision',cur.revision,'reviewState',cur.review_state) ELSE NULL END
@@ -128,6 +136,21 @@ ORDER BY CASE WHEN sqlc.arg(sort_top)::boolean THEN COALESCE(s.up_count-s.down_c
 
 -- name: LockPost :one
 SELECT * FROM social.post WHERE id=$1 FOR UPDATE;
+
+-- name: GetSelectedResponse :one
+SELECT * FROM social.selected_response WHERE post_id=$1;
+-- name: QuestionResponseCandidate :one
+SELECT e.post_id,e.post_revision,e.comment_id,e.comment_revision FROM social.eligible_question_response e
+WHERE e.post_id=sqlc.arg(post_id) AND e.comment_id=sqlc.arg(comment_id)
+AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+(b.blocker_id=sqlc.arg(viewer_id) AND b.blocked_id IN(e.author_id,e.post_author_id)) OR (b.blocked_id=sqlc.arg(viewer_id) AND b.blocker_id IN(e.author_id,e.post_author_id)));
+-- name: SetSelectedResponse :exec
+INSERT INTO social.selected_response(post_id,comment_id,selected_by,post_revision,comment_revision) VALUES($1,$2,$3,$4,$5)
+ON CONFLICT(post_id) DO UPDATE SET comment_id=EXCLUDED.comment_id,selected_by=EXCLUDED.selected_by,post_revision=EXCLUDED.post_revision,comment_revision=EXCLUDED.comment_revision;
+-- name: ClearSelectedResponse :exec
+DELETE FROM social.selected_response WHERE post_id=$1;
+-- name: TouchQuestionResponse :exec
+UPDATE social.post SET version=version+1,updated_at=now() WHERE id=$1;
 
 -- name: InsertPost :exec
 INSERT INTO social.post(id,author_id,community_id,kind,state) VALUES ($1,$2,$3,$4,$5);

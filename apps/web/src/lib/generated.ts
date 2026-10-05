@@ -519,6 +519,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/posts/{id}/selected-response": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Choose or clear a helpful response to a published question
+         * @description Question author or active moderator/owner of the same community. Non-null selection requires commentRevision matching the displayed approved reply; clear omits it or sends null. The choice binds to approved question and comment revisions; it conveys usefulness, never factual verification.
+         */
+        put: operations["put_posts_by_id_selected_response"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/posts/{id}/vote": {
         parameters: {
             query?: never;
@@ -1501,6 +1523,7 @@ export interface components {
                 title: string;
             } | null;
             media: Record<string, never>[];
+            selectedResponse: components["schemas"]["HelpfulResponse"] | null;
             stats: {
                 score: number;
                 comments: number;
@@ -1515,6 +1538,7 @@ export interface components {
                 canDelete: boolean;
                 canReply: boolean;
                 mutedAuthor: boolean;
+                canSelectResponse: boolean;
             };
             candidate: {
                 title: string | null;
@@ -1522,6 +1546,16 @@ export interface components {
                 revision: number;
                 reviewState: string;
             } | null;
+        };
+        HelpfulResponse: {
+            /** Format: uuid */
+            commentId: string;
+            postRevision: number;
+            commentRevision: number;
+            body: string;
+            author: components["schemas"]["Profile"];
+            /** @enum {string} */
+            selectedBy: "AUTHOR" | "COMMUNITY_MODERATOR";
         };
         PostInput: {
             /** @enum {string} */
@@ -2700,6 +2734,56 @@ export interface operations {
             200: components["responses"]["Command"];
             403: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    put_posts_by_id_selected_response: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["Version"];
+                "X-JanSetu-CSRF": "1";
+            };
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    commentId: string;
+                    commentRevision: number;
+                } | {
+                    commentId: null;
+                    commentRevision?: null;
+                };
+            };
+        };
+        responses: {
+            /** @description Current choice and post version; an identical choice at the current version is a no-op */
+            200: {
+                headers: {
+                    /** @description Quoted current post version */
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        commentId: string | null;
+                        version: number;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };

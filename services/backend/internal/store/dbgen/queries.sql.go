@@ -546,6 +546,15 @@ func (q *Queries) ClaimEvent(ctx context.Context, arg ClaimEventParams) (InfraOu
 	return i, err
 }
 
+const clearSelectedResponse = `-- name: ClearSelectedResponse :exec
+DELETE FROM social.selected_response WHERE post_id=$1
+`
+
+func (q *Queries) ClearSelectedResponse(ctx context.Context, postID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, clearSelectedResponse, postID)
+	return err
+}
+
 const commentPage = `-- name: CommentPage :many
 WITH accessible_post AS (
  SELECT post.id FROM social.post post LEFT JOIN social.profile author ON author.id=post.author_id
@@ -1217,6 +1226,12 @@ SELECT jsonb_build_object(
   'author',CASE WHEN p.author_id IS NULL OR p.state='DELETED' THEN NULL ELSE jsonb_build_object('id',a.id,'handle',a.handle,'displayName',a.display_name) END,
   'community',CASE WHEN c.id IS NULL THEN NULL ELSE jsonb_build_object('id',c.id,'slug',c.slug,'title',c.title) END,
   'media','[]'::jsonb,
+  'selectedResponse',(SELECT jsonb_build_object('commentId',e.comment_id,'postRevision',e.post_revision,'commentRevision',e.comment_revision,
+    'body',e.body,'author',jsonb_build_object('id',e.author_id,'handle',e.handle,'displayName',e.display_name),
+    'selectedBy',CASE WHEN s.selected_by=p.author_id THEN 'AUTHOR' ELSE 'COMMUNITY_MODERATOR' END)
+    FROM social.selected_response s JOIN social.eligible_question_response e ON e.post_id=s.post_id AND e.comment_id=s.comment_id
+    AND e.post_revision=s.post_revision AND e.comment_revision=s.comment_revision WHERE s.post_id=p.id
+    AND NOT EXISTS(SELECT FROM social.profile_block b WHERE (b.blocker_id=$1 AND b.blocked_id=e.author_id) OR (b.blocked_id=$1 AND b.blocker_id=e.author_id))),
   'stats',jsonb_build_object('score',COALESCE(st.up_count-st.down_count,0),'comments',COALESCE(st.comment_count,0),'reposts',COALESCE(st.repost_count,0),'asOf',COALESCE(st.as_of,p.created_at)),
   'viewer',jsonb_build_object('vote',COALESCE((SELECT value FROM social.post_vote v WHERE v.profile_id=$1 AND v.post_id=p.id),0),
     'bookmarked',EXISTS(SELECT 1 FROM social.bookmark b WHERE b.profile_id=$1 AND b.post_id=p.id),
@@ -1224,6 +1239,8 @@ SELECT jsonb_build_object(
     'canEdit',p.author_id=$1 AND p.state IN ('PENDING','PUBLISHED'),
     'canDelete',p.author_id=$1 AND p.state NOT IN ('DELETED'),
     'canReply',p.state='PUBLISHED' AND $1::uuid <> '00000000-0000-0000-0000-000000000000'::uuid,
+    'canSelectResponse',COALESCE(p.kind='QUESTION' AND p.state='PUBLISHED' AND (p.author_id=$1
+      OR EXISTS(SELECT FROM social.community_member m WHERE m.community_id=p.community_id AND m.profile_id=$1 AND m.state='ACTIVE' AND m.role IN ('MODERATOR','OWNER'))),false),
     'mutedAuthor',CASE WHEN p.state='DELETED' THEN false ELSE EXISTS(SELECT FROM social.mute m WHERE m.profile_id=$1 AND m.muted_profile_id=p.author_id AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) END),
   'candidate',CASE WHEN p.author_id=$1 OR $2::boolean THEN
     jsonb_build_object('title',cur.title,'body',cur.body,'revision',cur.revision,'reviewState',cur.review_state) ELSE NULL END
@@ -1250,6 +1267,24 @@ func (q *Queries) GetPost(ctx context.Context, arg GetPostParams) ([]byte, error
 	var data []byte
 	err := row.Scan(&data)
 	return data, err
+}
+
+const getSelectedResponse = `-- name: GetSelectedResponse :one
+SELECT post_id, comment_id, selected_by, selected_at, post_revision, comment_revision FROM social.selected_response WHERE post_id=$1
+`
+
+func (q *Queries) GetSelectedResponse(ctx context.Context, postID uuid.UUID) (SocialSelectedResponse, error) {
+	row := q.db.QueryRow(ctx, getSelectedResponse, postID)
+	var i SocialSelectedResponse
+	err := row.Scan(
+		&i.PostID,
+		&i.CommentID,
+		&i.SelectedBy,
+		&i.SelectedAt,
+		&i.PostRevision,
+		&i.CommentRevision,
+	)
+	return i, err
 }
 
 const hasBlock = `-- name: HasBlock :one
@@ -2557,6 +2592,38 @@ func (q *Queries) PublishPost(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const questionResponseCandidate = `-- name: QuestionResponseCandidate :one
+SELECT e.post_id,e.post_revision,e.comment_id,e.comment_revision FROM social.eligible_question_response e
+WHERE e.post_id=$1 AND e.comment_id=$2
+AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+(b.blocker_id=$3 AND b.blocked_id IN(e.author_id,e.post_author_id)) OR (b.blocked_id=$3 AND b.blocker_id IN(e.author_id,e.post_author_id)))
+`
+
+type QuestionResponseCandidateParams struct {
+	PostID    uuid.UUID `json:"post_id"`
+	CommentID uuid.UUID `json:"comment_id"`
+	ViewerID  uuid.UUID `json:"viewer_id"`
+}
+
+type QuestionResponseCandidateRow struct {
+	PostID          uuid.UUID   `json:"post_id"`
+	PostRevision    pgtype.Int4 `json:"post_revision"`
+	CommentID       uuid.UUID   `json:"comment_id"`
+	CommentRevision pgtype.Int8 `json:"comment_revision"`
+}
+
+func (q *Queries) QuestionResponseCandidate(ctx context.Context, arg QuestionResponseCandidateParams) (QuestionResponseCandidateRow, error) {
+	row := q.db.QueryRow(ctx, questionResponseCandidate, arg.PostID, arg.CommentID, arg.ViewerID)
+	var i QuestionResponseCandidateRow
+	err := row.Scan(
+		&i.PostID,
+		&i.PostRevision,
+		&i.CommentID,
+		&i.CommentRevision,
+	)
+	return i, err
+}
+
 const rebuildPostStats = `-- name: RebuildPostStats :exec
 INSERT INTO social.post_stats(post_id,up_count,down_count,comment_count,repost_count,as_of)
 SELECT $1,(SELECT count(*) FROM social.post_vote WHERE post_id=$1 AND value=1),(SELECT count(*) FROM social.post_vote WHERE post_id=$1 AND value=-1),
@@ -3139,6 +3206,30 @@ func (q *Queries) SetRepost(ctx context.Context, arg SetRepostParams) error {
 	return err
 }
 
+const setSelectedResponse = `-- name: SetSelectedResponse :exec
+INSERT INTO social.selected_response(post_id,comment_id,selected_by,post_revision,comment_revision) VALUES($1,$2,$3,$4,$5)
+ON CONFLICT(post_id) DO UPDATE SET comment_id=EXCLUDED.comment_id,selected_by=EXCLUDED.selected_by,post_revision=EXCLUDED.post_revision,comment_revision=EXCLUDED.comment_revision
+`
+
+type SetSelectedResponseParams struct {
+	PostID          uuid.UUID `json:"post_id"`
+	CommentID       uuid.UUID `json:"comment_id"`
+	SelectedBy      uuid.UUID `json:"selected_by"`
+	PostRevision    int32     `json:"post_revision"`
+	CommentRevision int64     `json:"comment_revision"`
+}
+
+func (q *Queries) SetSelectedResponse(ctx context.Context, arg SetSelectedResponseParams) error {
+	_, err := q.db.Exec(ctx, setSelectedResponse,
+		arg.PostID,
+		arg.CommentID,
+		arg.SelectedBy,
+		arg.PostRevision,
+		arg.CommentRevision,
+	)
+	return err
+}
+
 const setVote = `-- name: SetVote :exec
 INSERT INTO social.post_vote(profile_id,post_id,value) VALUES ($1,$2,$3) ON CONFLICT(profile_id,post_id) DO UPDATE SET value=EXCLUDED.value,updated_at=now()
 `
@@ -3151,5 +3242,14 @@ type SetVoteParams struct {
 
 func (q *Queries) SetVote(ctx context.Context, arg SetVoteParams) error {
 	_, err := q.db.Exec(ctx, setVote, arg.ProfileID, arg.PostID, arg.Value)
+	return err
+}
+
+const touchQuestionResponse = `-- name: TouchQuestionResponse :exec
+UPDATE social.post SET version=version+1,updated_at=now() WHERE id=$1
+`
+
+func (q *Queries) TouchQuestionResponse(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, touchQuestionResponse, id)
 	return err
 }
