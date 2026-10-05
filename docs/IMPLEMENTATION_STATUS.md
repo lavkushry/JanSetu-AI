@@ -66,6 +66,8 @@ The API server has graceful shutdown, bounded headers/body/request duration, liv
 
 See the [account security guide](ACCOUNT_SECURITY.md) for fixture credentials, `/account` controls, auth configuration, and security boundaries. Open the avatar menu and sign in using the corresponding username; all fixture passwords are `jansetu-demo`.
 
+The core worker retains unsupported event types and payload versions through bounded retries and dead lettering instead of silently acknowledging them. See the [outbox compatibility guide](OUTBOX_EVENT_COMPATIBILITY.md) for supported contracts, fixed diagnostics and targeted recovery. No schema or API change is needed.
+
 ## Walk through the application
 
 1. Choose Ananya. Create a discussion in Indiranagar. Only the author can see its pending revision.
@@ -96,7 +98,7 @@ The local fixture demonstrates independent decisions; it does not provide actual
 | [Vault isolation](DATABASE_VAULT_ISOLATION.md)                   | Restricted runtime roles, self-only vault protocol, encryption and purpose audit |
 | [Reports](../services/backend/internal/app/reports.go)           | Separate vault aliases, intake, owner progress                                   |
 | [Cases](../services/backend/internal/app/cases.go)               | Operational state machine and reviewed public projection                         |
-| [Worker](../services/backend/internal/app/worker.go)             | Lease fencing, deduplication, locked aggregate projection                        |
+| [Worker](../services/backend/internal/app/worker.go)             | Event validation, fixed retry diagnostics, lease fencing and locked projection                        |
 | [SQL queries](../services/backend/internal/store/queries.sql)    | Generated `pgx` query inputs and results                                         |
 | [OpenAPI](../contracts/openapi/core.yaml)                        | Core REST contract and generated web DTOs                                        |
 | [Migrations](../db/migrations/00001_foundation.sql)              | Versioned application foundation; vault migrations live separately               |

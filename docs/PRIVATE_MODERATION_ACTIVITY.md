@@ -33,6 +33,8 @@ The API selects the separate security-barrier `social.activity_review_target`, s
 
 Preserve the application/media volumes and identity provider. Upgrade the worker before new API commands can produce these events: an older worker does not understand the new types and could acknowledge them without delivery.
 
+Workers updated with the [outbox compatibility guard](OUTBOX_EVENT_COMPATIBILITY.md) retain unsupported types/versions for bounded retry and recovery. Workers predating that guard can still silently acknowledge them; worker-first ordering and compatible rollback remain necessary.
+
 ```bash
 docker compose build migrate api worker web
 docker compose run --rm --no-deps migrate

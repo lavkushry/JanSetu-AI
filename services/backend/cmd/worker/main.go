@@ -29,7 +29,7 @@ func main() {
 	slog.Info("Local projection worker ready")
 	for ctx.Err() == nil {
 		if e = a.RunWorker(ctx); e != nil {
-			slog.Error("Projection failed; retrying with bounded event attempts")
+			slog.Error("Projection failed; retrying with bounded event attempts", "code", app.ProjectionErrorCode(e))
 		}
 		select {
 		case <-ctx.Done():

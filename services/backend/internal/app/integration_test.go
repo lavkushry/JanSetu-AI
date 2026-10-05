@@ -579,7 +579,7 @@ func TestAuthorizationRevocationAndLeaseFencing(t *testing.T) {
 	_, _ = integrationAdmin.Exec(ctx, "UPDATE identity.platform_grant SET revoked_at=NULL WHERE principal_id=$1 AND role='PLATFORM_MODERATOR'", DemoPrincipals[2])
 	q := dbgen.New(integrationAdmin)
 	eid := uuid.New()
-	if e = addEvent(ctx, q, "CASE", uuid.New(), 1, "SyntheticFenceTest", map[string]any{}); e != nil {
+	if e = addEvent(ctx, q, "CASE", uuid.New(), 1, "CaseCreated", map[string]any{}); e != nil {
 		t.Fatal(e)
 	}
 	oldToken := uuid.New()

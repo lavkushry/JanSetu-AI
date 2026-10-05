@@ -26,6 +26,8 @@ The API's source view remains scoped by the live authenticated profile. Forced r
 
 Preserve the existing application/media volumes and identity provider. Upgrade the worker before new API commands produce the event; older workers could acknowledge unknown event types without delivering notices.
 
+Workers updated with the [outbox compatibility guard](OUTBOX_EVENT_COMPATIBILITY.md) retain unsupported types/versions for bounded retry and recovery. Workers predating that guard can still silently acknowledge them; worker-first ordering and compatible rollback remain necessary.
+
 ```bash
 docker compose build migrate api worker web
 docker compose run --rm --no-deps migrate

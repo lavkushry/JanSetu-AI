@@ -12,6 +12,59 @@ import (
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
 )
 
+var (
+	errUnsupportedEventType    = errors.New("unsupported projection event type")
+	errUnsupportedEventVersion = errors.New("unsupported projection payload version")
+	errInvalidProjectionEvent  = errors.New("invalid projection event")
+)
+
+// ProjectionErrorCode returns a fixed diagnostic without exposing event payloads
+// or database errors in retained delivery metadata and worker logs.
+func ProjectionErrorCode(err error) string {
+	switch {
+	case errors.Is(err, errUnsupportedEventType):
+		return "UNSUPPORTED_EVENT_TYPE"
+	case errors.Is(err, errUnsupportedEventVersion):
+		return "UNSUPPORTED_PAYLOAD_VERSION"
+	case errors.Is(err, errInvalidProjectionEvent):
+		return "INVALID_EVENT"
+	default:
+		return "PROJECTION_FAILED"
+	}
+}
+
+func validateProjectionEvent(event dbgen.InfraOutbox) error {
+	var aggregate string
+	switch event.EventType {
+	case "PostReviewRequested", "PostVoteChanged", "PostRepostChanged", "HelpfulResponseChanged",
+		"PublicationReviewed", "ContentRevoked", "CommentReviewRequested", "CommentRevoked", "CommentPublished":
+		aggregate = "POST"
+	case "ReportReceived":
+		aggregate = "REPORT"
+	case "CaseCreated", "ObligationChanged", "VerificationRecorded", "SafeReceiptPublished":
+		aggregate = "CASE"
+	case "ModerationDecisionRecorded":
+		aggregate = "MODERATION_DECISION"
+	case "AppealOutcomeRecorded":
+		aggregate = "APPEAL"
+	case "ContentReportOutcomeRecorded":
+		aggregate = "CONTENT_REPORT"
+	default:
+		return errUnsupportedEventType
+	}
+	if event.PayloadVersion != 1 {
+		return errUnsupportedEventVersion
+	}
+	if event.AggregateType != aggregate || event.AggregateID == uuid.Nil || event.AggregateVersion < 1 {
+		return errInvalidProjectionEvent
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(event.Payload, &payload); err != nil || payload == nil {
+		return errInvalidProjectionEvent
+	}
+	return nil
+}
+
 // ProjectOnce claims and fences one durable event. Projection, deduplication,
 // and acknowledgement commit together; duplicate delivery is safe.
 func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
@@ -45,6 +98,13 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 			return e
 		}
 		fresh := e == nil
+		if fresh {
+			// Validate before any projection. An older worker must retain future
+			// events for recovery instead of acknowledging an unhandled type.
+			if e = validateProjectionEvent(claimed); e != nil {
+				return e
+			}
+		}
 		if fresh && claimed.AggregateType == "POST" {
 			// Lock the aggregate before taking the count snapshot so two workers
 			// cannot publish counts computed on opposite sides of a mutation.
@@ -56,6 +116,9 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 			}
 		}
 		if fresh {
+			// Other explicitly supported types need only the post-stat rebuild
+			// above, or intentionally have no public projection. Private
+			// operational events do not publish service progress.
 			switch claimed.EventType {
 			case "CommentPublished":
 				var payload struct {
@@ -63,24 +126,21 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 					Revision  int64     `json:"revision"`
 				}
 				if e = json.Unmarshal(claimed.Payload, &payload); e != nil {
-					return e
+					return errInvalidProjectionEvent
 				}
 				if payload.CommentID == uuid.Nil || payload.Revision < 1 {
-					return errors.New("invalid reply event")
+					return errInvalidProjectionEvent
 				}
 				if e = q.DeliverReplyActivity(ctx, dbgen.DeliverReplyActivityParams{EventID: claimed.ID, CommentID: payload.CommentID, SourceVersion: pgtype.Int8{Int64: payload.Revision, Valid: true}, EventTime: claimed.CreatedAt}); e != nil {
 					return e
 				}
 			case "ModerationDecisionRecorded", "AppealOutcomeRecorded", "ContentReportOutcomeRecorded":
-				sourceKind, aggregateType := "MODERATION_DECISION", "MODERATION_DECISION"
+				sourceKind := "MODERATION_DECISION"
 				if claimed.EventType == "AppealOutcomeRecorded" {
-					sourceKind, aggregateType = "APPEAL_OUTCOME", "APPEAL"
+					sourceKind = "APPEAL_OUTCOME"
 				}
 				if claimed.EventType == "ContentReportOutcomeRecorded" {
-					sourceKind, aggregateType = "CONTENT_REPORT_OUTCOME", "CONTENT_REPORT"
-				}
-				if claimed.AggregateType != aggregateType || claimed.AggregateID == uuid.Nil || claimed.AggregateVersion < 1 {
-					return errors.New("invalid private review event")
+					sourceKind = "CONTENT_REPORT_OUTCOME"
 				}
 				if e = q.DeliverReviewActivity(ctx, dbgen.DeliverReviewActivityParams{EventID: claimed.ID, EventTime: claimed.CreatedAt, SourceKind: sourceKind, SourceID: claimed.AggregateID, SourceVersion: claimed.AggregateVersion}); e != nil {
 					return e
@@ -90,10 +150,10 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 					ReceiptID uuid.UUID `json:"receiptId"`
 				}
 				if e = json.Unmarshal(claimed.Payload, &payload); e != nil {
-					return e
+					return errInvalidProjectionEvent
 				}
 				if payload.ReceiptID == uuid.Nil {
-					return errors.New("invalid receipt event")
+					return errInvalidProjectionEvent
 				}
 				if e = q.DeliverCaseActivity(ctx, dbgen.DeliverCaseActivityParams{EventID: claimed.ID, ReceiptID: payload.ReceiptID, SourceVersion: pgtype.Int8{Int64: claimed.AggregateVersion, Valid: true}, EventTime: claimed.CreatedAt}); e != nil {
 					return e
@@ -103,7 +163,9 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 		return q.CompleteEvent(ctx, dbgen.CompleteEventParams{ID: event.ID, LeaseToken: &token, LeaseOwner: leaseOwner})
 	})
 	if e != nil {
-		_ = q.RetryEvent(ctx, dbgen.RetryEventParams{ID: event.ID, LeaseToken: &token})
+		if retryErr := q.RetryEvent(ctx, dbgen.RetryEventParams{ID: event.ID, LeaseToken: &token, ErrorCode: ProjectionErrorCode(e)}); retryErr != nil {
+			return true, errors.Join(e, retryErr)
+		}
 	}
 	return true, e
 }

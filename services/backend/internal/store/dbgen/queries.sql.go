@@ -987,7 +987,7 @@ func (q *Queries) Communities(ctx context.Context, viewerID uuid.UUID) ([]Commun
 }
 
 const completeEvent = `-- name: CompleteEvent :exec
-UPDATE infra.outbox SET delivered_at=now(),lease_until=NULL WHERE id=$1 AND lease_token=$2 AND lease_owner=$3
+UPDATE infra.outbox SET delivered_at=now(),lease_until=NULL,last_error_code=NULL WHERE id=$1 AND lease_token=$2 AND lease_owner=$3
 `
 
 type CompleteEventParams struct {
@@ -3375,16 +3375,17 @@ func (q *Queries) ReportOCRRegion(ctx context.Context, arg ReportOCRRegionParams
 }
 
 const retryEvent = `-- name: RetryEvent :exec
-UPDATE infra.outbox SET lease_until=NULL,available_at=now()+interval '5 seconds',last_error_code='PROJECTION_FAILED',dead_lettered_at=CASE WHEN attempts>=8 THEN now() ELSE NULL END WHERE id=$1 AND lease_token=$2
+UPDATE infra.outbox SET lease_until=NULL,available_at=now()+interval '5 seconds',last_error_code=$3::text,dead_lettered_at=CASE WHEN attempts>=8 THEN now() ELSE NULL END WHERE id=$1 AND lease_token=$2
 `
 
 type RetryEventParams struct {
 	ID         uuid.UUID  `json:"id"`
 	LeaseToken *uuid.UUID `json:"lease_token"`
+	ErrorCode  string     `json:"error_code"`
 }
 
 func (q *Queries) RetryEvent(ctx context.Context, arg RetryEventParams) error {
-	_, err := q.db.Exec(ctx, retryEvent, arg.ID, arg.LeaseToken)
+	_, err := q.db.Exec(ctx, retryEvent, arg.ID, arg.LeaseToken, arg.ErrorCode)
 	return err
 }
 
