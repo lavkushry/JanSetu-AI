@@ -1588,6 +1588,10 @@ test('private content report receipts recover lost acknowledgements and retain d
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('Report reason').selectOption('OTHER');
   await expect(dialog.getByRole('button', { name: 'Submit content report' })).toBeDisabled();
+  await dialog.getByLabel(/Additional detail/).fill('😀😀😀');
+  await expect(dialog.getByRole('button', { name: 'Submit content report' })).toBeDisabled();
+  await dialog.getByLabel(/Additional detail/).fill('😀😀😀😀😀');
+  await expect(dialog.getByRole('button', { name: 'Submit content report' })).toBeEnabled();
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   await page.getByLabel('Post options').click();
@@ -1642,6 +1646,16 @@ test('private content report receipts recover lost acknowledgements and retain d
   const card = mod.page.getByTestId(`content-report-review-${receipt.id}`);
   await expect(card).toContainText(marker);
   await expect(card).not.toContainText('Ananya Rao');
+  await card.getByLabel('Decision reason').fill('😀😀😀');
+  await expect(card.getByRole('button', { name: 'Dismiss report', exact: true })).toBeDisabled();
+  await expect(
+    card.getByRole('button', { name: 'Remove reported content', exact: true }),
+  ).toBeDisabled();
+  await card.getByLabel('Decision reason').fill('😀😀😀😀😀');
+  await expect(card.getByRole('button', { name: 'Dismiss report', exact: true })).toBeEnabled();
+  await expect(
+    card.getByRole('button', { name: 'Remove reported content', exact: true }),
+  ).toBeEnabled();
   await card.getByLabel('Decision reason').fill('The fictional report does not warrant removal.');
   await card.getByRole('button', { name: 'Dismiss report', exact: true }).click();
   await expect(card).toHaveCount(0);

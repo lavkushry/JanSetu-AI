@@ -47,7 +47,10 @@ CREATE POLICY moderation_decision_read ON social.moderation_decision FOR SELECT 
  EXISTS(SELECT FROM social.moderation_case m WHERE m.id=moderation_case_id));
 CREATE POLICY moderation_decision_insert ON social.moderation_decision FOR INSERT TO js_social WITH CHECK(
  authz.has_role('PLATFORM_MODERATOR') AND actor_ref=authz.principal()
- AND EXISTS(SELECT FROM social.moderation_case m WHERE m.id=moderation_case_id AND m.state IN ('OPEN','REVIEWING')));
+ AND EXISTS(SELECT FROM social.moderation_case m WHERE m.id=moderation_case_id AND m.state IN ('OPEN','REVIEWING')
+ AND (m.reporter_ref IS NULL OR (m.reporter_ref<>authz.principal()
+ AND NOT EXISTS(SELECT FROM social.post p WHERE p.id=m.post_id AND p.author_id=authz.current_profile())
+ AND NOT EXISTS(SELECT FROM social.comment c WHERE c.id=m.comment_id AND c.author_id=authz.current_profile())))));
 
 -- +goose Down
 -- +goose StatementBegin

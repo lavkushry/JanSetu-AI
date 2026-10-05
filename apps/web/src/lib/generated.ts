@@ -670,7 +670,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Platform moderators only, oldest-first twenty-item pages. Includes changed/unavailable placeholders; excludes the reviewer's own authored targets. Reporter identity is omitted. */
+        /** @description Platform moderators only, oldest-first twenty-item pages. Includes changed/unavailable placeholders; excludes reports filed by the reviewer and the reviewer's own authored targets. Reporter identity is omitted. */
         get: operations["get_content_report_queue"];
         put?: never;
         post?: never;
@@ -691,7 +691,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Fresh platform-moderator grant required. Reasoned DISMISS or REMOVE, bound to report version and reported revision. REMOVE rechecks current source eligibility and rejects changed/unavailable sources. Own authored targets cannot be reviewed. Decision and optional content revocation commit together. */
+        /** @description Fresh platform-moderator grant required. Reasoned DISMISS or REMOVE, bound to report version and reported revision. REMOVE rechecks current source eligibility and rejects changed/unavailable sources. Reports filed by the reviewer and own authored targets cannot be reviewed. Decision and optional content revocation commit together. */
         post: operations["decide_content_report"];
         delete?: never;
         options?: never;

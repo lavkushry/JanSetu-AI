@@ -23,6 +23,7 @@ type ReportTarget = {
   revision: number;
   label: string;
 };
+const characterCount = (value: string) => Array.from(value.trim()).length;
 
 export function ContentReportControl({
   menu = false,
@@ -158,7 +159,7 @@ function ReportDialog({ target, close }: { target: ReportTarget; close: () => vo
             </button>
             <button
               className="primary"
-              disabled={submit.isPending || (reason === 'OTHER' && details.trim().length < 5)}
+              disabled={submit.isPending || (reason === 'OTHER' && characterCount(details) < 5)}
             >
               {submit.isPending ? 'Submitting…' : 'Submit content report'}
             </button>
@@ -294,7 +295,7 @@ export function ContentReportQueue() {
     <section className="content-report-review">
       <p className="staff-report-intro">
         <ShieldCheck size={18} /> Review the reported published revision. Reporter identities are
-        withheld. Decisions on your own authored content require another moderator.
+        withheld. Reports you filed or content you authored require another moderator.
       </p>
       <button type="button" className="text-button" onClick={refresh} disabled={q.isFetching}>
         Refresh reported content
@@ -348,7 +349,7 @@ function ContentReportReviewCard({ report: r }: { report: Schema['ContentReport'
       );
     },
   });
-  const ready = reason.trim().length >= 5 && !action.isPending;
+  const ready = characterCount(reason) >= 5 && !action.isPending;
   return (
     <article className="staff-card" data-testid={`content-report-review-${r.id}`}>
       <div className="receipt-eyebrow">

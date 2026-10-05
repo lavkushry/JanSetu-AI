@@ -469,6 +469,7 @@ ORDER BY created_at DESC,id DESC LIMIT 21;
 -- name: ContentReportQueue :many
 SELECT m.* FROM social.moderation_case m LEFT JOIN social.post p ON p.id=m.post_id LEFT JOIN social.comment c ON c.id=m.comment_id
 WHERE m.reporter_ref IS NOT NULL AND m.state='OPEN' AND COALESCE(c.author_id,p.author_id) IS DISTINCT FROM sqlc.arg(viewer_id)
+AND m.reporter_ref<>sqlc.arg(reviewer_principal_id)::uuid
 AND (NOT sqlc.arg(has_cursor)::boolean OR (m.created_at,m.id)>(sqlc.arg(after_time)::timestamptz,sqlc.arg(after_id)::uuid))
 ORDER BY m.created_at,m.id LIMIT 21;
 -- name: ContentReportDecision :one

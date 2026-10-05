@@ -313,3 +313,59 @@ func TestContentReportPaginationCursorAndModeratorConflict(t *testing.T) {
 	conflict := submitContentReport(t, owner, "POST", p.ID, 1)
 	mustStatus(t, mod.request("POST", "moderation/content-reports/"+conflict.ID.String()+"/decisions", map[string]any{"action": "DISMISS", "reason": "Cannot decide own content report", "targetRevision": 1}, 1, ""), 403)
 }
+
+func TestContentReportRequiresIndependentReviewer(t *testing.T) {
+	a := testApp(t)
+	reviewer, writer, reporter := login(t, a, 0), login(t, a, 1), login(t, a, 2)
+	cleanContentReports(t, reporter)
+	cleanContentReports(t, writer)
+	p := published(t, a, writer, reporter, "Independent content reviewer fixture")
+	report := submitContentReport(t, reporter, "POST", p.ID, 1)
+	mustStatus(t, reporter.request("GET", "me/content-reports/"+report.ID.String(), nil, 0, ""), 200)
+	for _, action := range []string{"DISMISS", "REMOVE"} {
+		mustStatus(t, reporter.request("POST", "moderation/content-reports/"+report.ID.String()+"/decisions", map[string]any{"action": action, "reason": "Reporter cannot decide their own complaint", "targetRevision": 1}, 1, ""), 403)
+	}
+	w := reporter.request("GET", "moderation/content-reports", nil, 0, "")
+	mustStatus(t, w, 200)
+	if strings.Contains(w.Body.String(), report.ID.String()) {
+		t.Fatal("reporter can review their own complaint")
+	}
+	denyDecision := func(c client, reportID uuid.UUID) {
+		t.Helper()
+		ctx := scopedContext(c, a.DB, vault.Grant{})
+		_, err := a.store(ctx).Exec(ctx, "INSERT INTO social.moderation_decision(id,moderation_case_id,sequence,action,rule_version,actor_ref,reason) VALUES($1,$2,1,'REMOVE','local-content-report-v1',$3,'Self-review must be denied')", uuid.New(), reportID, contentReporterPrincipal(t, c))
+		if err == nil || !strings.Contains(err.Error(), "row-level security") {
+			t.Fatal("self-review not rejected by decision RLS", err)
+		}
+	}
+	denyDecision(reporter, report.ID)
+	grantID := uuid.New()
+	if _, err := integrationAdmin.Exec(context.Background(), "INSERT INTO identity.platform_grant(id,principal_id,role,valid_to) VALUES($1,$2,'PLATFORM_MODERATOR',now()+interval '1 day')", grantID, contentReporterPrincipal(t, reviewer)); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		integrationAdmin.Exec(context.Background(), "DELETE FROM identity.platform_grant WHERE id=$1", grantID)
+	})
+	w = reviewer.request("GET", "moderation/content-reports", nil, 0, "")
+	mustStatus(t, w, 200)
+	if !strings.Contains(w.Body.String(), report.ID.String()) {
+		t.Fatal("independent reviewer cannot see eligible report")
+	}
+	mustStatus(t, reviewer.request("GET", "me/content-reports/"+report.ID.String(), nil, 0, ""), 404)
+	decideContentReport(t, reviewer, report, "DISMISS")
+	w = reporter.request("GET", "me/content-reports/"+report.ID.String(), nil, 0, "")
+	mustStatus(t, w, 200)
+	if receipt := parsed[contentReportResult](t, w); receipt.Decision == nil || receipt.Decision.Action != "DISMISS" {
+		t.Fatal("independent decision missing from reporter receipt")
+	}
+	owned := published(t, a, reviewer, reporter, "Moderator-authored conflict fixture")
+	authorConflict := submitContentReport(t, writer, "POST", owned.ID, 1)
+	mustStatus(t, reviewer.request("POST", "moderation/content-reports/"+authorConflict.ID.String()+"/decisions", map[string]any{"action": "DISMISS", "reason": "Author cannot decide complaints about their content", "targetRevision": 1}, 1, ""), 403)
+	denyDecision(reviewer, authorConflict.ID)
+	w = reviewer.request("GET", "moderation/content-reports", nil, 0, "")
+	mustStatus(t, w, 200)
+	if strings.Contains(w.Body.String(), authorConflict.ID.String()) {
+		t.Fatal("target author can review the complaint")
+	}
+	decideContentReport(t, reporter, authorConflict, "DISMISS")
+}

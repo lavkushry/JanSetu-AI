@@ -181,7 +181,7 @@ func (a *App) contentReportPage(r *http.Request, actor *Actor, review bool) (any
 	q := dbgen.New(a.store(r.Context()))
 	var rows []dbgen.SocialModerationCase
 	if review {
-		rows, err = q.ContentReportQueue(r.Context(), dbgen.ContentReportQueueParams{ViewerID: actor.ProfileID, HasCursor: !c.Before.IsZero(), AfterTime: pgtype.Timestamptz{Time: c.Before, Valid: true}, AfterID: c.ID})
+		rows, err = q.ContentReportQueue(r.Context(), dbgen.ContentReportQueueParams{ViewerID: actor.ProfileID, ReviewerPrincipalID: actor.PrincipalID, HasCursor: !c.Before.IsZero(), AfterTime: pgtype.Timestamptz{Time: c.Before, Valid: true}, AfterID: c.ID})
 	} else {
 		rows, err = q.OwnContentReportPage(r.Context(), dbgen.OwnContentReportPageParams{ReporterRef: &actor.PrincipalID, HasCursor: !c.Before.IsZero(), BeforeTime: pgtype.Timestamptz{Time: c.Before, Valid: true}, BeforeID: c.ID})
 	}
@@ -239,6 +239,9 @@ func (a *App) contentReportDecision(w http.ResponseWriter, r *http.Request, acto
 		}
 		if m.ReporterRef == nil {
 			return unavailable()
+		}
+		if *m.ReporterRef == actor.PrincipalID {
+			return forbidden()
 		}
 		if m.Version != version || m.State != "OPEN" || b.TargetRevision != m.TargetVersion {
 			return conflict()

@@ -741,20 +741,23 @@ func (q *Queries) ContentReportDecision(ctx context.Context, moderationCaseID uu
 const contentReportQueue = `-- name: ContentReportQueue :many
 SELECT m.id, m.post_id, m.comment_id, m.media_id, m.profile_id, m.target_version, m.reporter_ref, m.reason_code, m.grounds, m.state, m.version, m.created_at FROM social.moderation_case m LEFT JOIN social.post p ON p.id=m.post_id LEFT JOIN social.comment c ON c.id=m.comment_id
 WHERE m.reporter_ref IS NOT NULL AND m.state='OPEN' AND COALESCE(c.author_id,p.author_id) IS DISTINCT FROM $1
-AND (NOT $2::boolean OR (m.created_at,m.id)>($3::timestamptz,$4::uuid))
+AND m.reporter_ref<>$2::uuid
+AND (NOT $3::boolean OR (m.created_at,m.id)>($4::timestamptz,$5::uuid))
 ORDER BY m.created_at,m.id LIMIT 21
 `
 
 type ContentReportQueueParams struct {
-	ViewerID  uuid.UUID          `json:"viewer_id"`
-	HasCursor bool               `json:"has_cursor"`
-	AfterTime pgtype.Timestamptz `json:"after_time"`
-	AfterID   uuid.UUID          `json:"after_id"`
+	ViewerID            uuid.UUID          `json:"viewer_id"`
+	ReviewerPrincipalID uuid.UUID          `json:"reviewer_principal_id"`
+	HasCursor           bool               `json:"has_cursor"`
+	AfterTime           pgtype.Timestamptz `json:"after_time"`
+	AfterID             uuid.UUID          `json:"after_id"`
 }
 
 func (q *Queries) ContentReportQueue(ctx context.Context, arg ContentReportQueueParams) ([]SocialModerationCase, error) {
 	rows, err := q.db.Query(ctx, contentReportQueue,
 		arg.ViewerID,
+		arg.ReviewerPrincipalID,
 		arg.HasCursor,
 		arg.AfterTime,
 		arg.AfterID,

@@ -913,7 +913,7 @@ paths:
   /moderation/content-reports:
     get:
       operationId: get_content_report_queue
-      description: Platform moderators only, oldest-first twenty-item pages. Includes changed/unavailable placeholders; excludes the reviewer's own authored targets. Reporter identity is omitted.
+      description: Platform moderators only, oldest-first twenty-item pages. Includes changed/unavailable placeholders; excludes reports filed by the reviewer and the reviewer's own authored targets. Reporter identity is omitted.
       parameters:
         - name: cursor
           in: query
@@ -942,7 +942,7 @@ paths:
       - $ref: '#/components/parameters/ID'
     post:
       operationId: decide_content_report
-      description: Fresh platform-moderator grant required. Reasoned DISMISS or REMOVE, bound to report version and reported revision. REMOVE rechecks current source eligibility and rejects changed/unavailable sources. Own authored targets cannot be reviewed. Decision and optional content revocation commit together.
+      description: Fresh platform-moderator grant required. Reasoned DISMISS or REMOVE, bound to report version and reported revision. REMOVE rechecks current source eligibility and rejects changed/unavailable sources. Reports filed by the reviewer and own authored targets cannot be reviewed. Decision and optional content revocation commit together.
       parameters:
         - $ref: '#/components/parameters/Version'
         - name: X-JanSetu-CSRF
