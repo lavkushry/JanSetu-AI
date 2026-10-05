@@ -157,11 +157,17 @@ func (a *App) moderationDecision(w http.ResponseWriter, r *http.Request, actor *
 		} else {
 			return invalid("Unsupported review target")
 		}
-		if e = q.InsertModerationDecision(r.Context(), dbgen.InsertModerationDecisionParams{ID: uuid.New(), ModerationCaseID: mid, Action: b.Action, ActorRef: actor.PrincipalID, Reason: b.Reason, AuthorReason: authorReason}); e != nil {
+		decisionID := uuid.New()
+		if e = q.InsertModerationDecision(r.Context(), dbgen.InsertModerationDecisionParams{ID: decisionID, ModerationCaseID: mid, Action: b.Action, ActorRef: actor.PrincipalID, Reason: b.Reason, AuthorReason: authorReason}); e != nil {
 			return e
 		}
 		if e = q.FinishModeration(r.Context(), mid); e != nil {
 			return e
+		}
+		if b.Action == "RESTRICT" {
+			if e = addEvent(r.Context(), q, "MODERATION_DECISION", decisionID, 1, "ModerationDecisionRecorded", map[string]any{}); e != nil {
+				return e
+			}
 		}
 		return addEvent(r.Context(), q, "POST", aggregate, aggregateVersion, "PublicationReviewed", map[string]any{"decision": b.Action})
 	})

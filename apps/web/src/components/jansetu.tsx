@@ -40,6 +40,7 @@ import { Studio } from './studio';
 import { Accounts, AccountSecurity } from './accounts';
 import { PublicProfilePage, PeopleResults } from './profiles';
 import { ActivityPage, useActivitySummary } from './activity';
+import { PrivateReviewRecord } from './private-review-record';
 
 export default function JanSetu() {
   const [client] = useState(
@@ -539,6 +540,18 @@ function Page({
     );
   if (pathname === '/my-reports') return <MyReports onReport={onReport} />;
   if (pathname === '/studio') return <Studio />;
+  if (
+    parts[0] === 'account' &&
+    parts.length === 3 &&
+    (parts[1] === 'moderation-decisions' || parts[1] === 'appeals')
+  )
+    return (
+      <PrivateReviewRecord
+        key={pathname}
+        id={parts[2]}
+        kind={parts[1] === 'appeals' ? 'APPEAL' : 'MODERATION_DECISION'}
+      />
+    );
   if (pathname === '/account') return <AccountSecurity />;
   if (pathname === '/activity') return <ActivityPage />;
   if (parts[0] === 'profiles' && parts[1])

@@ -71,6 +71,17 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 				if e = q.DeliverReplyActivity(ctx, dbgen.DeliverReplyActivityParams{EventID: claimed.ID, CommentID: payload.CommentID, SourceVersion: pgtype.Int8{Int64: payload.Revision, Valid: true}, EventTime: claimed.CreatedAt}); e != nil {
 					return e
 				}
+			case "ModerationDecisionRecorded", "AppealOutcomeRecorded":
+				sourceKind, aggregateType := "MODERATION_DECISION", "MODERATION_DECISION"
+				if claimed.EventType == "AppealOutcomeRecorded" {
+					sourceKind, aggregateType = "APPEAL_OUTCOME", "APPEAL"
+				}
+				if claimed.AggregateType != aggregateType || claimed.AggregateID == uuid.Nil || claimed.AggregateVersion < 1 {
+					return errors.New("invalid private review event")
+				}
+				if e = q.DeliverReviewActivity(ctx, dbgen.DeliverReviewActivityParams{EventID: claimed.ID, EventTime: claimed.CreatedAt, SourceKind: sourceKind, SourceID: claimed.AggregateID, SourceVersion: claimed.AggregateVersion}); e != nil {
+					return e
+				}
 			case "SafeReceiptPublished":
 				var payload struct {
 					ReceiptID uuid.UUID `json:"receiptId"`

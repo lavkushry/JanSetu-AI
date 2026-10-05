@@ -16,7 +16,7 @@ func (a *App) activity(w http.ResponseWriter, r *http.Request, actor *Actor) (an
 	if filter == "" {
 		filter = "ALL"
 	}
-	if filter != "ALL" && filter != "SOCIAL" && filter != "CASES" {
+	if filter != "ALL" && filter != "SOCIAL" && filter != "CASES" && filter != "MODERATION" {
 		return nil, 0, invalid("Choose an activity filter")
 	}
 	c, e := a.profilePageCursor(r.URL.Query().Get("cursor"), "activity:"+filter, actor.ProfileID, actor.ProfileID)
@@ -36,6 +36,14 @@ func (a *App) activity(w http.ResponseWriter, r *http.Request, actor *Actor) (an
 			author = map[string]any{"id": n.ActorID, "displayName": n.DisplayName.String, "handle": n.Handle.String}
 			target = map[string]any{"kind": "POST", "id": n.PostID, "title": "Conversation"}
 			message = "Replied to your conversation."
+		}
+		if n.Kind == "MODERATION_DECISION" {
+			target = map[string]any{"kind": "MODERATION_DECISION", "id": n.ModerationDecisionID, "title": "Your moderation decision"}
+			message = "A moderation decision is available for your content."
+		}
+		if n.Kind == "APPEAL_OUTCOME" {
+			target = map[string]any{"kind": "APPEAL", "id": n.AppealID, "title": "Your appeal outcome"}
+			message = "An independent decision is available for your appeal."
 		}
 		items = append(items, map[string]any{"id": n.ID, "kind": n.Kind, "createdAt": timestamp(n.CreatedAt), "readAt": timestamp(n.ReadAt), "actor": author, "message": message, "target": target})
 	}

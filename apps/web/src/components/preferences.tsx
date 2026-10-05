@@ -31,7 +31,8 @@ export function NotificationSettings() {
         <Bell size={19} /> Activity preferences
       </h2>
       <p className="muted">
-        Choose whether approved replies and followed public service updates appear in your inbox.
+        Choose whether replies, followed public service updates and private moderation decisions
+        appear in your inbox.
       </p>
       {q.isPending ? (
         <Loading />

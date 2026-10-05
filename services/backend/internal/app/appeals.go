@@ -434,6 +434,9 @@ func (a *App) decideAppeal(w http.ResponseWriter, r *http.Request, actor *Actor)
 		}
 		v.State = b.Result
 		v.Version++
+		if e = addEvent(r.Context(), q, "APPEAL", aid, v.Version, "AppealOutcomeRecorded", map[string]any{}); e != nil {
+			return e
+		}
 		result, e = appealReceipt(r.Context(), q, v)
 		return e
 	})

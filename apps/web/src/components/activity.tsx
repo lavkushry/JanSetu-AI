@@ -18,7 +18,7 @@ export function useActivitySummary(viewer?: string) {
 
 export function ActivityPage() {
   const { me, signIn } = useSession();
-  const [filter, setFilter] = useState<'ALL' | 'SOCIAL' | 'CASES'>('ALL');
+  const [filter, setFilter] = useState<'ALL' | 'SOCIAL' | 'CASES' | 'MODERATION'>('ALL');
   const qc = useQueryClient();
   const viewer = me?.profile.id || 'guest';
   const summary = useActivitySummary(me?.profile.id);
@@ -60,7 +60,7 @@ export function ActivityPage() {
   if (!me)
     return (
       <Empty title="Your activity lives here">
-        <p>Sign in to follow replies and public service progress.</p>
+        <p>Sign in to follow replies, public service progress and your private review decisions.</p>
         <button className="primary" onClick={signIn}>
           Sign in
         </button>
@@ -74,7 +74,7 @@ export function ActivityPage() {
           <Bell size={15} /> STAY IN THE LOOP
         </span>
         <h1>Activity</h1>
-        <p>Your conversations. Your city’s progress.</p>
+        <p>Your conversations, your city’s progress, and your private review decisions.</p>
         <Link className="text-button" href="/account#activity-settings">
           Manage Activity preferences
         </Link>
@@ -103,6 +103,7 @@ export function ActivityPage() {
             ['ALL', 'All'],
             ['SOCIAL', 'Conversations'],
             ['CASES', 'Service progress'],
+            ['MODERATION', 'Moderation'],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -119,8 +120,8 @@ export function ActivityPage() {
         ))}
       </div>
       <p className="muted activity-note">
-        Only approved replies and reviewed public updates appear here. Read status is for your
-        inbox.
+        Approved replies, reviewed public updates and your private moderation decisions appear here.
+        Read status is for your inbox.
       </p>
       <FormError error={read.error} />
       {summary.error && <ErrorState error={summary.error} retry={() => void summary.refetch()} />}
@@ -130,7 +131,7 @@ export function ActivityPage() {
         <ErrorState error={list.error} retry={() => void refresh()} />
       ) : !items.length ? (
         <Empty title="You’re all caught up">
-          <p>Approved replies and updates to cases you follow will appear here.</p>
+          <p>Replies, followed case updates and private review notices will appear here.</p>
           <Link className="text-button" href="/">
             Explore your feed <ArrowUpRight size={15} />
           </Link>
@@ -151,16 +152,17 @@ export function ActivityPage() {
                   {item.actor ? (
                     <Link href={`/profiles/${item.actor.id}`}>{item.actor.displayName}</Link>
                   ) : (
-                    <strong>Public service progress</strong>
+                    <strong>
+                      {item.kind === 'CASE_PROGRESS'
+                        ? 'Public service progress'
+                        : 'Private moderation'}
+                    </strong>
                   )}
                   <time dateTime={item.createdAt} title={new Date(item.createdAt).toLocaleString()}>
                     {ago(item.createdAt)}
                   </time>
                 </div>
-                <Link
-                  className="activity-target"
-                  href={`/${item.target.kind === 'POST' ? 'posts' : 'cases'}/${item.target.id}`}
-                >
+                <Link className="activity-target" href={activityTargetURL(item.target)}>
                   <p>{item.message}</p>
                   <span>
                     {item.target.title} <ArrowUpRight size={14} />
@@ -192,4 +194,17 @@ export function ActivityPage() {
       )}
     </>
   );
+}
+
+function activityTargetURL(target: Schema['Activity']['target']) {
+  switch (target.kind) {
+    case 'POST':
+      return `/posts/${target.id}`;
+    case 'RECEIPT':
+      return `/cases/${target.id}`;
+    case 'MODERATION_DECISION':
+      return `/account/moderation-decisions/${target.id}`;
+    case 'APPEAL':
+      return `/account/appeals/${target.id}`;
+  }
 }

@@ -2305,3 +2305,188 @@ test('appeal reviewers recover stale source context and never publish a later pe
   await original.context.close();
   await reviewer.context.close();
 });
+
+async function privateReviewNotice(page: Page, target: string) {
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get('/api/me/activity?filter=MODERATION');
+        if (!response.ok()) return false;
+        const activity = (await response.json()) as Schema['ActivityPage'];
+        return activity.items.some((n) => n.target.id === target);
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+}
+function reviewActivityCard(page: Page, kind: 'moderation-decisions' | 'appeals', id: string) {
+  return page
+    .getByTestId('activity-card')
+    .filter({ has: page.locator(`a[href="/account/${kind}/${id}"]`) });
+}
+test('private moderation activity opens exact owner records and preserves appeal history after deletion', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const original = await staffPage(browser, 'Kiran Shah');
+  const reviewer = await staffPage(browser, 'Neha Sen');
+  const other = await staffPage(browser, 'Rohan Mehta');
+  const marker = `Private notice source ${Date.now()}`;
+  const { post, decision } = await rejectedAppealFixture(page, original.page, marker);
+  await privateReviewNotice(page, decision.id);
+  const notices = (await (
+    await page.request.get('/api/me/activity?filter=MODERATION')
+  ).json()) as Schema['ActivityPage'];
+  const notice = notices.items.find((n) => n.target.id === decision.id);
+  expect(notice?.kind).toBe('MODERATION_DECISION');
+  expect(notice?.actor).toBeNull();
+  for (const secret of [marker, 'PRIVATE ORIGINAL APPEAL REVIEW NOTE', decision.reason])
+    expect(JSON.stringify(notices)).not.toContain(secret);
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  let card = reviewActivityCard(page, 'moderation-decisions', decision.id);
+  await expect(card).toContainText('Private moderation');
+  await expect(card).toContainText('A moderation decision is available');
+  await card.getByRole('button', { name: 'Mark as read', exact: true }).click();
+  await expect(card).not.toHaveClass(/unread/);
+  await page.reload();
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  await expect(card).not.toHaveClass(/unread/);
+  await card.locator('.activity-target').click();
+  await expect(page).toHaveURL(`/account/moderation-decisions/${decision.id}`);
+  await expect(
+    page.getByRole('heading', { name: 'Moderation decision', exact: true }),
+  ).toBeVisible();
+  const privateDecision = page.getByTestId(`moderation-decision-${decision.id}`);
+  await expect(privateDecision).toContainText(decision.reason);
+  await expect(privateDecision).not.toContainText(marker);
+  await other.page.goto(`/account/moderation-decisions/${decision.id}`);
+  await expect(
+    other.page.getByRole('heading', { name: 'This private record is unavailable' }),
+  ).toBeVisible();
+  await expect(other.page.locator('main')).not.toContainText(decision.reason);
+  expect(
+    (await original.page.request.get(`/api/me/moderation-decisions/${decision.id}`)).status(),
+  ).toBe(404);
+  await privateDecision.getByRole('button', { name: 'Appeal decision', exact: true }).click();
+  const form = page.getByRole('dialog', { name: 'Appeal this decision' });
+  await form
+    .getByLabel('Appeal grounds')
+    .fill('Please review this fictional restriction independently.');
+  await form.getByRole('button', { name: 'Submit appeal', exact: true }).click();
+  await expect(form).toHaveCount(0);
+  const owned = (await (await page.request.get('/api/me/appeals')).json()) as Schema['AppealPage'];
+  const appeal = owned.items.find((v) => v.decisionId === decision.id);
+  if (!appeal) throw new Error('Missing exact-record appeal');
+  await reviewer.page.getByRole('button', { name: 'Appeals', exact: true }).click();
+  const review = reviewer.page.getByTestId(`appeal-review-${appeal.id}`);
+  await review.getByRole('button', { name: 'Take review', exact: true }).click();
+  await review
+    .getByLabel('Reason shared with author')
+    .fill('Independent review upholds this fictional publication decision.');
+  await review.getByRole('button', { name: 'Uphold decision', exact: true }).click();
+  await reviewer.page
+    .getByRole('dialog', { name: 'Uphold this decision?' })
+    .getByRole('button', { name: 'Confirm appeal outcome', exact: true })
+    .click();
+  await expect(review).toHaveCount(0);
+  await privateReviewNotice(page, appeal.id);
+  const current = (await (
+    await page.request.get(`/api/posts/${post.id}`)
+  ).json()) as Schema['Post'];
+  expect(
+    (
+      await page.request.delete(`/api/posts/${post.id}`, {
+        headers: { 'x-jansetu-csrf': '1', 'if-match': `"${current.version}"` },
+      })
+    ).status(),
+  ).toBe(204);
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  card = reviewActivityCard(page, 'appeals', appeal.id);
+  await expect(card).toContainText('An independent decision is available');
+  await expect(reviewActivityCard(page, 'moderation-decisions', decision.id)).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 740 });
+  await card.evaluate((el) =>
+    window.scrollTo({
+      top: el.getBoundingClientRect().top + window.scrollY - 150,
+      behavior: 'instant',
+    }),
+  );
+  await expect(card).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: 'test-results/private-moderation-activity-mobile.png' });
+  await card.locator('.activity-target').click();
+  await expect(page).toHaveURL(`/account/appeals/${appeal.id}`);
+  const outcome = page.getByTestId(`appeal-${appeal.id}`);
+  await expect(outcome).toContainText('Decision upheld');
+  await expect(outcome).not.toContainText(marker);
+  await expect(outcome).not.toContainText('PRIVATE ORIGINAL APPEAL REVIEW NOTE');
+  await page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+  await outcome.evaluate((el) =>
+    window.scrollTo({
+      top: el.getBoundingClientRect().top + window.scrollY - 150,
+      behavior: 'instant',
+    }),
+  );
+  await expect(outcome).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: 'test-results/private-appeal-record-mobile-dark.png' });
+  await other.page.goto(`/account/appeals/${appeal.id}`);
+  await expect(
+    other.page.getByRole('heading', { name: 'This private record is unavailable' }),
+  ).toBeVisible();
+  await expect(other.page.locator('main')).not.toContainText('Independent review upholds');
+  await original.context.close();
+  await reviewer.context.close();
+  await other.context.close();
+});
+test('private moderation alerts honor in-app consent while exact records stay available', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(75_000);
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  const original = await staffPage(browser, 'Kiran Shah');
+  const marker = `Private consent notice ${Date.now()}`;
+  const { decision } = await rejectedAppealFixture(page, original.page, marker);
+  await privateReviewNotice(page, decision.id);
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  const card = reviewActivityCard(page, 'moderation-decisions', decision.id);
+  await expect(card).toBeVisible();
+  await card.getByRole('button', { name: 'Mark as read', exact: true }).click();
+  await expect(card).not.toHaveClass(/unread/);
+  await page.goto('/account#activity-settings');
+  await page.getByRole('switch', { name: 'In-app notifications' }).uncheck();
+  await page.getByRole('button', { name: 'Save activity preferences', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('In-app notifications paused');
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  await expect(page.getByText('In-app notifications are paused.', { exact: false })).toBeVisible();
+  await expect(card).toHaveCount(0);
+  expect((await (await page.request.get('/api/me/activity/summary')).json()).unreadCount).toBe(0);
+  await page.goto(`/account/moderation-decisions/${decision.id}`);
+  await expect(page.getByTestId(`moderation-decision-${decision.id}`)).toContainText(
+    decision.reason,
+  );
+  await page.goto('/account#activity-settings');
+  await page.getByRole('switch', { name: 'In-app notifications' }).check();
+  await page.getByRole('button', { name: 'Save activity preferences', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('In-app notifications enabled');
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  await expect(card).toBeVisible();
+  await expect(card).not.toHaveClass(/unread/);
+  await card.getByRole('button', { name: 'Mark as unread', exact: true }).click();
+  await expect(card).toHaveClass(/unread/);
+  await original.context.close();
+});

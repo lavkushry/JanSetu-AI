@@ -305,11 +305,17 @@ func (a *App) contentReportDecision(w http.ResponseWriter, r *http.Request, acto
 			}
 			action = "REMOVE"
 		}
-		if err := q.InsertContentReportDecision(r.Context(), dbgen.InsertContentReportDecisionParams{ID: uuid.New(), ModerationCaseID: m.ID, Action: action, ActorRef: actor.PrincipalID, Reason: b.Reason, AuthorReason: authorReason}); err != nil {
+		decisionID := uuid.New()
+		if err := q.InsertContentReportDecision(r.Context(), dbgen.InsertContentReportDecisionParams{ID: decisionID, ModerationCaseID: m.ID, Action: action, ActorRef: actor.PrincipalID, Reason: b.Reason, AuthorReason: authorReason}); err != nil {
 			return err
 		}
 		if err := q.FinishModeration(r.Context(), m.ID); err != nil {
 			return err
+		}
+		if action == "REMOVE" {
+			if err := addEvent(r.Context(), q, "MODERATION_DECISION", decisionID, 1, "ModerationDecisionRecorded", map[string]any{}); err != nil {
+				return err
+			}
 		}
 		m.State, m.Version = "DECIDED", m.Version+1
 		receipt, err = contentReportReceipt(r.Context(), q, m)

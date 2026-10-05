@@ -27,7 +27,7 @@ export function AppealControl({ decision }: { decision: Schema['AuthorModeration
   if (decision.action === 'ALLOW') return null;
   if (decision.appeal)
     return (
-      <Link className="text-button" href="/account#appeals">
+      <Link className="text-button" href={`/account/appeals/${decision.appeal.id}`}>
         {states[decision.appeal.state]} · View appeal
       </Link>
     );
@@ -150,28 +150,7 @@ export function MyAppeals() {
       ) : (
         <div className="content-report-list">
           {items.map((v) => (
-            <article className="content-report-receipt" key={v.id} data-testid={`appeal-${v.id}`}>
-              <div className="receipt-eyebrow">
-                <span>APPEAL {v.id.slice(0, 8)}</span>
-                <Badge state={v.state} />
-              </div>
-              <h3>{states[v.state]}</h3>
-              <p className="appeal-copy">{v.grounds}</p>
-              <small>{dateLabel(v.createdAt)}</small>
-              {v.outcome && (
-                <div className="appeal-outcome">
-                  <strong>Reviewer’s explanation</strong>
-                  <p className="appeal-copy">{v.outcome.reason}</p>
-                  <p>
-                    {v.outcome.restorationState === 'RESTORED'
-                      ? 'Reviewed revision published.'
-                      : v.outcome.restorationState === 'UNCHANGED'
-                        ? 'Publication remains unchanged.'
-                        : `Content was not restored. ${restoration[v.outcome.restorationReason]}`}
-                  </p>
-                </div>
-              )}
-            </article>
+            <PrivateAppealCard key={v.id} appeal={v} link />
           ))}
           {q.hasNextPage && (
             <button
@@ -400,6 +379,44 @@ function AppealReviewCard({
             </button>
           </div>
         </Modal>
+      )}
+    </article>
+  );
+}
+
+export function PrivateAppealCard({
+  appeal: v,
+  link = false,
+}: {
+  appeal: Schema['AppealReceipt'];
+  link?: boolean;
+}) {
+  return (
+    <article className="content-report-receipt" data-testid={`appeal-${v.id}`}>
+      <div className="receipt-eyebrow">
+        <span>APPEAL {v.id.slice(0, 8)}</span>
+        <Badge state={v.state} />
+      </div>
+      <h3>{states[v.state]}</h3>
+      <p className="appeal-copy">{v.grounds}</p>
+      <small>{dateLabel(v.createdAt)}</small>
+      {link && (
+        <Link className="text-button" href={`/account/appeals/${v.id}`}>
+          Open private appeal
+        </Link>
+      )}
+      {v.outcome && (
+        <div className="appeal-outcome">
+          <strong>Reviewer’s explanation</strong>
+          <p className="appeal-copy">{v.outcome.reason}</p>
+          <p>
+            {v.outcome.restorationState === 'RESTORED'
+              ? 'Reviewed revision published.'
+              : v.outcome.restorationState === 'UNCHANGED'
+                ? 'Publication remains unchanged.'
+                : `Content was not restored. ${restoration[v.outcome.restorationReason]}`}
+          </p>
+        </div>
       )}
     </article>
   );
