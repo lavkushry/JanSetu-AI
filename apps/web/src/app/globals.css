@@ -1914,6 +1914,18 @@ textarea {
   padding: 16px;
   margin-top: 20px;
 }
+.publication {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.publication .form-actions {
+  flex-wrap: wrap;
+}
+.publication-history {
+  border-top: 1px solid var(--line);
+  margin-top: 24px;
+  padding-top: 20px;
+}
 .public-preview h3 {
   margin-top: 9px;
 }

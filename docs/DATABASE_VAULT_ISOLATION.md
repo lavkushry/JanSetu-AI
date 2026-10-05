@@ -51,6 +51,8 @@ Owner aliases are stronger than a caller-supplied UUID list. The vault signs an 
 
 Trusted migration-owned security-definer functions use fixed `pg_catalog, pg_temp` search paths and qualified object names. PUBLIC execution is revoked; new authorization functions default to no PUBLIC execution. Constraint triggers can inspect media eligibility without giving social callers access to private media tables. Identifier updates used solely to obtain row locks cannot replace resource IDs.
 
+Publisher-only current review and history use narrow security-barrier views guarded by live publisher/session/case scope. The operations pool can select these views without reading raw publication decisions, old safe payloads or reviewer identities. Private reasons stay out of public receipts and worker payloads. See the [public progress lifecycle guide](PUBLIC_PROGRESS_LIFECYCLE.md).
+
 ## Vault protocol, encryption and audit
 
 The internal endpoints are `GET /aliases`, `POST /aliases` with only `submissionId`, and authenticated `GET /health/ready`. Requests require a service token and the resident's opaque session token. The vault validates that session independently against the application database. It does not accept principal selectors, staff lookup requests, arbitrary purposes, or contact/identity disclosure requests. Redirects are disabled in the client; requests have body/response/time limits. Browser-facing contracts are unchanged.

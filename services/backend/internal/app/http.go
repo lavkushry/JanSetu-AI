@@ -446,6 +446,7 @@ func (a *App) Handler() http.Handler {
 		"POST /v1/authority/obligations/{id}/completion-claims": a.claimCompletion,
 		"POST /v1/authority/cases/{id}/verification-decisions":  a.verify,
 		"POST /v1/authority/cases/{id}/publications":            a.publishReceipt,
+		"POST /v1/authority/cases/{id}/publication-withdrawals": a.withdrawReceipt,
 	} {
 		mux.HandleFunc(pattern, a.route(fn))
 	}

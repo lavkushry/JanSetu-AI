@@ -274,7 +274,7 @@ INSERT INTO infra.idempotency_record(principal_ref,operation,idempotency_key,req
 VALUES ($1,$2,$3,$4,$5,$6,$7,now()+interval '72 hours') ON CONFLICT(principal_ref,operation,idempotency_key)
 DO UPDATE SET request_hash=EXCLUDED.request_hash,result_resource_id=EXCLUDED.result_resource_id,response_code=EXCLUDED.response_code,response_body=EXCLUDED.response_body,expires_at=EXCLUDED.expires_at;
 -- name: AddEvent :exec
-INSERT INTO infra.outbox(id,aggregate_type,aggregate_id,aggregate_version,event_type,payload_version,payload) VALUES ($1,$2,$3,$4,$5,1,$6);
+INSERT INTO infra.outbox(id,aggregate_type,aggregate_id,aggregate_version,event_type,payload_version,payload) VALUES ($1,$2,$3,$4,$5,sqlc.arg(payload_version),sqlc.arg(payload));
 
 -- name: Receipts :many
 SELECT * FROM social.case_receipt WHERE publication_state='PUBLISHED'
@@ -292,9 +292,10 @@ INSERT INTO social.case_follow(profile_id,receipt_id) VALUES ($1,$2) ON CONFLICT
 DELETE FROM social.case_follow WHERE profile_id=$1 AND receipt_id=$2;
 
 -- name: OwnReportProgress :many
-SELECT r.id,r.received_at,r.statement,r.language_tag,ir.state AS linkage,ir.case_id,pb.receipt_id
+SELECT r.id,r.received_at,r.statement,r.language_tag,ir.state AS linkage,ir.case_id,receipt.id AS receipt_id
 FROM ops.report r JOIN ops.intake_review ir ON ir.report_id=r.id
 LEFT JOIN ops.publication_binding pb ON pb.case_id=ir.case_id
+LEFT JOIN social.case_receipt receipt ON receipt.id=pb.receipt_id AND receipt.publication_state='PUBLISHED'
 WHERE r.reporter_ref=ANY(sqlc.arg(alias_ids)::uuid[])
 AND (sqlc.arg(report_id)::uuid='00000000-0000-0000-0000-000000000000'::uuid OR r.id=sqlc.arg(report_id))
 ORDER BY r.received_at DESC LIMIT 100;
@@ -353,21 +354,29 @@ SELECT NOT EXISTS(SELECT 1 FROM ops.obligation WHERE case_id=$1 AND required_for
 INSERT INTO ops.verification_decision(id,case_id,obligation_id,reviewer_ref,result,reason,decided_at) VALUES ($1,$2,$3,$4,$5,$6,now());
 -- name: PublicationBinding :one
 SELECT * FROM ops.publication_binding WHERE case_id=$1;
+-- name: PublicationStatus :one
+SELECT * FROM ops.publication_status WHERE case_id=$1;
+-- name: PublicationHistory :many
+SELECT * FROM ops.publication_history WHERE case_id=$1 ORDER BY decided_at DESC,id DESC LIMIT 20;
+-- name: LockPublicationReceipt :one
+SELECT * FROM social.case_receipt WHERE id=$1 FOR UPDATE;
 -- name: PublicationAllowed :one
 SELECT NOT EXISTS(SELECT 1 FROM ops.case_observation o JOIN ops.report r ON r.id=o.report_id WHERE o.case_id=$1 AND r.publication_preference='PRIVATE');
 -- name: SavePublicationBinding :exec
 INSERT INTO ops.publication_binding(case_id,receipt_id,approved_case_version,reviewer_ref,decision_ref,approved_at) VALUES ($1,$2,$3,$4,$5,now())
 ON CONFLICT(case_id) DO UPDATE SET approved_case_version=EXCLUDED.approved_case_version,reviewer_ref=EXCLUDED.reviewer_ref,decision_ref=EXCLUDED.decision_ref,approved_at=now();
 -- name: SaveReceipt :exec
-INSERT INTO social.case_receipt(id,title,safe_summary,area_label,public_state,urgency_tier,first_reported_at,responsibilities,projection_version,publication_state,published_at,updated_at,policy_version)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'PUBLISHED',now(),now(),'local-publication-v1')
-ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,safe_summary=EXCLUDED.safe_summary,area_label=EXCLUDED.area_label,public_state=EXCLUDED.public_state,urgency_tier=EXCLUDED.urgency_tier,responsibilities=EXCLUDED.responsibilities,projection_version=EXCLUDED.projection_version,publication_state='PUBLISHED',updated_at=now();
+INSERT INTO social.case_receipt(id,title,safe_summary,area_label,public_state,urgency_tier,first_reported_at,responsibilities,projection_version,publication_version,publication_state,published_at,updated_at,policy_version)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PUBLISHED',now(),now(),'local-publication-v2')
+ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,safe_summary=EXCLUDED.safe_summary,area_label=EXCLUDED.area_label,public_state=EXCLUDED.public_state,urgency_tier=EXCLUDED.urgency_tier,responsibilities=EXCLUDED.responsibilities,projection_version=EXCLUDED.projection_version,publication_version=EXCLUDED.publication_version,publication_state='PUBLISHED',updated_at=now(),policy_version='local-publication-v2';
+-- name: WithdrawReceipt :exec
+UPDATE social.case_receipt SET publication_state='WITHDRAWN',publication_version=publication_version+1,last_withdrawn_version=publication_version+1,updated_at=now(),policy_version='local-publication-v2' WHERE id=$1;
 -- name: DeleteReceiptEvents :exec
 DELETE FROM social.case_receipt_event WHERE receipt_id=$1;
 -- name: InsertReceiptEvent :exec
 INSERT INTO social.case_receipt_event(receipt_id,sequence,type,safe_text,actor_type,occurred_at,projection_version) VALUES ($1,$2,$3,$4,$5,$6,$7);
 -- name: InsertPublicationDecision :exec
-INSERT INTO ops.publication_decision(id,case_id,case_version,action,safe_payload,reviewer_ref,policy_version,decided_at) VALUES ($1,$2,$3,'PUBLISH',$4,$5,'local-publication-v1',now());
+INSERT INTO ops.publication_decision(id,case_id,case_version,action,safe_payload,reviewer_ref,policy_version,decided_at,publication_version,internal_reason) VALUES ($1,$2,$3,$4,$5,$6,'local-publication-v2',statement_timestamp(),$7,$8);
 
 -- name: ClaimEvent :one
 WITH candidate AS (

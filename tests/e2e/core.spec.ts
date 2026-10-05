@@ -38,6 +38,339 @@ async function staffPage(browser: Browser, name: string) {
   await page.goto('/studio');
   return { page, context };
 }
+async function publicProgressFixture(owner: Page, publisher: Page) {
+  const csrf = { 'x-jansetu-csrf': '1' };
+  const statement = `Private lifecycle report ${Date.now()} ${crypto.randomUUID()}`;
+  const response = await owner.request.post('/api/service-reports', {
+    headers: { ...csrf, 'idempotency-key': crypto.randomUUID() },
+    data: {
+      clientSubmissionId: crypto.randomUUID(),
+      statement,
+      languageTag: 'en-IN',
+      category: 'FOOTPATH',
+      locationLabel: 'Fictional lifecycle crossing',
+      publicationPreference: 'SANITIZED_RECEIPT',
+    },
+  });
+  expect(response.status()).toBe(201);
+  const report = (await response.json()) as { id: string; receivedAt: string };
+  const triage = await publisher.request.post(`/api/authority/reports/${report.id}/triage`, {
+    headers: { ...csrf, 'if-match': '"1"' },
+    data: {
+      agencyId: '30000000-0000-4000-8000-000000000001',
+      category: 'FOOTPATH',
+      urgencyTier: 2,
+      reason: 'Fictional lifecycle restoration assessment',
+    },
+  });
+  expect(triage.status()).toBe(201);
+  const { caseId } = (await triage.json()) as { caseId: string };
+  return { caseId, report, statement };
+}
+async function openPublicationReview(publisher: Page, caseId: string) {
+  await publisher.goto('/studio');
+  await publisher.getByRole('button', { name: 'Service cases', exact: true }).click();
+  await publisher.getByTestId(`staff-case-${caseId}`).click();
+  await expect(publisher.getByTestId('publication-review')).toBeVisible();
+}
+async function savePublicProgress(publisher: Page, button: string) {
+  const response = publisher.waitForResponse(
+    (r) => r.url().endsWith('/publications') && r.request().method() === 'POST',
+  );
+  await publisher.getByRole('button', { name: button, exact: true }).click();
+  const saved = await response;
+  expect(saved.status()).toBe(200);
+  return (await saved.json()) as Schema['PublicationResult'];
+}
+
+test('publisher corrections, withdrawal and reviewed republication preserve private case work', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  const follower = await staffPage(browser, 'Rohan Mehta');
+  const officer = await staffPage(browser, 'City Works team');
+  try {
+    const { caseId, report, statement } = await publicProgressFixture(page, staff.page);
+    await openPublicationReview(staff.page, caseId);
+    const review = staff.page.getByTestId('publication-review');
+    const current = review.getByTestId('current-publication');
+    const title = `Reviewed lifecycle crossing ${Date.now()}`;
+    await review.getByLabel('Public title', { exact: true }).fill(title);
+    await review
+      .getByLabel('Safe public summary')
+      .fill('The fictional crossing has a proposed restoration task.');
+    await review.getByLabel('Broad public area').fill('Synthetic neighbourhood');
+    await review
+      .getByRole('textbox', { name: 'Private publication reason', exact: true })
+      .fill('PRIVATE FIRST PUBLICATION REASON');
+    await review.getByLabel('I reviewed this public preview for identifying details.').check();
+    const first = await savePublicProgress(staff.page, 'Publish reviewed progress');
+    expect(first.version).toBe(1);
+    expect(first.publicationVersion).toBe(1);
+    const receiptId = first.receiptId;
+    await expect(current).toContainText('PUBLICATION REVISION 1');
+    await follower.page.goto(`/cases/${receiptId}`);
+    await follower.page.getByRole('button', { name: 'Follow progress', exact: true }).click();
+    await expect(
+      follower.page.getByRole('button', { name: 'Following', exact: true }),
+    ).toBeVisible();
+    const activity = async () =>
+      (await (
+        await follower.page.request.get('/api/me/activity?filter=CASES')
+      ).json()) as Schema['ActivityPage'];
+    const correctedTitle = `Corrected lifecycle crossing ${Date.now()}`;
+    await review.getByLabel('Public title', { exact: true }).fill(correctedTitle);
+    await review
+      .getByRole('textbox', { name: 'Private publication reason', exact: true })
+      .fill('PRIVATE CORRECTION REASON');
+    await review.getByLabel('I reviewed this public preview for identifying details.').check();
+    const correction = await savePublicProgress(staff.page, 'Save reviewed correction');
+    expect(correction.version).toBe(1);
+    expect(correction.publicationVersion).toBe(2);
+    await expect
+      .poll(async () => (await activity()).items.filter((n) => n.target.id === receiptId).length)
+      .toBe(1);
+    const old = (await activity()).items.find((n) => n.target.id === receiptId);
+    if (!old) throw new Error('Missing reviewed progress notice');
+    await follower.page.goto('/activity');
+    await follower.page.getByRole('button', { name: 'Service progress', exact: true }).click();
+    const card = follower.page
+      .getByTestId('activity-card')
+      .filter({ has: follower.page.locator(`a[href="/cases/${receiptId}"]`) });
+    await expect(card).toContainText(correctedTitle);
+    await card.getByRole('button', { name: 'Mark as read', exact: true }).click();
+    await expect(card).not.toHaveClass(/unread/);
+    await staff.page.setViewportSize({ width: 320, height: 820 });
+    await review.getByRole('button', { name: 'Withdraw public progress', exact: true }).click();
+    const dialog = staff.page.getByRole('dialog', { name: 'Withdraw public progress?' });
+    await dialog.getByLabel('Private withdrawal reason').fill('PRIVATE WITHDRAWAL REVIEW REASON');
+    await dialog.getByLabel('I reviewed the withdrawal of this public progress.').check();
+    expect(
+      await staff.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    ).toBe(true);
+    await staff.page.screenshot({
+      path: 'test-results/public-progress-withdrawal-mobile-light.png',
+    });
+    await dialog.getByRole('button', { name: 'Keep public progress', exact: true }).click();
+    expect((await follower.page.request.get(`/api/case-receipts/${receiptId}`)).status()).toBe(200);
+    await staff.page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+    await review.getByRole('button', { name: 'Withdraw public progress', exact: true }).click();
+    await expect(dialog.getByLabel('Private withdrawal reason')).toHaveValue(
+      'PRIVATE WITHDRAWAL REVIEW REASON',
+    );
+    await expect(
+      dialog.getByLabel('I reviewed the withdrawal of this public progress.'),
+    ).not.toBeChecked();
+    await dialog.getByLabel('I reviewed the withdrawal of this public progress.').check();
+    expect(
+      await staff.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    ).toBe(true);
+    await staff.page.screenshot({
+      path: 'test-results/public-progress-withdrawal-mobile-dark.png',
+    });
+    await dialog.getByRole('button', { name: 'Confirm withdrawal', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(current).toContainText('PUBLICATION REVISION 3');
+    await expect(current.getByText('withdrawn', { exact: true })).toBeVisible();
+    await expect(
+      review.getByRole('button', { name: 'Republish reviewed progress', exact: true }),
+    ).toBeDisabled();
+    await follower.page.reload();
+    await follower.page.getByRole('button', { name: 'Service progress', exact: true }).click();
+    await expect(card).toHaveCount(0);
+    expect((await activity()).items.some((n) => n.target.id === receiptId)).toBe(false);
+    expect((await follower.page.request.get(`/api/case-receipts/${receiptId}`)).status()).toBe(404);
+    await follower.page.goto(`/cases/${receiptId}`);
+    await expect(follower.page.locator('main').getByRole('alert')).toContainText('unavailable');
+    await expect(follower.page.locator('main')).not.toContainText(correctedTitle);
+    await page.goto('/my-reports');
+    const own = page.locator('.my-report').filter({ hasText: statement });
+    await expect(own).toBeVisible();
+    await expect(own.getByRole('link', { name: /View reviewed public progress/ })).toHaveCount(0);
+    await officer.page.goto('/studio');
+    await officer.page.getByTestId(`staff-case-${caseId}`).click();
+    await expect(officer.page.getByTestId('publication-review')).toHaveCount(0);
+    await officer.page
+      .getByLabel('Work or decision summary')
+      .fill('PRIVATE AGENCY WORK AFTER PUBLIC WITHDRAWAL');
+    await officer.page.getByRole('button', { name: 'Accept task', exact: true }).click();
+    await expect(
+      officer.page.getByRole('button', { name: 'Start work', exact: true }),
+    ).toBeVisible();
+    await review.getByRole('button', { name: 'Refresh publication review', exact: true }).click();
+    const freshTitle = `Fresh reviewed lifecycle crossing ${Date.now()}`;
+    await review.getByLabel('Public title', { exact: true }).fill(freshTitle);
+    await review
+      .getByLabel('Safe public summary')
+      .fill('Agency acceptance was reviewed for fresh public progress.');
+    await review
+      .getByRole('textbox', { name: 'Private publication reason', exact: true })
+      .fill('PRIVATE FRESH REPUBLICATION REASON');
+    await review.getByLabel('I reviewed this public preview for identifying details.').check();
+    const fresh = await savePublicProgress(staff.page, 'Republish reviewed progress');
+    expect(fresh.receiptId).toBe(receiptId);
+    expect(fresh.version).toBe(2);
+    expect(fresh.publicationVersion).toBe(4);
+    await expect
+      .poll(async () => (await activity()).items.filter((n) => n.target.id === receiptId).length)
+      .toBe(1);
+    const publicResponse = await follower.page.request.get(`/api/case-receipts/${receiptId}`);
+    expect(publicResponse.status()).toBe(200);
+    const publicReceipt = (await publicResponse.json()) as Schema['Receipt'];
+    expect(publicReceipt.title).toBe(freshTitle);
+    expect(publicReceipt.version).toBe(4);
+    expect(publicReceipt.firstReportedAt).toBe(report.receivedAt);
+    for (const secret of ['PRIVATE', caseId, report.id, statement])
+      expect(JSON.stringify(publicReceipt)).not.toContain(secret);
+    await follower.page.goto('/activity');
+    await follower.page.getByRole('button', { name: 'Service progress', exact: true }).click();
+    await expect(card).toContainText(freshTitle);
+    await expect(card).toHaveClass(/unread/);
+    expect(
+      (
+        await follower.page.request.put(`/api/me/activity/${old.id}/read`, {
+          headers: { 'x-jansetu-csrf': '1' },
+          data: { read: false },
+        })
+      ).status(),
+    ).toBe(404);
+    const detail = (await (
+      await staff.page.request.get(`/api/authority/cases/${caseId}`)
+    ).json()) as Schema['CaseDetail'];
+    expect(detail.version).toBe(2);
+    expect(detail.firstReportedAt).toBe(report.receivedAt);
+    expect(detail.publication?.decisions.map((d) => d.action)).toEqual([
+      'PUBLISH',
+      'WITHDRAW',
+      'CORRECT',
+      'PUBLISH',
+    ]);
+  } finally {
+    await Promise.all([staff.context.close(), follower.context.close(), officer.context.close()]);
+  }
+});
+
+test('publication review conflicts preserve drafts and reconcile a lost response', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  try {
+    const { caseId, report } = await publicProgressFixture(page, staff.page);
+    const title = `Publication recovery crossing ${Date.now()}`;
+    const fields = {
+      title,
+      summary: 'The fictional crossing awaits reviewed restoration work.',
+      area: 'Synthetic neighbourhood',
+      reason: 'PRIVATE RECOVERY INITIAL REVIEW',
+      reviewed: true,
+      publicationVersion: 0,
+    };
+    const publish = (data: typeof fields) =>
+      staff.page.request.post(`/api/authority/cases/${caseId}/publications`, {
+        headers: { 'x-jansetu-csrf': '1', 'if-match': '"1"' },
+        data,
+      });
+    const initial = await publish(fields);
+    expect(initial.status()).toBe(200);
+    const { receiptId } = (await initial.json()) as Schema['PublicationResult'];
+    await openPublicationReview(staff.page, caseId);
+    const review = staff.page.getByTestId('publication-review');
+    const current = review.getByTestId('current-publication');
+    const confirmation = review.getByLabel(
+      'I reviewed this public preview for identifying details.',
+    );
+    const draft = `Local correction draft ${Date.now()}`;
+    await review.getByLabel('Public title', { exact: true }).fill(draft);
+    await review
+      .getByRole('textbox', { name: 'Private publication reason', exact: true })
+      .fill('PRIVATE LOCAL DRAFT REASON');
+    await confirmation.check();
+    const concurrent = await publish({
+      ...fields,
+      title: 'Concurrent reviewed public correction',
+      publicationVersion: 1,
+    });
+    expect(concurrent.status()).toBe(200);
+    const staleResponse = staff.page.waitForResponse(
+      (r) => r.url().endsWith('/publications') && r.request().method() === 'POST',
+    );
+    await review.getByRole('button', { name: 'Save reviewed correction', exact: true }).click();
+    expect((await staleResponse).status()).toBe(409);
+    await expect(review.getByRole('alert').filter({ hasText: 'Your draft is kept' })).toBeVisible();
+    await expect(review.getByLabel('Public title', { exact: true })).toHaveValue(draft);
+    await expect(
+      review.getByRole('textbox', { name: 'Private publication reason', exact: true }),
+    ).toHaveValue('PRIVATE LOCAL DRAFT REASON');
+    await expect(
+      review.getByRole('button', { name: 'Save reviewed correction', exact: true }),
+    ).toBeDisabled();
+    await review.getByRole('button', { name: 'Refresh publication review', exact: true }).click();
+    await expect(current).toContainText('PUBLICATION REVISION 2');
+    await expect(current).toContainText('Concurrent reviewed public correction');
+    await expect(review.getByLabel('Public title', { exact: true })).toHaveValue(draft);
+    await expect(confirmation).not.toBeChecked();
+    await confirmation.check();
+    expect(
+      (await savePublicProgress(staff.page, 'Save reviewed correction')).publicationVersion,
+    ).toBe(3);
+    await expect(current).toContainText('PUBLICATION REVISION 3');
+    const lostTitle = `Committed response lost crossing ${Date.now()}`;
+    await review.getByLabel('Public title', { exact: true }).fill(lostTitle);
+    await review
+      .getByRole('textbox', { name: 'Private publication reason', exact: true })
+      .fill('PRIVATE LOST RESPONSE REVIEW');
+    await confirmation.check();
+    await staff.page.route(
+      `**/api/authority/cases/${caseId}/publications`,
+      async (route) => {
+        const committed = await route.fetch();
+        expect(committed.status()).toBe(200);
+        await route.abort('failed');
+      },
+      { times: 1 },
+    );
+    await review.getByRole('button', { name: 'Save reviewed correction', exact: true }).click();
+    await expect(review.getByRole('alert')).toBeVisible();
+    const actual = (await (
+      await staff.page.request.get(`/api/case-receipts/${receiptId}`)
+    ).json()) as Schema['Receipt'];
+    expect(actual.title).toBe(lostTitle);
+    expect(actual.version).toBe(4);
+    const retryResponse = staff.page.waitForResponse(
+      (r) => r.url().endsWith('/publications') && r.request().method() === 'POST',
+    );
+    await review.getByRole('button', { name: 'Save reviewed correction', exact: true }).click();
+    expect((await retryResponse).status()).toBe(409);
+    await review.getByRole('button', { name: 'Refresh publication review', exact: true }).click();
+    await expect(current).toContainText('PUBLICATION REVISION 4');
+    await expect(review.getByLabel('Public title', { exact: true })).toHaveValue(lostTitle);
+    await expect(
+      review.getByRole('textbox', { name: 'Private publication reason', exact: true }),
+    ).toHaveValue('PRIVATE LOST RESPONSE REVIEW');
+    await expect(confirmation).not.toBeChecked();
+    await confirmation.check();
+    const unchanged = await savePublicProgress(staff.page, 'Save reviewed correction');
+    expect(unchanged.publicationVersion).toBe(4);
+    expect(unchanged.version).toBe(1);
+    const detail = (await (
+      await staff.page.request.get(`/api/authority/cases/${caseId}`)
+    ).json()) as Schema['CaseDetail'];
+    expect(detail.publication?.decisions).toHaveLength(4);
+    expect(detail.firstReportedAt).toBe(report.receivedAt);
+    expect(detail.version).toBe(1);
+  } finally {
+    await staff.context.close();
+  }
+});
+
 test('OIDC account provisioning, profile settings, and session revocation', async ({
   page,
   browser,
@@ -448,6 +781,9 @@ test('private report, triage, agency work, independent verification, and reviewe
     .getByLabel('Safe public summary')
     .fill('An independent reviewer verified that the fictional crossing is accessible again.');
   await coord.page.getByLabel('Broad public area').fill('Indiranagar');
+  await coord.page
+    .getByRole('textbox', { name: 'Private publication reason', exact: true })
+    .fill('Private synthetic publication review');
   await coord.page.getByLabel('I reviewed this public preview for identifying details.').check();
   const published = coord.page.waitForResponse(
     (r) => r.url().endsWith('/publications') && r.request().method() === 'POST',
@@ -1219,6 +1555,8 @@ test('case activity arrives only after reviewed publication and disappears on un
     summary: 'A fictional restoration task was proposed.',
     area: 'Indiranagar',
     reviewed: true,
+    publicationVersion: 0,
+    reason: 'Private synthetic publication review',
   };
   const published = await staff.page.request.post(`/api/authority/cases/${caseId}/publications`, {
     headers: { ...csrf, 'if-match': '"1"' },
@@ -1255,7 +1593,11 @@ test('case activity arrives only after reviewed publication and disappears on un
     (
       await staff.page.request.post(`/api/authority/cases/${caseId}/publications`, {
         headers: { ...csrf, 'if-match': '"2"' },
-        data: { ...publication, summary: 'Agency acceptance was reviewed for public progress.' },
+        data: {
+          ...publication,
+          publicationVersion: 1,
+          summary: 'Agency acceptance was reviewed for public progress.',
+        },
       })
     ).status(),
   ).toBe(200);

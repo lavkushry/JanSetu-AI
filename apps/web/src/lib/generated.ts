@@ -1071,6 +1071,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
+        /** @description New follows require a currently published receipt. Unfollow is an owner-scoped desired-state deletion and remains available for withdrawn or unknown receipt IDs, without revealing their existence. */
         put: operations["put_case_receipts_by_id_follow"];
         post?: never;
         delete?: never;
@@ -1180,7 +1181,27 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Live publisher-only safe review. If-Match binds the operational case version; publicationVersion separately binds public progress (0 before first publication). Changed progress records PUBLISH or CORRECT and advances only publication revision. An identical currently versioned preview at the same case version is a no-op. Republish requires fresh review and current sharing eligibility. Private reasons never enter public receipts or events. */
         post: operations["post_authority_cases_by_id_publications"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/authority/cases/{id}/publication-withdrawals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Live publisher-only reviewed withdrawal. Requires exact case and publication revisions, a private reason and review confirmation. Removes public receipt, timeline, discovery, new follow commands and service Activity immediately in the transaction; retains private report/workflow/history and case age. Repeating an already withdrawn current revision is a no-op. Old Activity cannot reappear after reviewed republication. Does not close or resolve the operational case. */
+        post: operations["withdraw_case_publication"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1794,6 +1815,7 @@ export interface components {
             updatedAt: string;
             nextUpdateDueAt: string | null;
             responsibilities: components["schemas"]["Responsibility"][];
+            /** @description Independent reviewed publication revision; operational case versions remain private */
             version: number;
             following: boolean;
             events?: {
@@ -1900,6 +1922,7 @@ export interface components {
             canVerify: boolean;
         };
         CaseDetail: {
+            canPublish: boolean;
             id: string;
             category: string;
             state: string;
@@ -1917,6 +1940,8 @@ export interface components {
                 };
             }[];
             receiptId: string | null;
+            /** @description Publisher-only review fields and newest twenty immutable decisions. Null for other staff and before first publication. Withdrawn safe fields and private review reasons remain within publisher scope; legacy decision revisions/reasons remain null. */
+            publication: components["schemas"]["PublicationReview"] | null;
         };
         VoteInput: {
             /** @enum {integer} */
@@ -1995,6 +2020,46 @@ export interface components {
             area: string;
             /** @constant */
             reviewed: true;
+            publicationVersion: number;
+            reason: string;
+        };
+        PublicationWithdrawalInput: {
+            publicationVersion: number;
+            reason: string;
+            /** @constant */
+            reviewed: true;
+        };
+        PublicationResult: {
+            /** Format: uuid */
+            receiptId: string;
+            /** @description Unchanged operational case version */
+            version: number;
+            publicationVersion: number;
+            /** @enum {string} */
+            state: "PUBLISHED" | "WITHDRAWN";
+        };
+        PublicationReview: {
+            /** Format: uuid */
+            receiptId: string;
+            /** @enum {string} */
+            state: "PUBLISHED" | "WITHDRAWN";
+            version: number;
+            /** @description Operational case version of the last published snapshot */
+            caseVersion: number;
+            title: string;
+            summary: string;
+            area: string;
+            decisions: {
+                /** Format: uuid */
+                id: string;
+                caseVersion: number;
+                publicationVersion: number | null;
+                /** @enum {string} */
+                action: "PUBLISH" | "CORRECT" | "WITHDRAW";
+                reason: string | null;
+                /** Format: date-time */
+                decidedAt: string;
+            }[];
         };
         UploadPart: {
             number: number;
@@ -2244,6 +2309,7 @@ export interface components {
         };
     };
     parameters: {
+        CSRF: "1";
         ID: string;
         Idempotency: string;
         Version: string;
@@ -4122,7 +4188,7 @@ export interface operations {
             query?: never;
             header: {
                 "If-Match": components["parameters"]["Version"];
-                "X-JanSetu-CSRF": "1";
+                "X-JanSetu-CSRF": components["parameters"]["CSRF"];
             };
             path: {
                 id: components["parameters"]["ID"];
@@ -4135,10 +4201,59 @@ export interface operations {
             };
         };
         responses: {
-            200: components["responses"]["Command"];
+            /** @description Reviewed public progress */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationResult"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
             412: components["responses"]["Problem"];
-            422: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    withdraw_case_publication: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["Version"];
+                "X-JanSetu-CSRF": components["parameters"]["CSRF"];
+            };
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationWithdrawalInput"];
+            };
+        };
+        responses: {
+            /** @description Withdrawn public progress */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationResult"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };

@@ -1,10 +1,10 @@
 # Durable outbox event compatibility
 
-The core worker validates each unprocessed event before updating post counts or delivering Activity. Unfamiliar event types and payload versions remain failed deliveries instead of being silently acknowledged. Projection, deduplication and acknowledgement still commit together. This uses existing outbox columns and the restricted worker role; no migration, API change or additional grant is required.
+The core worker validates each unprocessed event before updating post counts or delivering Activity. Unfamiliar event types and payload versions remain failed deliveries instead of being silently acknowledged. Projection, deduplication and acknowledgement still commit together. This uses existing outbox columns and the restricted worker role; the guard itself requires no additional grant. Reviewed public progress uses the [schema 23 worker-first upgrade](PUBLIC_PROGRESS_LIFECYCLE.md#database-events-and-upgrade).
 
 ## Supported contracts
 
-Current contracts require payload version **1**, a nonzero aggregate UUID, a positive aggregate version and a JSON object payload:
+Contracts require a nonzero aggregate UUID, a positive aggregate version and a JSON object payload. Payload version is **1** except `SafeReceiptPublished`, which supports **1 and 2**:
 
 | Aggregate           | Event types                                                                                                                                                  | Projection                                                      |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
@@ -13,13 +13,14 @@ Current contracts require payload version **1**, a nonzero aggregate UUID, a pos
 | REPORT              | ReportReceived                                                                                                                                               | Intentionally no public projection                              |
 | CASE                | CaseCreated, ObligationChanged, VerificationRecorded                                                                                                         | Intentionally no public projection; publication requires review |
 | CASE                | SafeReceiptPublished                                                                                                                                         | Eligible followed-receipt progress                              |
+| CASE | SafeReceiptWithdrawn | Intentionally no projection or Activity; visibility committed by publisher |
 | MODERATION_DECISION | ModerationDecisionRecorded, PublicationApprovalRecorded                                                                                                                                   | Eligible private author review or publication approval Activity                         |
 | APPEAL              | AppealOutcomeRecorded                                                                                                                                        | Eligible private appeal outcome Activity                        |
 | CONTENT_REPORT      | ContentReportOutcomeRecorded                                                                                                                                 | Eligible private reporter outcome Activity                      |
 
-Reply events also require a valid comment UUID and positive revision; receipt events require a valid receipt UUID. Existing projections enforce eligibility, source/version, consent, blocks/mutes and ownership. A supported event with no eligible recipient is intentionally acknowledged; recovery must not replay those consent or visibility skips.
+Reply events also require a valid comment UUID and positive revision; receipt events require a valid receipt UUID. `SafeReceiptPublished` version 2 and `SafeReceiptWithdrawn` version 1 additionally require a positive `publicationVersion`; `SafeReceiptPublished` payload version 1 retains its legacy aggregate-case-version interpretation. Existing projections enforce eligibility, source/version, consent, blocks/mutes and ownership. A supported event with no eligible recipient is intentionally acknowledged; recovery must not replay those consent or visibility skips.
 
-For a new producer event, add its supported envelope and handler (or document its intentional lack of projection), test producer and worker together, and upgrade workers before enabling emission. A new payload version needs a matching consumer. Extra object fields remain accepted within version 1; future versions are not treated as the old schema.
+For a new producer event, add its supported envelope and handler (or document its intentional lack of projection), test producer and worker together, and upgrade workers before enabling emission. A new payload version needs a matching consumer. Extra object fields remain accepted within supported versions; future versions are not treated as an older schema.
 
 ## Retry and diagnostics
 

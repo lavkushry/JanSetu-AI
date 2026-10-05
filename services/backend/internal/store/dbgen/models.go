@@ -101,6 +101,27 @@ type OpsPublicationBinding struct {
 	ApprovedAt          pgtype.Timestamptz `json:"approved_at"`
 }
 
+type OpsPublicationHistory struct {
+	ID                 uuid.UUID          `json:"id"`
+	CaseID             uuid.UUID          `json:"case_id"`
+	CaseVersion        int64              `json:"case_version"`
+	PublicationVersion pgtype.Int8        `json:"publication_version"`
+	Action             string             `json:"action"`
+	InternalReason     pgtype.Text        `json:"internal_reason"`
+	DecidedAt          pgtype.Timestamptz `json:"decided_at"`
+}
+
+type OpsPublicationStatus struct {
+	CaseID             uuid.UUID `json:"case_id"`
+	ReceiptID          uuid.UUID `json:"receipt_id"`
+	PublicationState   string    `json:"publication_state"`
+	PublicationVersion int64     `json:"publication_version"`
+	CaseVersion        int64     `json:"case_version"`
+	Title              string    `json:"title"`
+	SafeSummary        string    `json:"safe_summary"`
+	AreaLabel          string    `json:"area_label"`
+}
+
 type OpsReport struct {
 	ID                    uuid.UUID          `json:"id"`
 	ClientSubmissionID    uuid.UUID          `json:"client_submission_id"`
@@ -170,21 +191,23 @@ type SocialAuthorModerationDecision struct {
 }
 
 type SocialCaseReceipt struct {
-	ID                uuid.UUID          `json:"id"`
-	Title             string             `json:"title"`
-	SafeSummary       string             `json:"safe_summary"`
-	AreaLabel         string             `json:"area_label"`
-	PublicState       string             `json:"public_state"`
-	UrgencyTier       int16              `json:"urgency_tier"`
-	FirstReportedAt   pgtype.Timestamptz `json:"first_reported_at"`
-	NextUpdateDueAt   pgtype.Timestamptz `json:"next_update_due_at"`
-	Responsibilities  []byte             `json:"responsibilities"`
-	RankFeatures      []byte             `json:"rank_features"`
-	ProjectionVersion int64              `json:"projection_version"`
-	PublicationState  string             `json:"publication_state"`
-	PublishedAt       pgtype.Timestamptz `json:"published_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	PolicyVersion     string             `json:"policy_version"`
+	ID                   uuid.UUID          `json:"id"`
+	Title                string             `json:"title"`
+	SafeSummary          string             `json:"safe_summary"`
+	AreaLabel            string             `json:"area_label"`
+	PublicState          string             `json:"public_state"`
+	UrgencyTier          int16              `json:"urgency_tier"`
+	FirstReportedAt      pgtype.Timestamptz `json:"first_reported_at"`
+	NextUpdateDueAt      pgtype.Timestamptz `json:"next_update_due_at"`
+	Responsibilities     []byte             `json:"responsibilities"`
+	RankFeatures         []byte             `json:"rank_features"`
+	ProjectionVersion    int64              `json:"projection_version"`
+	PublicationState     string             `json:"publication_state"`
+	PublishedAt          pgtype.Timestamptz `json:"published_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+	PolicyVersion        string             `json:"policy_version"`
+	PublicationVersion   int64              `json:"publication_version"`
+	LastWithdrawnVersion int64              `json:"last_withdrawn_version"`
 }
 
 type SocialCaseReceiptEvent struct {

@@ -7,6 +7,7 @@ import { api, dateLabel, readable, type Schema, type Me } from '@/lib/api';
 import { Badge, Empty, Loading, ErrorState, FormError, useSession } from './ui';
 import { ContentReportQueue } from './content-reports';
 import { AppealQueue } from './appeals';
+import { PublicationReview } from './publication-review';
 
 export function Studio() {
   const { me, signIn } = useSession();
@@ -22,8 +23,9 @@ export function Studio() {
     );
   const coordinator = me.roles.includes('COORDINATOR');
   const moderator = me.roles.includes('PLATFORM_MODERATOR');
+  const publisher = me.roles.includes('PUBLISHER');
   const agency = me.agencies.length > 0;
-  if (!coordinator && !moderator && !agency)
+  if (!coordinator && !moderator && !publisher && !agency)
     return (
       <Empty title="Staff access required">
         This account can participate in conversations and submit service reports.
@@ -38,7 +40,12 @@ export function Studio() {
         </span>
         <h1>Keep your city moving</h1>
         <p>
-          {me.profile.displayName} · {agency ? me.agencies[0].name : 'Coordinator & moderator'}
+          {me.profile.displayName} ·{' '}
+          {agency
+            ? me.agencies[0].name
+            : publisher && !coordinator && !moderator
+              ? 'Publication reviewer'
+              : 'Coordinator & moderator'}
         </p>
       </div>
       <div className="feed-tabs staff-tabs">
@@ -351,10 +358,6 @@ function CaseWorkspace({ id, me }: { id: string; me: Me }) {
   });
   const [summary, setSummary] = useState('');
   const [result, setResult] = useState('VERIFIED');
-  const [title, setTitle] = useState('');
-  const [safe, setSafe] = useState('');
-  const [area, setArea] = useState('');
-  const [reviewed, setReviewed] = useState(false);
   const action = useMutation({
     mutationFn: (command: { path: string; body: unknown; version: number }) =>
       api<Schema['Command']>(command.path, {
@@ -366,7 +369,6 @@ function CaseWorkspace({ id, me }: { id: string; me: Me }) {
       qc.invalidateQueries();
       notify('Decision saved. Public progress requires a separate publication review.');
       setSummary('');
-      setReviewed(false);
     },
   });
   if (q.isPending) return <Loading />;
@@ -376,7 +378,6 @@ function CaseWorkspace({ id, me }: { id: string; me: Me }) {
     me.agencies.some(
       (a) => a.agency_id === agency && ['AGENCY_AGENT', 'AGENCY_LEAD'].includes(a.role),
     );
-  const publisher = me.roles.includes('PUBLISHER');
   return (
     <section className="case-detail">
       <div className="staff-card">
@@ -481,79 +482,7 @@ function CaseWorkspace({ id, me }: { id: string; me: Me }) {
         ))}
         <FormError error={action.error} />
       </div>
-      {publisher && (
-        <div className="staff-card publication">
-          <h3>Review public progress</h3>
-          <p className="muted">
-            Write a safe summary for the public card. Keep names, exact private locations, and the
-            original statement out of this preview.
-          </p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              action.mutate({
-                path: `authority/cases/${id}/publications`,
-                version: c.version,
-                body: { title, summary: safe, area, reviewed },
-              });
-            }}
-          >
-            <label>
-              Public title
-              <input
-                required
-                minLength={5}
-                maxLength={180}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-            </label>
-            <label>
-              Safe public summary
-              <textarea
-                required
-                minLength={10}
-                maxLength={1500}
-                rows={4}
-                value={safe}
-                onChange={(e) => setSafe(e.target.value)}
-              />
-            </label>
-            <label>
-              Broad public area
-              <input
-                required
-                minLength={3}
-                maxLength={80}
-                value={area}
-                onChange={(e) => setArea(e.target.value)}
-              />
-            </label>
-            <div className="public-preview">
-              <span className="eyebrow">PUBLIC PREVIEW</span>
-              <h3>{title || 'Public title'}</h3>
-              <p>{safe || 'Your reviewed summary will appear here.'}</p>
-              <small>
-                {area || 'Broad area'} · {readable(c.state)}
-              </small>
-            </div>
-            <label className="checkbox">
-              <input
-                required
-                type="checkbox"
-                checked={reviewed}
-                onChange={(e) => setReviewed(e.target.checked)}
-              />
-              I reviewed this public preview for identifying details.
-            </label>
-            <div className="form-actions">
-              <button className="primary" disabled={action.isPending}>
-                Publish reviewed progress
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      {c.canPublish && <PublicationReview caseDetail={c} />}
       <div className="staff-card">
         <h3>Decision history</h3>
         <div className="timeline">

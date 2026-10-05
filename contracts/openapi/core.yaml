@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.16.0
+  version: 0.17.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -1712,6 +1712,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/ID'
     put:
+      description: New follows require a currently published receipt. Unfollow is an owner-scoped desired-state deletion and remains available for withdrawn or unknown receipt IDs, without revealing their existence.
       responses:
         '200':
           $ref: '#/components/responses/Command'
@@ -1889,32 +1890,78 @@ paths:
     parameters:
       - $ref: '#/components/parameters/ID'
     post:
-      responses:
-        '200':
-          $ref: '#/components/responses/Command'
-        '403':
-          $ref: '#/components/responses/Problem'
-        '422':
-          $ref: '#/components/responses/Problem'
-        '412':
-          $ref: '#/components/responses/Problem'
-        '503':
-          $ref: '#/components/responses/Problem'
+      operationId: post_authority_cases_by_id_publications
+      description: Live publisher-only safe review. If-Match binds the operational case version; publicationVersion separately binds public progress (0 before first publication). Changed progress records PUBLISH or CORRECT and advances only publication revision. An identical currently versioned preview at the same case version is a no-op. Republish requires fresh review and current sharing eligibility. Private reasons never enter public receipts or events.
       parameters:
         - $ref: '#/components/parameters/Version'
-        - name: X-JanSetu-CSRF
-          in: header
-          required: true
-          schema:
-            type: string
-            const: '1'
+        - $ref: '#/components/parameters/CSRF'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/PublicationInput'
-      operationId: post_authority_cases_by_id_publications
+      responses:
+        '200':
+          description: Reviewed public progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationResult'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /authority/cases/{id}/publication-withdrawals:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      operationId: withdraw_case_publication
+      description: Live publisher-only reviewed withdrawal. Requires exact case and publication revisions, a private reason and review confirmation. Removes public receipt, timeline, discovery, new follow commands and service Activity immediately in the transaction; retains private report/workflow/history and case age. Repeating an already withdrawn current revision is a no-op. Old Activity cannot reappear after reviewed republication. Does not close or resolve the operational case.
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - $ref: '#/components/parameters/CSRF'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicationWithdrawalInput'
+      responses:
+        '200':
+          description: Withdrawn public progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationResult'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
   /media/uploads:
     post:
       operationId: create_media_upload
@@ -2285,6 +2332,13 @@ paths:
                   items: *id003
 components:
   parameters:
+    CSRF:
+      name: X-JanSetu-CSRF
+      in: header
+      required: true
+      schema:
+        type: string
+        const: '1'
     ID:
       name: id
       in: path
@@ -3402,6 +3456,7 @@ components:
           items:
             $ref: '#/components/schemas/Responsibility'
         version:
+          description: Independent reviewed publication revision; operational case versions remain private
           type: integer
         following:
           type: boolean
@@ -3730,7 +3785,11 @@ components:
         - obligations
         - events
         - receiptId
+        - publication
+        - canPublish
       properties:
+        canPublish:
+          type: boolean
         id:
           type: string
         category:
@@ -3773,6 +3832,11 @@ components:
           type:
             - string
             - 'null'
+        publication:
+          description: Publisher-only review fields and newest twenty immutable decisions. Null for other staff and before first publication. Withdrawn safe fields and private review reasons remain within publisher scope; legacy decision revisions/reasons remain null.
+          oneOf:
+            - $ref: '#/components/schemas/PublicationReview'
+            - type: 'null'
     VoteInput:
       type: object
       additionalProperties: false
@@ -3980,6 +4044,8 @@ components:
         - summary
         - area
         - reviewed
+        - publicationVersion
+        - reason
       properties:
         title:
           type: string
@@ -3995,6 +4061,90 @@ components:
           maxLength: 80
         reviewed:
           const: true
+        publicationVersion:
+          type: integer
+          minimum: 0
+        reason:
+          type: string
+          minLength: 5
+          maxLength: 1000
+    PublicationWithdrawalInput:
+      type: object
+      additionalProperties: false
+      required: [publicationVersion, reason, reviewed]
+      properties:
+        publicationVersion:
+          type: integer
+          minimum: 1
+        reason:
+          type: string
+          minLength: 5
+          maxLength: 1000
+        reviewed:
+          const: true
+    PublicationResult:
+      type: object
+      additionalProperties: false
+      required: [receiptId, version, publicationVersion, state]
+      properties:
+        receiptId:
+          type: string
+          format: uuid
+        version:
+          description: Unchanged operational case version
+          type: integer
+          minimum: 1
+        publicationVersion:
+          type: integer
+          minimum: 1
+        state:
+          type: string
+          enum: [PUBLISHED, WITHDRAWN]
+    PublicationReview:
+      type: object
+      additionalProperties: false
+      required: [receiptId, state, version, caseVersion, title, summary, area, decisions]
+      properties:
+        receiptId:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [PUBLISHED, WITHDRAWN]
+        version:
+          type: integer
+        caseVersion:
+          description: Operational case version of the last published snapshot
+          type: integer
+        title:
+          type: string
+        summary:
+          type: string
+        area:
+          type: string
+        decisions:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, caseVersion, publicationVersion, action, reason, decidedAt]
+            properties:
+              id:
+                type: string
+                format: uuid
+              caseVersion:
+                type: integer
+              publicationVersion:
+                type: [integer, 'null']
+              action:
+                type: string
+                enum: [PUBLISH, CORRECT, WITHDRAW]
+              reason:
+                type: [string, 'null']
+              decidedAt:
+                type: string
+                format: date-time
     UploadPart:
       type: object
       required:

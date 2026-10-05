@@ -46,6 +46,7 @@ GRANT SELECT,INSERT,UPDATE ON ops.intake_review,ops.case_record,ops.obligation T
 GRANT SELECT,INSERT ON ops.case_event,ops.case_observation TO js_ops;
 GRANT INSERT ON ops.coordinator_assignment,ops.verification_decision TO js_ops;
 GRANT SELECT ON ops.publication_binding TO js_ops;
+GRANT SELECT ON ops.publication_status,ops.publication_history TO js_ops,js_publication;
 GRANT SELECT(id,publication_preference) ON ops.report TO js_publication;
 GRANT SELECT ON ops.case_record,ops.obligation,ops.case_event,ops.case_observation TO js_publication;
 GRANT UPDATE(id) ON ops.case_record TO js_publication;

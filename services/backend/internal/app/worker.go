@@ -41,7 +41,7 @@ func validateProjectionEvent(event dbgen.InfraOutbox) error {
 		aggregate = "POST"
 	case "ReportReceived":
 		aggregate = "REPORT"
-	case "CaseCreated", "ObligationChanged", "VerificationRecorded", "SafeReceiptPublished":
+	case "CaseCreated", "ObligationChanged", "VerificationRecorded", "SafeReceiptPublished", "SafeReceiptWithdrawn":
 		aggregate = "CASE"
 	case "ModerationDecisionRecorded", "PublicationApprovalRecorded":
 		aggregate = "MODERATION_DECISION"
@@ -52,7 +52,7 @@ func validateProjectionEvent(event dbgen.InfraOutbox) error {
 	default:
 		return errUnsupportedEventType
 	}
-	if event.PayloadVersion != 1 {
+	if event.PayloadVersion != 1 && !(event.EventType == "SafeReceiptPublished" && event.PayloadVersion == 2) {
 		return errUnsupportedEventVersion
 	}
 	if event.AggregateType != aggregate || event.AggregateID == uuid.Nil || event.AggregateVersion < 1 {
@@ -148,9 +148,10 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 				if e = q.DeliverReviewActivity(ctx, dbgen.DeliverReviewActivityParams{EventID: claimed.ID, EventTime: claimed.CreatedAt, SourceKind: sourceKind, SourceID: claimed.AggregateID, SourceVersion: claimed.AggregateVersion}); e != nil {
 					return e
 				}
-			case "SafeReceiptPublished":
+			case "SafeReceiptPublished", "SafeReceiptWithdrawn":
 				var payload struct {
-					ReceiptID uuid.UUID `json:"receiptId"`
+					ReceiptID          uuid.UUID `json:"receiptId"`
+					PublicationVersion int64     `json:"publicationVersion"`
 				}
 				if e = json.Unmarshal(claimed.Payload, &payload); e != nil {
 					return errInvalidProjectionEvent
@@ -158,7 +159,19 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 				if payload.ReceiptID == uuid.Nil {
 					return errInvalidProjectionEvent
 				}
-				if e = q.DeliverCaseActivity(ctx, dbgen.DeliverCaseActivityParams{EventID: claimed.ID, ReceiptID: payload.ReceiptID, SourceVersion: pgtype.Int8{Int64: claimed.AggregateVersion, Valid: true}, EventTime: claimed.CreatedAt}); e != nil {
+				version := claimed.AggregateVersion
+				if claimed.PayloadVersion == 2 || claimed.EventType == "SafeReceiptWithdrawn" {
+					if payload.PublicationVersion < 1 {
+						return errInvalidProjectionEvent
+					}
+					version = payload.PublicationVersion
+				}
+				// Withdrawal is already authoritative. Processing acknowledges its
+				// envelope without publishing or delivering a public notification.
+				if claimed.EventType == "SafeReceiptWithdrawn" {
+					break
+				}
+				if e = q.DeliverCaseActivity(ctx, dbgen.DeliverCaseActivityParams{EventID: claimed.ID, ReceiptID: payload.ReceiptID, SourceVersion: pgtype.Int8{Int64: version, Valid: true}, EventTime: claimed.CreatedAt}); e != nil {
 					return e
 				}
 			}
