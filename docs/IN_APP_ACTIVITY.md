@@ -60,6 +60,8 @@ docker compose up -d --no-deps --wait api web
 
 Pending older reply events do not create activity because only the new approval event triggers it. Existing pending public receipt events may notify only followers who were already subscribed when they were published and remain eligible. Historical processed events are not replayed. For private review alerts, apply [migration 00020](../db/migrations/00020_private_moderation_activity.sql) and follow the [worker-first upgrade sequence](PRIVATE_MODERATION_ACTIVITY.md#database-and-upgrade).
 
+The [outbox compatibility guard](OUTBOX_EVENT_COMPATIBILITY.md) validates supported event types, aggregate metadata and payload versions before projection. Unsupported deliveries remain recoverable failures with fixed diagnostic codes; existing consent/visibility skips and historical deduplication remain unchanged.
+
 ## Verification and remaining work
 
 Go integration checks cover approval gating, chosen metadata, no private previews, direct-parent recipients, self-reply suppression, read/unread persistence and idempotence, foreign-owner API/RLS denial, limited worker privileges, approved edits, live blocks/mutes/deletion, cursor ownership/filter/deadline, pagination, event redelivery, publication-version deduplication, late follows, unfollow/refollow and private operational-event isolation.

@@ -381,9 +381,9 @@ SELECT * FROM infra.outbox WHERE id=$1 AND lease_token=$2 AND lease_owner=$3 AND
 -- name: EventProcessed :one
 INSERT INTO infra.processed_event(consumer_name,event_id) VALUES ('core-projector',$1) ON CONFLICT DO NOTHING RETURNING event_id;
 -- name: CompleteEvent :exec
-UPDATE infra.outbox SET delivered_at=now(),lease_until=NULL WHERE id=$1 AND lease_token=$2 AND lease_owner=$3;
+UPDATE infra.outbox SET delivered_at=now(),lease_until=NULL,last_error_code=NULL WHERE id=$1 AND lease_token=$2 AND lease_owner=$3;
 -- name: RetryEvent :exec
-UPDATE infra.outbox SET lease_until=NULL,available_at=now()+interval '5 seconds',last_error_code='PROJECTION_FAILED',dead_lettered_at=CASE WHEN attempts>=8 THEN now() ELSE NULL END WHERE id=$1 AND lease_token=$2;
+UPDATE infra.outbox SET lease_until=NULL,available_at=now()+interval '5 seconds',last_error_code=sqlc.arg(error_code)::text,dead_lettered_at=CASE WHEN attempts>=8 THEN now() ELSE NULL END WHERE id=$1 AND lease_token=$2;
 -- name: RebuildPostStats :exec
 INSERT INTO social.post_stats(post_id,up_count,down_count,comment_count,repost_count,as_of)
 SELECT $1,(SELECT count(*) FROM social.post_vote WHERE post_id=$1 AND value=1),(SELECT count(*) FROM social.post_vote WHERE post_id=$1 AND value=-1),
