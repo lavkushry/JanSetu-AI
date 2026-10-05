@@ -1535,6 +1535,36 @@ textarea {
 .comment:last-child {
   border-bottom: 0;
 }
+.helpful-response {
+  padding: 18px;
+  margin-bottom: 24px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--blue);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.helpful-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.helpful-heading small,
+.helpful-hint {
+  color: var(--muted);
+}
+.helpful-heading {
+  margin-bottom: 12px;
+}
+.helpful-response p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+.helpful-comment {
+  border-left: 3px solid var(--blue);
+  padding-left: 12px;
+}
 .comment-meta {
   display: flex;
   align-items: center;

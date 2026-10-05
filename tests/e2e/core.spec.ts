@@ -1579,6 +1579,133 @@ async function ownContentReportFor(page: Page, target: string) {
   return item;
 }
 
+test('questions retain revision-bound helpful responses and recover a stale choice', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const writer = await staffPage(browser, 'Rohan Mehta');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  const created = await page.request.post('/api/posts', {
+    headers: { 'x-jansetu-csrf': '1', 'idempotency-key': crypto.randomUUID() },
+    data: {
+      kind: 'QUESTION',
+      communityId: '50000000-0000-4000-8000-000000000001',
+      title: `Fictional helpful answer ${Date.now()}`,
+      body: 'Where is the fictional community meeting?',
+      languageTag: 'en-IN',
+      mediaIds: [],
+      submitForReview: true,
+    },
+  });
+  expect(created.status()).toBe(201);
+  const question = (await created.json()) as Schema['Post'];
+  await approveContentReportFixture(staff.page, question.id);
+  async function reply(body: string, parentId: string | null = null) {
+    const response = await writer.page.request.post(`/api/posts/${question.id}/comments`, {
+      headers: { 'x-jansetu-csrf': '1', 'idempotency-key': crypto.randomUUID() },
+      data: { body, languageTag: 'en-IN', parentId },
+    });
+    expect(response.status()).toBe(201);
+    const comment = (await response.json()) as { id: string };
+    await approveContentReportFixture(staff.page, comment.id);
+    return comment.id;
+  }
+  const first = await reply('The fictional meeting is in the community hall.');
+  const second = await reply('A fictional follow-up includes the meeting time.', first);
+  await page.goto(`/posts/${question.id}`);
+  const summary = page.getByRole('complementary', { name: 'Helpful response', exact: true });
+  const firstCard = page.getByTestId(`comment-${first}`);
+  const secondCard = page.getByTestId(`comment-${second}`);
+  await firstCard.getByRole('button', { name: 'Mark helpful', exact: true }).click();
+  await expect(summary).toContainText('The fictional meeting is in the community hall.');
+  await expect(firstCard.locator('.badge')).toHaveText('Helpful response');
+  await firstCard.getByRole('button', { name: /Hide replies/ }).click();
+  await expect(secondCard).toBeHidden();
+  await expect(summary).toBeVisible();
+  await firstCard.getByRole('button', { name: /Show replies/ }).click();
+  await secondCard.getByRole('button', { name: 'Replace helpful response', exact: true }).click();
+  await expect(summary).toContainText('A fictional follow-up includes the meeting time.');
+  await expect(firstCard.locator('.badge')).toHaveCount(0);
+  await page.reload();
+  await expect(summary).toContainText('A fictional follow-up includes the meeting time.');
+  await expect(summary.getByRole('button', { name: 'Clear helpful response' })).toBeVisible();
+  await writer.page.goto(`/posts/${question.id}`);
+  await expect(writer.page.getByRole('complementary', { name: 'Helpful response' })).toBeVisible();
+  await expect(
+    writer.page.getByRole('button', {
+      name: /Mark helpful|Replace helpful response|Clear helpful response/,
+    }),
+  ).toHaveCount(0);
+  // An edit awaiting review keeps the approved answer; approval invalidates the old choice.
+  expect(
+    (
+      await writer.page.request.patch(`/api/comments/${second}`, {
+        headers: { 'x-jansetu-csrf': '1', 'if-match': '"2"' },
+        data: { body: 'PRIVATE PENDING HELPFUL ANSWER', languageTag: 'en-IN' },
+      })
+    ).status(),
+  ).toBe(200);
+  await page.reload();
+  await expect(summary).toContainText('A fictional follow-up includes the meeting time.');
+  await expect(summary).not.toContainText('PRIVATE PENDING HELPFUL ANSWER');
+  await approveContentReportFixture(staff.page, second);
+  await page.reload();
+  await expect(summary).toHaveCount(0);
+  await expect(secondCard).toContainText('PRIVATE PENDING HELPFUL ANSWER');
+  // A second tab commits a choice after the first tab has loaded its version.
+  const current = (await (
+    await page.request.get(`/api/posts/${question.id}`)
+  ).json()) as Schema['Post'];
+  expect(
+    (
+      await page.request.put(`/api/posts/${question.id}/selected-response`, {
+        headers: { 'x-jansetu-csrf': '1', 'if-match': `"${current.version}"` },
+        data: { commentId: first },
+      })
+    ).status(),
+  ).toBe(200);
+  await secondCard.getByRole('button', { name: 'Mark helpful', exact: true }).click();
+  await expect(page.locator('.thread').getByRole('alert')).toContainText('This item changed');
+  await expect(summary).toContainText('The fictional meeting is in the community hall.');
+  await secondCard.getByRole('button', { name: 'Replace helpful response', exact: true }).click();
+  await expect(summary).toContainText('PRIVATE PENDING HELPFUL ANSWER');
+  await page.setViewportSize({ width: 320, height: 740 });
+  await expect(summary).toBeVisible();
+  await summary.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: 'test-results/helpful-response-mobile.png' });
+  await page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+  await expect(summary).toBeVisible();
+  await summary.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: 'test-results/helpful-response-mobile-dark.png' });
+  await summary.getByRole('button', { name: 'Clear helpful response', exact: true }).click();
+  await expect(summary).toHaveCount(0);
+  await expect(secondCard.locator('.badge')).toHaveCount(0);
+  await firstCard.getByRole('button', { name: 'Mark helpful', exact: true }).click();
+  await expect(summary).toBeVisible();
+  expect(
+    (
+      await writer.page.request.delete(`/api/comments/${first}`, {
+        headers: { 'x-jansetu-csrf': '1', 'if-match': '"2"' },
+      })
+    ).status(),
+  ).toBe(204);
+  await page.reload();
+  await expect(summary).toHaveCount(0);
+  await expect(firstCard).toContainText('This comment was deleted.');
+  await expect(secondCard).toContainText('PRIVATE PENDING HELPFUL ANSWER');
+  await writer.context.close();
+  await staff.context.close();
+});
+
 test('private content report receipts recover lost acknowledgements and retain dismissal outcomes', async ({
   page,
   browser,

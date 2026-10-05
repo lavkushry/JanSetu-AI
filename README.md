@@ -18,6 +18,8 @@ The database uses a named volume. `docker compose down` stops the application wh
 
 Start with the [specification suite](docs/spec/README.md) and [domain glossary](CONTEXT.md).
 
+The [helpful response guide](docs/HELPFUL_QUESTION_RESPONSES.md) covers question answer selection, approved revision binding, community permissions and upgrade steps.
+
 | Document                                                            | What it defines                                                                                         |
 | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | [BRD](docs/spec/BRD.md)                                             | Business outcomes, stakeholders, operating model, costs and pilot measures                              |

@@ -36,6 +36,8 @@ Activity preferences now support server-persisted IN_APP consent and private per
 
 Published posts and comments now support private content reports, retry-safe receipts, owner history and a separate moderator queue. Reasoned removal rechecks the published revision, preserves descendant replies and prevents pending edits from reviving hidden content. See the [content reporting guide](CONTENT_REPORTING.md) for privacy, decision and upgrade contracts.
 
+Questions now support an approved-revision Helpful response, chosen by the author or an active moderator/owner of that community. The thread summary, feed badge, replacement/clearing and conflict recovery respect current source visibility. Pending edits preserve the approved answer; newly published text requires a new choice. See the [helpful response guide](HELPFUL_QUESTION_RESPONSES.md) for permissions, revision binding, checks and upgrade steps.
+
 ## Run locally
 
 Docker and Compose are sufficient for the complete application:

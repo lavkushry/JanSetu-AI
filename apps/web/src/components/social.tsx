@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import {
   api,
+  APIError,
   ago,
   dateLabel,
   readable,
@@ -111,6 +112,7 @@ export function PostCard({
               `@${p.author?.handle || 'deleted'}`
             )}{' '}
             <span className="post-kind">{readable(p.kind)}</span>
+            {p.selectedResponse && <span className="badge good">Helpful response</span>}
           </div>
         </div>
         <details className="menu">
@@ -635,6 +637,23 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
   const [error, setError] = useState<Error | null>(null);
   const [busy, setBusy] = useState(false);
   const [deletion, setDeletion] = useState<Schema['Comment'] | null>(null);
+  const selection = useMutation({
+    mutationFn: (commentId: string | null) =>
+      api(`posts/${id}/selected-response`, {
+        method: 'PUT',
+        body: { commentId },
+        version: post.data?.version,
+      }),
+    onSuccess: async (_, commentId) => {
+      await qc.invalidateQueries();
+      notify(commentId ? 'Helpful response selected' : 'Helpful response cleared');
+    },
+    onError: async (error) => {
+      if (error instanceof APIError && error.status === 412) {
+        await qc.invalidateQueries({ queryKey: ['post', id, viewer], exact: true });
+      }
+    },
+  });
   async function modify(c: Schema['Comment'], remove = false) {
     setBusy(true);
     setError(null);
@@ -661,6 +680,41 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
     <>
       <PostCard post={post.data} detail onEdit={onEdit} />
       <section className="thread">
+        {post.data.selectedResponse && (
+          <aside className="helpful-response" aria-label="Helpful response">
+            <div className="helpful-heading">
+              <h2>
+                <Check size={18} aria-hidden="true" /> Helpful response
+              </h2>
+              <small>
+                {post.data.selectedResponse.selectedBy === 'AUTHOR'
+                  ? 'Chosen by the question author'
+                  : 'Chosen by a community moderator'}
+              </small>
+            </div>
+            <Link
+              className="profile-name"
+              href={`/profiles/${post.data.selectedResponse.author.id}`}
+            >
+              <strong>{post.data.selectedResponse.author.displayName}</strong>
+            </Link>
+            <p>{post.data.selectedResponse.body}</p>
+            {post.data.viewer.canSelectResponse && (
+              <button
+                type="button"
+                className="text-button"
+                disabled={selection.isPending}
+                onClick={() => selection.mutate(null)}
+              >
+                Clear helpful response
+              </button>
+            )}
+          </aside>
+        )}
+        {post.data.viewer.canSelectResponse && !post.data.selectedResponse && (
+          <p className="helpful-hint">Found a useful reply? Mark it as the helpful response.</p>
+        )}
+        <FormError error={selection.error} />
         <h2>
           Conversation <span>{loadedCount} loaded</span>
         </h2>
@@ -732,7 +786,7 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
             <article
               id={`comment-${c.id}`}
               data-testid={`comment-${c.id}`}
-              className="comment"
+              className={`comment ${post.data.selectedResponse?.commentId === c.id && post.data.selectedResponse.commentRevision === c.publishedVersion ? 'helpful-comment' : ''}`}
               key={c.id}
               tabIndex={-1}
               hidden={hidden}
@@ -773,10 +827,26 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
                   Your {c.publishedVersion ? 'edit' : 'comment'} is awaiting review.
                 </small>
               )}
+              {post.data.selectedResponse?.commentId === c.id &&
+                post.data.selectedResponse.commentRevision === c.publishedVersion && (
+                  <span className="badge good">Helpful response</span>
+                )}
               {c.state === 'HIDDEN' && (
                 <small className="review-note">This comment was not published.</small>
               )}
               <div className="comment-actions">
+                {post.data.viewer.canSelectResponse &&
+                  c.state === 'PUBLISHED' &&
+                  c.publishedVersion !== null &&
+                  post.data.selectedResponse?.commentId !== c.id && (
+                    <button
+                      type="button"
+                      disabled={selection.isPending}
+                      onClick={() => selection.mutate(c.id)}
+                    >
+                      {post.data.selectedResponse ? 'Replace helpful response' : 'Mark helpful'}
+                    </button>
+                  )}
                 {!!tree.replyCounts.get(c.id) && (
                   <button
                     type="button"
