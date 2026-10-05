@@ -2038,7 +2038,13 @@ test('authors see private moderation decisions and safely correct rejected initi
   await expect(card).toContainText(sharedReason);
   await expect(card).toContainText('Revision restricted');
   await page.setViewportSize({ width: 320, height: 740 });
-  await card.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await card.evaluate((el) =>
+    window.scrollTo({
+      top: el.getBoundingClientRect().top + window.scrollY - 150,
+      behavior: 'instant',
+    }),
+  );
+  await expect(card).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
