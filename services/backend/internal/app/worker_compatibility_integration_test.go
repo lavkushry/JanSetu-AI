@@ -14,7 +14,7 @@ func queuedProjectionEvent(t *testing.T, kind string, aggregate uuid.UUID, event
 	id := uuid.New()
 	if err := dbgen.New(integrationAdmin).AddEvent(context.Background(), dbgen.AddEventParams{
 		ID: id, AggregateType: kind, AggregateID: aggregate, AggregateVersion: 1,
-		EventType: eventType, Payload: jsonBytes(payload),
+		EventType: eventType, PayloadVersion: 1, Payload: jsonBytes(payload),
 	}); err != nil {
 		t.Fatal(err)
 	}

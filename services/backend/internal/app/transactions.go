@@ -120,7 +120,10 @@ func (a *App) createCommand(r *http.Request, actor *Actor, operation string, bod
 	return result, err
 }
 func addEvent(ctx context.Context, q *dbgen.Queries, kind string, id uuid.UUID, version int64, event string, payload any) error {
-	return q.AddEvent(ctx, dbgen.AddEventParams{ID: uuid.New(), AggregateType: kind, AggregateID: id, AggregateVersion: version, EventType: event, Payload: jsonBytes(payload)})
+	return addEventVersion(ctx, q, kind, id, version, event, 1, payload)
+}
+func addEventVersion(ctx context.Context, q *dbgen.Queries, kind string, id uuid.UUID, version int64, event string, payloadVersion int32, payload any) error {
+	return q.AddEvent(ctx, dbgen.AddEventParams{ID: uuid.New(), AggregateType: kind, AggregateID: id, AggregateVersion: version, EventType: event, PayloadVersion: payloadVersion, Payload: jsonBytes(payload)})
 }
 func (a *App) canPost(ctx context.Context, q *dbgen.Queries, actor *Actor, communityID *uuid.UUID) error {
 	if communityID == nil {

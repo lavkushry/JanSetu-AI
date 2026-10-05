@@ -80,7 +80,7 @@ func (q *Queries) ActivityUnread(ctx context.Context, viewerID uuid.UUID) (int64
 }
 
 const addEvent = `-- name: AddEvent :exec
-INSERT INTO infra.outbox(id,aggregate_type,aggregate_id,aggregate_version,event_type,payload_version,payload) VALUES ($1,$2,$3,$4,$5,1,$6)
+INSERT INTO infra.outbox(id,aggregate_type,aggregate_id,aggregate_version,event_type,payload_version,payload) VALUES ($1,$2,$3,$4,$5,$6,$7)
 `
 
 type AddEventParams struct {
@@ -89,6 +89,7 @@ type AddEventParams struct {
 	AggregateID      uuid.UUID `json:"aggregate_id"`
 	AggregateVersion int64     `json:"aggregate_version"`
 	EventType        string    `json:"event_type"`
+	PayloadVersion   int32     `json:"payload_version"`
 	Payload          []byte    `json:"payload"`
 }
 
@@ -99,6 +100,7 @@ func (q *Queries) AddEvent(ctx context.Context, arg AddEventParams) error {
 		arg.AggregateID,
 		arg.AggregateVersion,
 		arg.EventType,
+		arg.PayloadVersion,
 		arg.Payload,
 	)
 	return err
@@ -2031,15 +2033,18 @@ func (q *Queries) InsertPostRevision(ctx context.Context, arg InsertPostRevision
 }
 
 const insertPublicationDecision = `-- name: InsertPublicationDecision :exec
-INSERT INTO ops.publication_decision(id,case_id,case_version,action,safe_payload,reviewer_ref,policy_version,decided_at) VALUES ($1,$2,$3,'PUBLISH',$4,$5,'local-publication-v1',now())
+INSERT INTO ops.publication_decision(id,case_id,case_version,action,safe_payload,reviewer_ref,policy_version,decided_at,publication_version,internal_reason) VALUES ($1,$2,$3,$4,$5,$6,'local-publication-v2',statement_timestamp(),$7,$8)
 `
 
 type InsertPublicationDecisionParams struct {
-	ID          uuid.UUID `json:"id"`
-	CaseID      uuid.UUID `json:"case_id"`
-	CaseVersion int64     `json:"case_version"`
-	SafePayload []byte    `json:"safe_payload"`
-	ReviewerRef uuid.UUID `json:"reviewer_ref"`
+	ID                 uuid.UUID   `json:"id"`
+	CaseID             uuid.UUID   `json:"case_id"`
+	CaseVersion        int64       `json:"case_version"`
+	Action             string      `json:"action"`
+	SafePayload        []byte      `json:"safe_payload"`
+	ReviewerRef        uuid.UUID   `json:"reviewer_ref"`
+	PublicationVersion pgtype.Int8 `json:"publication_version"`
+	InternalReason     pgtype.Text `json:"internal_reason"`
 }
 
 func (q *Queries) InsertPublicationDecision(ctx context.Context, arg InsertPublicationDecisionParams) error {
@@ -2047,8 +2052,11 @@ func (q *Queries) InsertPublicationDecision(ctx context.Context, arg InsertPubli
 		arg.ID,
 		arg.CaseID,
 		arg.CaseVersion,
+		arg.Action,
 		arg.SafePayload,
 		arg.ReviewerRef,
+		arg.PublicationVersion,
+		arg.InternalReason,
 	)
 	return err
 }
@@ -2482,6 +2490,35 @@ func (q *Queries) LockProfiles(ctx context.Context, dollar_1 []uuid.UUID) ([]Loc
 	return items, nil
 }
 
+const lockPublicationReceipt = `-- name: LockPublicationReceipt :one
+SELECT id, title, safe_summary, area_label, public_state, urgency_tier, first_reported_at, next_update_due_at, responsibilities, rank_features, projection_version, publication_state, published_at, updated_at, policy_version, publication_version, last_withdrawn_version FROM social.case_receipt WHERE id=$1 FOR UPDATE
+`
+
+func (q *Queries) LockPublicationReceipt(ctx context.Context, id uuid.UUID) (SocialCaseReceipt, error) {
+	row := q.db.QueryRow(ctx, lockPublicationReceipt, id)
+	var i SocialCaseReceipt
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.SafeSummary,
+		&i.AreaLabel,
+		&i.PublicState,
+		&i.UrgencyTier,
+		&i.FirstReportedAt,
+		&i.NextUpdateDueAt,
+		&i.Responsibilities,
+		&i.RankFeatures,
+		&i.ProjectionVersion,
+		&i.PublicationState,
+		&i.PublishedAt,
+		&i.UpdatedAt,
+		&i.PolicyVersion,
+		&i.PublicationVersion,
+		&i.LastWithdrawnVersion,
+	)
+	return i, err
+}
+
 const lockReport = `-- name: LockReport :one
 SELECT id, client_submission_id, reporter_ref, source_channel, language_tag, statement, observed_at, received_at, classification, publication_preference, intake_metadata, retention_policy_id, request_hash, version FROM ops.report WHERE id=$1 FOR UPDATE
 `
@@ -2757,9 +2794,10 @@ func (q *Queries) OwnContentReportPage(ctx context.Context, arg OwnContentReport
 }
 
 const ownReportProgress = `-- name: OwnReportProgress :many
-SELECT r.id,r.received_at,r.statement,r.language_tag,ir.state AS linkage,ir.case_id,pb.receipt_id
+SELECT r.id,r.received_at,r.statement,r.language_tag,ir.state AS linkage,ir.case_id,receipt.id AS receipt_id
 FROM ops.report r JOIN ops.intake_review ir ON ir.report_id=r.id
 LEFT JOIN ops.publication_binding pb ON pb.case_id=ir.case_id
+LEFT JOIN social.case_receipt receipt ON receipt.id=pb.receipt_id AND receipt.publication_state='PUBLISHED'
 WHERE r.reporter_ref=ANY($1::uuid[])
 AND ($2::uuid='00000000-0000-0000-0000-000000000000'::uuid OR r.id=$2)
 ORDER BY r.received_at DESC LIMIT 100
@@ -3076,6 +3114,58 @@ func (q *Queries) PublicationBinding(ctx context.Context, caseID uuid.UUID) (Ops
 	return i, err
 }
 
+const publicationHistory = `-- name: PublicationHistory :many
+SELECT id, case_id, case_version, publication_version, action, internal_reason, decided_at FROM ops.publication_history WHERE case_id=$1 ORDER BY decided_at DESC,id DESC LIMIT 20
+`
+
+func (q *Queries) PublicationHistory(ctx context.Context, caseID uuid.UUID) ([]OpsPublicationHistory, error) {
+	rows, err := q.db.Query(ctx, publicationHistory, caseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OpsPublicationHistory{}
+	for rows.Next() {
+		var i OpsPublicationHistory
+		if err := rows.Scan(
+			&i.ID,
+			&i.CaseID,
+			&i.CaseVersion,
+			&i.PublicationVersion,
+			&i.Action,
+			&i.InternalReason,
+			&i.DecidedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const publicationStatus = `-- name: PublicationStatus :one
+SELECT case_id, receipt_id, publication_state, publication_version, case_version, title, safe_summary, area_label FROM ops.publication_status WHERE case_id=$1
+`
+
+func (q *Queries) PublicationStatus(ctx context.Context, caseID uuid.UUID) (OpsPublicationStatus, error) {
+	row := q.db.QueryRow(ctx, publicationStatus, caseID)
+	var i OpsPublicationStatus
+	err := row.Scan(
+		&i.CaseID,
+		&i.ReceiptID,
+		&i.PublicationState,
+		&i.PublicationVersion,
+		&i.CaseVersion,
+		&i.Title,
+		&i.SafeSummary,
+		&i.AreaLabel,
+	)
+	return i, err
+}
+
 const publishComment = `-- name: PublishComment :exec
 UPDATE social.comment SET state='PUBLISHED',body=$2,published_version=current_revision,version=version+1,updated_at=now() WHERE id=$1
 `
@@ -3144,7 +3234,7 @@ func (q *Queries) RebuildPostStats(ctx context.Context, postID uuid.UUID) error 
 }
 
 const receipt = `-- name: Receipt :one
-SELECT id, title, safe_summary, area_label, public_state, urgency_tier, first_reported_at, next_update_due_at, responsibilities, rank_features, projection_version, publication_state, published_at, updated_at, policy_version FROM social.case_receipt WHERE id=$1 AND publication_state='PUBLISHED'
+SELECT id, title, safe_summary, area_label, public_state, urgency_tier, first_reported_at, next_update_due_at, responsibilities, rank_features, projection_version, publication_state, published_at, updated_at, policy_version, publication_version, last_withdrawn_version FROM social.case_receipt WHERE id=$1 AND publication_state='PUBLISHED'
 `
 
 func (q *Queries) Receipt(ctx context.Context, id uuid.UUID) (SocialCaseReceipt, error) {
@@ -3166,6 +3256,8 @@ func (q *Queries) Receipt(ctx context.Context, id uuid.UUID) (SocialCaseReceipt,
 		&i.PublishedAt,
 		&i.UpdatedAt,
 		&i.PolicyVersion,
+		&i.PublicationVersion,
+		&i.LastWithdrawnVersion,
 	)
 	return i, err
 }
@@ -3203,7 +3295,7 @@ func (q *Queries) ReceiptEvents(ctx context.Context, receiptID uuid.UUID) ([]Soc
 }
 
 const receipts = `-- name: Receipts :many
-SELECT id, title, safe_summary, area_label, public_state, urgency_tier, first_reported_at, next_update_due_at, responsibilities, rank_features, projection_version, publication_state, published_at, updated_at, policy_version FROM social.case_receipt WHERE publication_state='PUBLISHED'
+SELECT id, title, safe_summary, area_label, public_state, urgency_tier, first_reported_at, next_update_due_at, responsibilities, rank_features, projection_version, publication_state, published_at, updated_at, policy_version, publication_version, last_withdrawn_version FROM social.case_receipt WHERE publication_state='PUBLISHED'
 AND ($1::text='' OR strpos(lower(title||' '||safe_summary),lower($1))>0)
 ORDER BY urgency_tier DESC,first_reported_at,id LIMIT 200
 `
@@ -3233,6 +3325,8 @@ func (q *Queries) Receipts(ctx context.Context, searchText string) ([]SocialCase
 			&i.PublishedAt,
 			&i.UpdatedAt,
 			&i.PolicyVersion,
+			&i.PublicationVersion,
+			&i.LastWithdrawnVersion,
 		); err != nil {
 			return nil, err
 		}
@@ -3458,21 +3552,22 @@ func (q *Queries) SavePublicationBinding(ctx context.Context, arg SavePublicatio
 }
 
 const saveReceipt = `-- name: SaveReceipt :exec
-INSERT INTO social.case_receipt(id,title,safe_summary,area_label,public_state,urgency_tier,first_reported_at,responsibilities,projection_version,publication_state,published_at,updated_at,policy_version)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'PUBLISHED',now(),now(),'local-publication-v1')
-ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,safe_summary=EXCLUDED.safe_summary,area_label=EXCLUDED.area_label,public_state=EXCLUDED.public_state,urgency_tier=EXCLUDED.urgency_tier,responsibilities=EXCLUDED.responsibilities,projection_version=EXCLUDED.projection_version,publication_state='PUBLISHED',updated_at=now()
+INSERT INTO social.case_receipt(id,title,safe_summary,area_label,public_state,urgency_tier,first_reported_at,responsibilities,projection_version,publication_version,publication_state,published_at,updated_at,policy_version)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PUBLISHED',now(),now(),'local-publication-v2')
+ON CONFLICT(id) DO UPDATE SET title=EXCLUDED.title,safe_summary=EXCLUDED.safe_summary,area_label=EXCLUDED.area_label,public_state=EXCLUDED.public_state,urgency_tier=EXCLUDED.urgency_tier,responsibilities=EXCLUDED.responsibilities,projection_version=EXCLUDED.projection_version,publication_version=EXCLUDED.publication_version,publication_state='PUBLISHED',updated_at=now(),policy_version='local-publication-v2'
 `
 
 type SaveReceiptParams struct {
-	ID                uuid.UUID          `json:"id"`
-	Title             string             `json:"title"`
-	SafeSummary       string             `json:"safe_summary"`
-	AreaLabel         string             `json:"area_label"`
-	PublicState       string             `json:"public_state"`
-	UrgencyTier       int16              `json:"urgency_tier"`
-	FirstReportedAt   pgtype.Timestamptz `json:"first_reported_at"`
-	Responsibilities  []byte             `json:"responsibilities"`
-	ProjectionVersion int64              `json:"projection_version"`
+	ID                 uuid.UUID          `json:"id"`
+	Title              string             `json:"title"`
+	SafeSummary        string             `json:"safe_summary"`
+	AreaLabel          string             `json:"area_label"`
+	PublicState        string             `json:"public_state"`
+	UrgencyTier        int16              `json:"urgency_tier"`
+	FirstReportedAt    pgtype.Timestamptz `json:"first_reported_at"`
+	Responsibilities   []byte             `json:"responsibilities"`
+	ProjectionVersion  int64              `json:"projection_version"`
+	PublicationVersion int64              `json:"publication_version"`
 }
 
 func (q *Queries) SaveReceipt(ctx context.Context, arg SaveReceiptParams) error {
@@ -3486,6 +3581,7 @@ func (q *Queries) SaveReceipt(ctx context.Context, arg SaveReceiptParams) error 
 		arg.FirstReportedAt,
 		arg.Responsibilities,
 		arg.ProjectionVersion,
+		arg.PublicationVersion,
 	)
 	return err
 }
@@ -3800,5 +3896,14 @@ UPDATE social.post SET version=version+1,updated_at=now() WHERE id=$1
 
 func (q *Queries) TouchQuestionResponse(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, touchQuestionResponse, id)
+	return err
+}
+
+const withdrawReceipt = `-- name: WithdrawReceipt :exec
+UPDATE social.case_receipt SET publication_state='WITHDRAWN',publication_version=publication_version+1,last_withdrawn_version=publication_version+1,updated_at=now(),policy_version='local-publication-v2' WHERE id=$1
+`
+
+func (q *Queries) WithdrawReceipt(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, withdrawReceipt, id)
 	return err
 }

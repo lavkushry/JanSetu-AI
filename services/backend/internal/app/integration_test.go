@@ -494,10 +494,11 @@ func TestPrivateReportAndStaffLifecycle(t *testing.T) {
 		t.Fatal("triage reset the original report age")
 	}
 	cid := created.CaseID
-	publication := map[string]any{"title": "Footpath access near the neighbourhood crossing", "summary": "An accessibility issue was assessed and a restoration task was proposed.", "area": "Indiranagar", "reviewed": true}
+	publication := map[string]any{"title": "Footpath access near the neighbourhood crossing", "summary": "An accessibility issue was assessed and a restoration task was proposed.", "area": "Indiranagar", "reviewed": true, "publicationVersion": 0, "reason": "Private synthetic publication review"}
 	w = coordinator.request("POST", "authority/cases/"+cid.String()+"/publications", publication, 1, "")
 	mustStatus(t, w, 200)
 	rid := parsed[struct{ ReceiptID uuid.UUID }](t, w).ReceiptID
+	publication["publicationVersion"] = 1
 	publication["area"] = "Bengaluru East"
 	mustStatus(t, coordinator.request("POST", "authority/cases/"+cid.String()+"/publications", publication, 1, ""), 200)
 	corrected := resident.request("GET", "case-receipts/"+rid.String(), nil, 0, "")
@@ -551,6 +552,7 @@ func TestPrivateReportAndStaffLifecycle(t *testing.T) {
 	if d.State != "RESOLVED" {
 		t.Fatal("verified task did not resolve case")
 	}
+	publication["publicationVersion"] = 2
 	mustStatus(t, coordinator.request("POST", "authority/cases/"+cid.String()+"/publications", publication, d.Version, ""), 200)
 	public = resident.request("GET", "case-receipts/"+rid.String(), nil, 0, "")
 	mustStatus(t, public, 200)

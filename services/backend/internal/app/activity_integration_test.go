@@ -255,7 +255,7 @@ func TestCaseActivityOnlyReviewedProgressForCurrentFollowers(t *testing.T) {
 	w = coord.request("POST", "authority/reports/"+reportID.String()+"/triage", map[string]any{"agencyId": "30000000-0000-4000-8000-000000000001", "category": "FOOTPATH", "urgencyTier": 2, "reason": "Fictional restoration task assessed for local testing"}, 1, "")
 	mustStatus(t, w, 201)
 	cid := parsed[struct{ CaseID uuid.UUID }](t, w).CaseID
-	publication := map[string]any{"title": "Reviewed crossing progress", "summary": "A fictional restoration task was proposed.", "area": "Indiranagar", "reviewed": true}
+	publication := map[string]any{"title": "Reviewed crossing progress", "summary": "A fictional restoration task was proposed.", "area": "Indiranagar", "reviewed": true, "publicationVersion": 0, "reason": "Private synthetic publication review"}
 	// Model a follow transaction that started before publication but waited to
 	// mutate until afterwards. Transaction-start timestamps would backfill it.
 	lateFollow, e := integrationAdmin.Begin(context.Background())
@@ -295,8 +295,10 @@ func TestCaseActivityOnlyReviewedProgressForCurrentFollowers(t *testing.T) {
 	if len(activityFor(t, follower, rid).Items) != 0 {
 		t.Fatal("private operational event generated public activity")
 	}
+	publication["publicationVersion"] = 1
 	publication["summary"] = "The agency has accepted the fictional public restoration task."
 	mustStatus(t, coord.request("POST", "authority/cases/"+cid.String()+"/publications", publication, 2, ""), 200)
+	publication["publicationVersion"] = 2
 	mustStatus(t, coord.request("POST", "authority/cases/"+cid.String()+"/publications", publication, 2, ""), 200)
 	drainActivity(t, a)
 	items := activityFor(t, follower, rid).Items
