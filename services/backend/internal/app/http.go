@@ -426,6 +426,8 @@ func (a *App) Handler() http.Handler {
 		"GET /v1/me/activity": a.activity, "GET /v1/me/activity/summary": a.activitySummary, "PUT /v1/me/activity/{id}/read": a.activityRead,
 		"GET /v1/me/notification-preferences": a.notificationPreferences, "PATCH /v1/me/notification-preferences": a.saveNotificationPreferences,
 		"GET /v1/me/mutes": a.mutes, "PUT /v1/me/mutes": a.setMute,
+		"POST /v1/content-reports": a.createContentReport, "GET /v1/me/content-reports": a.ownContentReports, "GET /v1/me/content-reports/{id}": a.ownedContentReport,
+		"GET /v1/moderation/content-reports": a.contentReportQueue, "POST /v1/moderation/content-reports/{id}/decisions": a.contentReportDecision,
 		"GET /v1/moderation": a.moderationQueue, "POST /v1/moderation/{id}/decisions": a.moderationDecision,
 		"GET /v1/case-receipts/{id}": a.getReceipt, "PUT /v1/case-receipts/{id}/follow": a.caseFollow,
 		"POST /v1/service-reports": a.submitReport, "GET /v1/my-reports": a.myReports, "GET /v1/my-reports/{id}": a.myReport,

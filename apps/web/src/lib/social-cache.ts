@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 
-// Drop visible and inactive social snapshots after a block change. Refetching
+// Drop visible and inactive snapshots after visibility or moderation changes. Refetching
 // alone would retain old content while permission checks are still in flight.
 export async function refreshSocialVisibility(client: QueryClient) {
   const roots = new Set([
@@ -16,6 +16,8 @@ export async function refreshSocialVisibility(client: QueryClient) {
     'muted-items',
     'communities',
     'community',
+    'content-reports',
+    'reviews',
   ]);
   const filter = {
     predicate: (query: { queryKey: readonly unknown[] }) => roots.has(String(query.queryKey[0])),

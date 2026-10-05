@@ -27,6 +27,12 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 	}
 	e = pgx.BeginTxFunc(ctx, a.Worker, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		q := dbgen.New(tx)
+		// Notification foreign keys lock recipient profiles after the post. Join
+		// command serialization before any row locks to avoid the reverse order
+		// of commands, which lock their profile before locking the post.
+		if err := q.LockIdempotency(ctx, pilotMutationLock); err != nil {
+			return err
+		}
 		claimed, e := q.LockClaim(ctx, dbgen.LockClaimParams{ID: event.ID, LeaseToken: &token, LeaseOwner: leaseOwner})
 		if errors.Is(e, pgx.ErrNoRows) {
 			return nil

@@ -68,6 +68,9 @@ func (a *App) moderationDecision(w http.ResponseWriter, r *http.Request, actor *
 		if e != nil {
 			return e
 		}
+		if m.ReporterRef != nil || m.ReasonCode != "PUBLICATION_REVIEW" {
+			return unavailable()
+		}
 		if m.Version != version || m.State == "DECIDED" || m.TargetVersion != b.TargetRevision {
 			return conflict()
 		}

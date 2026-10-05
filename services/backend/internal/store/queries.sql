@@ -228,7 +228,7 @@ SELECT EXISTS(SELECT 1 FROM social.profile_block WHERE (blocker_id=$1 AND blocke
 -- name: InsertModeration :exec
 INSERT INTO social.moderation_case(id,post_id,comment_id,target_version,reason_code,grounds,state) VALUES ($1,$2,$3,$4,'PUBLICATION_REVIEW','Review the submitted revision','OPEN');
 -- name: ModerationQueue :many
-SELECT m.* FROM social.moderation_case m WHERE m.state IN ('OPEN','REVIEWING')
+SELECT m.* FROM social.moderation_case m WHERE m.state IN ('OPEN','REVIEWING') AND m.reason_code='PUBLICATION_REVIEW' AND m.reporter_ref IS NULL
 AND (EXISTS(SELECT 1 FROM social.post p WHERE p.id=m.post_id AND p.state IN ('PENDING','PUBLISHED') AND p.current_revision=m.target_version)
 OR EXISTS(SELECT 1 FROM social.comment c JOIN social.post p ON p.id=c.post_id WHERE c.id=m.comment_id
 AND c.state IN ('PENDING','PUBLISHED') AND c.current_revision=m.target_version AND p.state='PUBLISHED'))
@@ -445,3 +445,39 @@ FROM social.mute m LEFT JOIN social.profile p ON p.id=m.muted_profile_id LEFT JO
 WHERE m.profile_id=sqlc.arg(viewer_id)
  AND (NOT sqlc.arg(has_cursor)::boolean OR (m.created_at,m.id)<(sqlc.arg(before_time)::timestamptz,sqlc.arg(before_id)::uuid))
 ORDER BY m.created_at DESC,m.id DESC LIMIT 21;
+
+-- name: ContentReportTarget :one
+SELECT target.* FROM social.content_report_target target
+WHERE target.target_type=sqlc.arg(target_type) AND target.target_id=sqlc.arg(target_id)
+AND (sqlc.arg(review_access)::boolean OR NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=sqlc.arg(viewer_id) AND b.blocked_id IN (target.author_id,target.post_author_id)) OR
+ (b.blocked_id=sqlc.arg(viewer_id) AND b.blocker_id IN (target.author_id,target.post_author_id))));
+-- name: ExistingContentReport :one
+SELECT * FROM social.moderation_case WHERE reporter_ref=sqlc.arg(reporter_ref)
+AND (post_id=sqlc.narg(post_id)::uuid OR comment_id=sqlc.narg(comment_id)::uuid) AND target_version=sqlc.arg(target_version);
+-- name: ContentReportCount :one
+SELECT count(*) FROM social.moderation_case WHERE reporter_ref=$1 AND created_at>statement_timestamp()-interval '1 hour';
+-- name: InsertContentReport :one
+INSERT INTO social.moderation_case(id,post_id,comment_id,target_version,reporter_ref,reason_code,grounds,state)
+VALUES($1,$2,$3,$4,$5,$6,$7,'OPEN') RETURNING *;
+-- name: OwnedContentReport :one
+SELECT * FROM social.moderation_case WHERE id=$1 AND reporter_ref=$2;
+-- name: OwnContentReportPage :many
+SELECT * FROM social.moderation_case WHERE reporter_ref=sqlc.arg(reporter_ref)
+AND (NOT sqlc.arg(has_cursor)::boolean OR (created_at,id)<(sqlc.arg(before_time)::timestamptz,sqlc.arg(before_id)::uuid))
+ORDER BY created_at DESC,id DESC LIMIT 21;
+-- name: ContentReportQueue :many
+SELECT m.* FROM social.moderation_case m LEFT JOIN social.post p ON p.id=m.post_id LEFT JOIN social.comment c ON c.id=m.comment_id
+WHERE m.reporter_ref IS NOT NULL AND m.state='OPEN' AND COALESCE(c.author_id,p.author_id) IS DISTINCT FROM sqlc.arg(viewer_id)
+AND m.reporter_ref<>sqlc.arg(reviewer_principal_id)::uuid
+AND (NOT sqlc.arg(has_cursor)::boolean OR (m.created_at,m.id)>(sqlc.arg(after_time)::timestamptz,sqlc.arg(after_id)::uuid))
+ORDER BY m.created_at,m.id LIMIT 21;
+-- name: ContentReportDecision :one
+SELECT action,reason,decided_at FROM social.moderation_decision WHERE moderation_case_id=$1 AND rule_version='local-content-report-v1' ORDER BY sequence DESC LIMIT 1;
+-- name: InsertContentReportDecision :exec
+INSERT INTO social.moderation_decision(id,moderation_case_id,sequence,action,rule_version,actor_ref,reason)
+VALUES($1,$2,1,$3,'local-content-report-v1',$4,$5);
+-- name: RemoveReportedPost :exec
+UPDATE social.post SET state='HIDDEN',version=version+1,updated_at=now() WHERE id=$1;
+-- name: RemoveReportedComment :exec
+UPDATE social.comment SET state='HIDDEN',version=version+1,updated_at=now() WHERE id=$1;

@@ -611,6 +611,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/content-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Signed-in private report of an available published post/comment revision. Never automatically removes content. Identical retries deduplicate for the lifetime of the reporter/target/revision; ten new reports per hour. */
+        post: operations["create_content_report"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/content-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Owner-only newest-first twenty-item pages. Source previews recheck current publication, reported revision and blocks. */
+        get: operations["get_own_content_reports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/content-reports/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get: operations["get_own_content_report"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/moderation/content-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Platform moderators only, oldest-first twenty-item pages. Includes changed/unavailable placeholders; excludes reports filed by the reviewer and the reviewer's own authored targets. Reporter identity is omitted. */
+        get: operations["get_content_report_queue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/moderation/content-reports/{id}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Fresh platform-moderator grant required. Reasoned DISMISS or REMOVE, bound to report version and reported revision. REMOVE rechecks current source eligibility and rejects changed/unavailable sources. Reports filed by the reviewer and own authored targets cannot be reviewed. Decision and optional content revocation commit together. */
+        post: operations["decide_content_report"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/notification-preferences": {
         parameters: {
             query?: never;
@@ -1141,6 +1229,58 @@ export interface components {
             displayName: string;
             bio?: string;
             version?: number;
+        };
+        /** @enum {string} */
+        ContentReportReason: "SPAM" | "HARASSMENT" | "HATE" | "THREATS" | "PRIVACY" | "MISINFORMATION" | "OTHER";
+        ContentReportInput: {
+            /** @enum {string} */
+            targetType: "POST" | "COMMENT";
+            /** Format: uuid */
+            targetId: string;
+            targetRevision: number;
+            reasonCode: components["schemas"]["ContentReportReason"];
+            /** @description OTHER requires at least five non-whitespace characters. */
+            details?: string;
+        };
+        ContentReportReceipt: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            targetType: "POST" | "COMMENT";
+            /** Format: uuid */
+            targetId: string;
+            targetRevision: number;
+            reasonCode: components["schemas"]["ContentReportReason"];
+            details: string;
+            /** @enum {string} */
+            state: "OPEN" | "DECIDED";
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            decision: {
+                /** @enum {string} */
+                action: "DISMISS" | "REMOVE";
+                reason: string;
+                /** Format: date-time */
+                decidedAt: string;
+            } | null;
+        };
+        ContentReport: components["schemas"]["ContentReportReceipt"] & {
+            /** @enum {string} */
+            targetState: "AVAILABLE" | "CHANGED" | "UNAVAILABLE";
+            target: {
+                /** Format: uuid */
+                postId: string;
+                title: string | null;
+                body: string;
+                authorName: string;
+            } | null;
+        };
+        ContentReportPage: {
+            items: components["schemas"]["ContentReport"][];
+            nextCursor: string | null;
+            /** Format: date-time */
+            expiresAt: string;
         };
         NotificationPreference: {
             inApp: boolean;
@@ -2681,6 +2821,161 @@ export interface operations {
             404: components["responses"]["Problem"];
             410: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    create_content_report: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["Idempotency"];
+                "X-JanSetu-CSRF": "1";
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContentReportInput"];
+            };
+        };
+        responses: {
+            /** @description Private report receipt, without a cached source preview */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentReportReceipt"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_own_content_reports: {
+        parameters: {
+            query?: {
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Private report history */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentReportPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_own_content_report: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Owner-only receipt and currently eligible source preview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentReport"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_content_report_queue: {
+        parameters: {
+            query?: {
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Private open report queue */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentReportPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    decide_content_report: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["Version"];
+                "X-JanSetu-CSRF": "1";
+            };
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    action: "DISMISS" | "REMOVE";
+                    reason: string;
+                    targetRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Private decided receipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentReportReceipt"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };

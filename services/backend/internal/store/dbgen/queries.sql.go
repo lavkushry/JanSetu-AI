@@ -710,6 +710,126 @@ func (q *Queries) CompleteEvent(ctx context.Context, arg CompleteEventParams) er
 	return err
 }
 
+const contentReportCount = `-- name: ContentReportCount :one
+SELECT count(*) FROM social.moderation_case WHERE reporter_ref=$1 AND created_at>statement_timestamp()-interval '1 hour'
+`
+
+func (q *Queries) ContentReportCount(ctx context.Context, reporterRef *uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, contentReportCount, reporterRef)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const contentReportDecision = `-- name: ContentReportDecision :one
+SELECT action,reason,decided_at FROM social.moderation_decision WHERE moderation_case_id=$1 AND rule_version='local-content-report-v1' ORDER BY sequence DESC LIMIT 1
+`
+
+type ContentReportDecisionRow struct {
+	Action    string             `json:"action"`
+	Reason    string             `json:"reason"`
+	DecidedAt pgtype.Timestamptz `json:"decided_at"`
+}
+
+func (q *Queries) ContentReportDecision(ctx context.Context, moderationCaseID uuid.UUID) (ContentReportDecisionRow, error) {
+	row := q.db.QueryRow(ctx, contentReportDecision, moderationCaseID)
+	var i ContentReportDecisionRow
+	err := row.Scan(&i.Action, &i.Reason, &i.DecidedAt)
+	return i, err
+}
+
+const contentReportQueue = `-- name: ContentReportQueue :many
+SELECT m.id, m.post_id, m.comment_id, m.media_id, m.profile_id, m.target_version, m.reporter_ref, m.reason_code, m.grounds, m.state, m.version, m.created_at FROM social.moderation_case m LEFT JOIN social.post p ON p.id=m.post_id LEFT JOIN social.comment c ON c.id=m.comment_id
+WHERE m.reporter_ref IS NOT NULL AND m.state='OPEN' AND COALESCE(c.author_id,p.author_id) IS DISTINCT FROM $1
+AND m.reporter_ref<>$2::uuid
+AND (NOT $3::boolean OR (m.created_at,m.id)>($4::timestamptz,$5::uuid))
+ORDER BY m.created_at,m.id LIMIT 21
+`
+
+type ContentReportQueueParams struct {
+	ViewerID            uuid.UUID          `json:"viewer_id"`
+	ReviewerPrincipalID uuid.UUID          `json:"reviewer_principal_id"`
+	HasCursor           bool               `json:"has_cursor"`
+	AfterTime           pgtype.Timestamptz `json:"after_time"`
+	AfterID             uuid.UUID          `json:"after_id"`
+}
+
+func (q *Queries) ContentReportQueue(ctx context.Context, arg ContentReportQueueParams) ([]SocialModerationCase, error) {
+	rows, err := q.db.Query(ctx, contentReportQueue,
+		arg.ViewerID,
+		arg.ReviewerPrincipalID,
+		arg.HasCursor,
+		arg.AfterTime,
+		arg.AfterID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SocialModerationCase{}
+	for rows.Next() {
+		var i SocialModerationCase
+		if err := rows.Scan(
+			&i.ID,
+			&i.PostID,
+			&i.CommentID,
+			&i.MediaID,
+			&i.ProfileID,
+			&i.TargetVersion,
+			&i.ReporterRef,
+			&i.ReasonCode,
+			&i.Grounds,
+			&i.State,
+			&i.Version,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const contentReportTarget = `-- name: ContentReportTarget :one
+SELECT target.target_type, target.target_id, target.post_id, target.author_id, target.post_author_id, target.revision, target.title, target.body, target.display_name FROM social.content_report_target target
+WHERE target.target_type=$1 AND target.target_id=$2
+AND ($3::boolean OR NOT EXISTS(SELECT FROM social.profile_block b WHERE
+ (b.blocker_id=$4 AND b.blocked_id IN (target.author_id,target.post_author_id)) OR
+ (b.blocked_id=$4 AND b.blocker_id IN (target.author_id,target.post_author_id))))
+`
+
+type ContentReportTargetParams struct {
+	TargetType   string    `json:"target_type"`
+	TargetID     uuid.UUID `json:"target_id"`
+	ReviewAccess bool      `json:"review_access"`
+	ViewerID     uuid.UUID `json:"viewer_id"`
+}
+
+func (q *Queries) ContentReportTarget(ctx context.Context, arg ContentReportTargetParams) (SocialContentReportTarget, error) {
+	row := q.db.QueryRow(ctx, contentReportTarget,
+		arg.TargetType,
+		arg.TargetID,
+		arg.ReviewAccess,
+		arg.ViewerID,
+	)
+	var i SocialContentReportTarget
+	err := row.Scan(
+		&i.TargetType,
+		&i.TargetID,
+		&i.PostID,
+		&i.AuthorID,
+		&i.PostAuthorID,
+		&i.Revision,
+		&i.Title,
+		&i.Body,
+		&i.DisplayName,
+	)
+	return i, err
+}
+
 const deleteBlock = `-- name: DeleteBlock :exec
 DELETE FROM social.profile_block WHERE blocker_id=$1 AND blocked_id=$2
 `
@@ -962,6 +1082,43 @@ func (q *Queries) EventProcessed(ctx context.Context, eventID uuid.UUID) (uuid.U
 	var event_id uuid.UUID
 	err := row.Scan(&event_id)
 	return event_id, err
+}
+
+const existingContentReport = `-- name: ExistingContentReport :one
+SELECT id, post_id, comment_id, media_id, profile_id, target_version, reporter_ref, reason_code, grounds, state, version, created_at FROM social.moderation_case WHERE reporter_ref=$1
+AND (post_id=$2::uuid OR comment_id=$3::uuid) AND target_version=$4
+`
+
+type ExistingContentReportParams struct {
+	ReporterRef   *uuid.UUID `json:"reporter_ref"`
+	PostID        *uuid.UUID `json:"post_id"`
+	CommentID     *uuid.UUID `json:"comment_id"`
+	TargetVersion int64      `json:"target_version"`
+}
+
+func (q *Queries) ExistingContentReport(ctx context.Context, arg ExistingContentReportParams) (SocialModerationCase, error) {
+	row := q.db.QueryRow(ctx, existingContentReport,
+		arg.ReporterRef,
+		arg.PostID,
+		arg.CommentID,
+		arg.TargetVersion,
+	)
+	var i SocialModerationCase
+	err := row.Scan(
+		&i.ID,
+		&i.PostID,
+		&i.CommentID,
+		&i.MediaID,
+		&i.ProfileID,
+		&i.TargetVersion,
+		&i.ReporterRef,
+		&i.ReasonCode,
+		&i.Grounds,
+		&i.State,
+		&i.Version,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const feedPostIDs = `-- name: FeedPostIDs :many
@@ -1218,6 +1375,73 @@ func (q *Queries) InsertCommentRevision(ctx context.Context, arg InsertCommentRe
 		arg.Version,
 		arg.Body,
 		arg.LanguageTag,
+	)
+	return err
+}
+
+const insertContentReport = `-- name: InsertContentReport :one
+INSERT INTO social.moderation_case(id,post_id,comment_id,target_version,reporter_ref,reason_code,grounds,state)
+VALUES($1,$2,$3,$4,$5,$6,$7,'OPEN') RETURNING id, post_id, comment_id, media_id, profile_id, target_version, reporter_ref, reason_code, grounds, state, version, created_at
+`
+
+type InsertContentReportParams struct {
+	ID            uuid.UUID  `json:"id"`
+	PostID        *uuid.UUID `json:"post_id"`
+	CommentID     *uuid.UUID `json:"comment_id"`
+	TargetVersion int64      `json:"target_version"`
+	ReporterRef   *uuid.UUID `json:"reporter_ref"`
+	ReasonCode    string     `json:"reason_code"`
+	Grounds       string     `json:"grounds"`
+}
+
+func (q *Queries) InsertContentReport(ctx context.Context, arg InsertContentReportParams) (SocialModerationCase, error) {
+	row := q.db.QueryRow(ctx, insertContentReport,
+		arg.ID,
+		arg.PostID,
+		arg.CommentID,
+		arg.TargetVersion,
+		arg.ReporterRef,
+		arg.ReasonCode,
+		arg.Grounds,
+	)
+	var i SocialModerationCase
+	err := row.Scan(
+		&i.ID,
+		&i.PostID,
+		&i.CommentID,
+		&i.MediaID,
+		&i.ProfileID,
+		&i.TargetVersion,
+		&i.ReporterRef,
+		&i.ReasonCode,
+		&i.Grounds,
+		&i.State,
+		&i.Version,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const insertContentReportDecision = `-- name: InsertContentReportDecision :exec
+INSERT INTO social.moderation_decision(id,moderation_case_id,sequence,action,rule_version,actor_ref,reason)
+VALUES($1,$2,1,$3,'local-content-report-v1',$4,$5)
+`
+
+type InsertContentReportDecisionParams struct {
+	ID               uuid.UUID `json:"id"`
+	ModerationCaseID uuid.UUID `json:"moderation_case_id"`
+	Action           string    `json:"action"`
+	ActorRef         uuid.UUID `json:"actor_ref"`
+	Reason           string    `json:"reason"`
+}
+
+func (q *Queries) InsertContentReportDecision(ctx context.Context, arg InsertContentReportDecisionParams) error {
+	_, err := q.db.Exec(ctx, insertContentReportDecision,
+		arg.ID,
+		arg.ModerationCaseID,
+		arg.Action,
+		arg.ActorRef,
+		arg.Reason,
 	)
 	return err
 }
@@ -1861,7 +2085,7 @@ func (q *Queries) Membership(ctx context.Context, arg MembershipParams) (Members
 }
 
 const moderationQueue = `-- name: ModerationQueue :many
-SELECT m.id, m.post_id, m.comment_id, m.media_id, m.profile_id, m.target_version, m.reporter_ref, m.reason_code, m.grounds, m.state, m.version, m.created_at FROM social.moderation_case m WHERE m.state IN ('OPEN','REVIEWING')
+SELECT m.id, m.post_id, m.comment_id, m.media_id, m.profile_id, m.target_version, m.reporter_ref, m.reason_code, m.grounds, m.state, m.version, m.created_at FROM social.moderation_case m WHERE m.state IN ('OPEN','REVIEWING') AND m.reason_code='PUBLICATION_REVIEW' AND m.reporter_ref IS NULL
 AND (EXISTS(SELECT 1 FROM social.post p WHERE p.id=m.post_id AND p.state IN ('PENDING','PUBLISHED') AND p.current_revision=m.target_version)
 OR EXISTS(SELECT 1 FROM social.comment c JOIN social.post p ON p.id=c.post_id WHERE c.id=m.comment_id
 AND c.state IN ('PENDING','PUBLISHED') AND c.current_revision=m.target_version AND p.state='PUBLISHED'))
@@ -1989,6 +2213,57 @@ func (q *Queries) NotificationPreference(ctx context.Context, viewerID uuid.UUID
 	return i, err
 }
 
+const ownContentReportPage = `-- name: OwnContentReportPage :many
+SELECT id, post_id, comment_id, media_id, profile_id, target_version, reporter_ref, reason_code, grounds, state, version, created_at FROM social.moderation_case WHERE reporter_ref=$1
+AND (NOT $2::boolean OR (created_at,id)<($3::timestamptz,$4::uuid))
+ORDER BY created_at DESC,id DESC LIMIT 21
+`
+
+type OwnContentReportPageParams struct {
+	ReporterRef *uuid.UUID         `json:"reporter_ref"`
+	HasCursor   bool               `json:"has_cursor"`
+	BeforeTime  pgtype.Timestamptz `json:"before_time"`
+	BeforeID    uuid.UUID          `json:"before_id"`
+}
+
+func (q *Queries) OwnContentReportPage(ctx context.Context, arg OwnContentReportPageParams) ([]SocialModerationCase, error) {
+	rows, err := q.db.Query(ctx, ownContentReportPage,
+		arg.ReporterRef,
+		arg.HasCursor,
+		arg.BeforeTime,
+		arg.BeforeID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SocialModerationCase{}
+	for rows.Next() {
+		var i SocialModerationCase
+		if err := rows.Scan(
+			&i.ID,
+			&i.PostID,
+			&i.CommentID,
+			&i.MediaID,
+			&i.ProfileID,
+			&i.TargetVersion,
+			&i.ReporterRef,
+			&i.ReasonCode,
+			&i.Grounds,
+			&i.State,
+			&i.Version,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const ownReportProgress = `-- name: OwnReportProgress :many
 SELECT r.id,r.received_at,r.statement,r.language_tag,ir.state AS linkage,ir.case_id,pb.receipt_id
 FROM ops.report r JOIN ops.intake_review ir ON ir.report_id=r.id
@@ -2039,6 +2314,35 @@ func (q *Queries) OwnReportProgress(ctx context.Context, arg OwnReportProgressPa
 		return nil, err
 	}
 	return items, nil
+}
+
+const ownedContentReport = `-- name: OwnedContentReport :one
+SELECT id, post_id, comment_id, media_id, profile_id, target_version, reporter_ref, reason_code, grounds, state, version, created_at FROM social.moderation_case WHERE id=$1 AND reporter_ref=$2
+`
+
+type OwnedContentReportParams struct {
+	ID          uuid.UUID  `json:"id"`
+	ReporterRef *uuid.UUID `json:"reporter_ref"`
+}
+
+func (q *Queries) OwnedContentReport(ctx context.Context, arg OwnedContentReportParams) (SocialModerationCase, error) {
+	row := q.db.QueryRow(ctx, ownedContentReport, arg.ID, arg.ReporterRef)
+	var i SocialModerationCase
+	err := row.Scan(
+		&i.ID,
+		&i.PostID,
+		&i.CommentID,
+		&i.MediaID,
+		&i.ProfileID,
+		&i.TargetVersion,
+		&i.ReporterRef,
+		&i.ReasonCode,
+		&i.Grounds,
+		&i.State,
+		&i.Version,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const platformRoles = `-- name: PlatformRoles :many
@@ -2405,6 +2709,24 @@ type RemoveConflictingFollowsParams struct {
 
 func (q *Queries) RemoveConflictingFollows(ctx context.Context, arg RemoveConflictingFollowsParams) error {
 	_, err := q.db.Exec(ctx, removeConflictingFollows, arg.FollowerID, arg.FollowedID)
+	return err
+}
+
+const removeReportedComment = `-- name: RemoveReportedComment :exec
+UPDATE social.comment SET state='HIDDEN',version=version+1,updated_at=now() WHERE id=$1
+`
+
+func (q *Queries) RemoveReportedComment(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, removeReportedComment, id)
+	return err
+}
+
+const removeReportedPost = `-- name: RemoveReportedPost :exec
+UPDATE social.post SET state='HIDDEN',version=version+1,updated_at=now() WHERE id=$1
+`
+
+func (q *Queries) RemoveReportedPost(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, removeReportedPost, id)
 	return err
 }
 

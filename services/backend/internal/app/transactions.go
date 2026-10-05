@@ -16,6 +16,9 @@ import (
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
 )
 
+// Commands and projections share one ordering boundary in the local pilot.
+const pilotMutationLock int64 = 77120261004
+
 func textValid(value string, min, max int) bool {
 	n := utf8.RuneCountInString(strings.TrimSpace(value))
 	return n >= min && n <= max
@@ -32,7 +35,7 @@ func (a *App) transaction(ctx context.Context, actor *Actor, fn func(*dbgen.Quer
 		q := dbgen.New(tx)
 		// Serialize local pilot commands before row locks. Replace this coarse lock
 		// with ordered aggregate locks before enabling a multi-city deployment.
-		if err := q.LockIdempotency(ctx, 77120261004); err != nil {
+		if err := q.LockIdempotency(ctx, pilotMutationLock); err != nil {
 			return err
 		}
 		var state *string
