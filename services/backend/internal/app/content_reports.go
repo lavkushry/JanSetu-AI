@@ -219,6 +219,7 @@ func (a *App) contentReportDecision(w http.ResponseWriter, r *http.Request, acto
 	var b struct {
 		Action         string `json:"action"`
 		Reason         string `json:"reason"`
+		AuthorReason   string `json:"authorReason"`
 		TargetRevision int64  `json:"targetRevision"`
 	}
 	if err := decodeRequired(r, &b, "action", "reason", "targetRevision"); err != nil {
@@ -227,6 +228,14 @@ func (a *App) contentReportDecision(w http.ResponseWriter, r *http.Request, acto
 	b.Reason = strings.TrimSpace(b.Reason)
 	if (b.Action != "DISMISS" && b.Action != "REMOVE") || !textValid(b.Reason, 5, 1000) {
 		return nil, 0, invalid("Choose a decision and provide a reason")
+	}
+	b.AuthorReason = strings.TrimSpace(b.AuthorReason)
+	if b.Action == "REMOVE" && !textValid(b.AuthorReason, 5, 1000) {
+		return nil, 0, invalid("Provide a separate reason shared with the author (5–1,000 characters)")
+	}
+	var authorReason pgtype.Text
+	if b.Action == "REMOVE" {
+		authorReason = pgtype.Text{String: b.AuthorReason, Valid: true}
 	}
 	var receipt any
 	err = a.transaction(r.Context(), actor, func(q *dbgen.Queries) error {
@@ -296,7 +305,7 @@ func (a *App) contentReportDecision(w http.ResponseWriter, r *http.Request, acto
 			}
 			action = "REMOVE"
 		}
-		if err := q.InsertContentReportDecision(r.Context(), dbgen.InsertContentReportDecisionParams{ID: uuid.New(), ModerationCaseID: m.ID, Action: action, ActorRef: actor.PrincipalID, Reason: b.Reason}); err != nil {
+		if err := q.InsertContentReportDecision(r.Context(), dbgen.InsertContentReportDecisionParams{ID: uuid.New(), ModerationCaseID: m.ID, Action: action, ActorRef: actor.PrincipalID, Reason: b.Reason, AuthorReason: authorReason}); err != nil {
 			return err
 		}
 		if err := q.FinishModeration(r.Context(), m.ID); err != nil {

@@ -650,6 +650,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/moderation-decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Private newest-first twenty-item decision history, scoped to the authenticated author. Includes publication approvals, restrictions and reported-content removals. Excludes dismissed complaints, reporter identities, internal notes and source text. Signed five-minute cursors bind the author and endpoint. */
+        get: operations["get_author_moderation_decisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/moderation-decisions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /** @description Author-only decision metadata; unavailable or foreign IDs return 404. Deleting source content retains the private record without copying source text. */
+        get: operations["get_author_moderation_decision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/content-reports": {
         parameters: {
             query?: never;
@@ -1768,12 +1804,40 @@ export interface components {
             body: string;
             languageTag: string;
         };
+        AuthorModerationDecision: {
+            /** Format: uuid */
+            id: string;
+            target: {
+                /** @enum {string} */
+                type: "POST" | "COMMENT";
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                postId: string;
+                revision: number;
+            };
+            /** @enum {string} */
+            action: "ALLOW" | "RESTRICT" | "REMOVE";
+            ruleVersion: string;
+            /** @description Separately authored public-to-author reason. Approvals and legacy decisions use fixed messages; internal review notes are never copied. */
+            reason: string;
+            /** Format: date-time */
+            decidedAt: string;
+        };
+        AuthorModerationDecisionPage: {
+            items: components["schemas"]["AuthorModerationDecision"][];
+            nextCursor: string | null;
+            /** Format: date-time */
+            expiresAt: string;
+        };
         ModerationDecisionInput: {
             /** @enum {string} */
             action: "ALLOW" | "RESTRICT";
             reason: string;
+            /** @description Separate reason shared with the author, required for RESTRICT. Exclude reporter identities and private complaint details. */
+            authorReason?: string;
             targetRevision: number;
-        };
+        } & unknown;
         TriageInput: {
             /** Format: uuid */
             agencyId: string;
@@ -2943,6 +3007,57 @@ export interface operations {
             503: components["responses"]["Problem"];
         };
     };
+    get_author_moderation_decisions: {
+        parameters: {
+            query?: {
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Author-only moderation history */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthorModerationDecisionPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            410: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_author_moderation_decision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Author-facing decision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthorModerationDecision"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
     get_own_content_reports: {
         parameters: {
             query?: {
@@ -3039,8 +3154,10 @@ export interface operations {
                     /** @enum {string} */
                     action: "DISMISS" | "REMOVE";
                     reason: string;
+                    /** @description Separate reason shared with the author, required for REMOVE. Exclude reporter identities and private complaint details. */
+                    authorReason?: string;
                     targetRevision: number;
-                };
+                } & unknown;
             };
         };
         responses: {

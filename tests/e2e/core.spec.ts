@@ -1804,6 +1804,7 @@ test('private content report receipts recover lost acknowledgements and retain d
     card.getByRole('button', { name: 'Remove reported content', exact: true }),
   ).toBeDisabled();
   await card.getByLabel('Decision reason').fill('😀😀😀😀😀');
+  await card.getByLabel('Reason shared with author').fill('😀😀😀😀😀');
   await expect(card.getByRole('button', { name: 'Dismiss report', exact: true })).toBeEnabled();
   await expect(
     card.getByRole('button', { name: 'Remove reported content', exact: true }),
@@ -1886,6 +1887,9 @@ test('reviewed removal revokes published posts and comments without reviving edi
   await card
     .getByLabel('Decision reason')
     .fill('Reviewed fictional post removal under local policy.');
+  await card
+    .getByLabel('Reason shared with author')
+    .fill('Please follow the local community posting rule.');
   await card.getByRole('button', { name: 'Remove reported content' }).click();
   let confirmation = mod.page.getByRole('dialog', { name: 'Remove reported content?' });
   await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -1957,6 +1961,9 @@ test('reviewed removal revokes published posts and comments without reviving edi
   await commentCard
     .getByLabel('Decision reason')
     .fill('Reviewed fictional comment removal under local policy.');
+  await commentCard
+    .getByLabel('Reason shared with author')
+    .fill('Please follow the local community reply rule.');
   await mod.page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
   await mod.page.setViewportSize({ width: 320, height: 720 });
   expect(
@@ -1988,4 +1995,112 @@ test('reviewed removal revokes published posts and comments without reviving edi
   expect(activity.items.some((n) => n.target.id === thread.id)).toBe(false);
   await writer.context.close();
   await mod.context.close();
+});
+
+test('authors see private moderation decisions and safely correct rejected initial posts and replies', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  const marker = `Initial private correction ${Date.now()}`;
+  const sharedReason = 'Remove the private contact details before resubmitting.';
+  const internalReason = `PRIVATE INTERNAL REVIEW ${Date.now()}`;
+  const created = await page.request.post('/api/posts', {
+    headers: { 'x-jansetu-csrf': '1', 'idempotency-key': crypto.randomUUID() },
+    data: { kind: 'SHORT', body: marker, submitForReview: true },
+  });
+  expect(created.status()).toBe(201);
+  const post = (await created.json()) as Schema['Post'];
+  await staff.page.reload();
+  let review = staff.page.getByTestId('review-card').filter({ hasText: marker });
+  await expect(review).toBeVisible();
+  await review.getByLabel('Review reason').fill(internalReason);
+  await expect(review.getByRole('button', { name: 'Restrict revision' })).toBeDisabled();
+  await review.getByLabel('Reason shared with author').fill(sharedReason);
+  await review.getByRole('button', { name: 'Restrict revision' }).click();
+  await expect(review).toHaveCount(0);
+  const history = (await (
+    await page.request.get('/api/me/moderation-decisions')
+  ).json()) as Schema['AuthorModerationDecisionPage'];
+  const decision = history.items.find((d) => d.target.id === post.id);
+  if (!decision) throw new Error('Missing private author decision');
+  expect(decision.reason).toBe(sharedReason);
+  expect(JSON.stringify(history)).not.toContain(internalReason);
+  expect(JSON.stringify(history)).not.toContain(marker);
+  expect(
+    (await staff.page.request.get(`/api/me/moderation-decisions/${decision.id}`)).status(),
+  ).toBe(404);
+  await page.goto('/account#moderation-decisions');
+  const card = page.getByTestId(`moderation-decision-${decision.id}`);
+  await expect(card).toContainText(sharedReason);
+  await expect(card).toContainText('Revision restricted');
+  await page.setViewportSize({ width: 320, height: 740 });
+  await card.evaluate((el) =>
+    window.scrollTo({
+      top: el.getBoundingClientRect().top + window.scrollY - 150,
+      behavior: 'instant',
+    }),
+  );
+  await expect(card).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: 'test-results/author-moderation-mobile.png' });
+  await page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: 'test-results/author-moderation-mobile-dark.png' });
+  await card.getByRole('link', { name: 'Open current thread' }).click();
+  await expect(page.locator('.account-control strong')).not.toHaveText('Explore JanSetu');
+  await expect(page.locator('.post-body')).toContainText(marker);
+  await page.getByLabel('Post options').click();
+  await page.getByRole('button', { name: 'Edit post', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit your post' });
+  await edit.getByRole('textbox').fill('Corrected initial post without private contact details.');
+  await edit.getByRole('button', { name: 'Submit for review', exact: true }).click();
+  await expect(page.locator('.post-body')).toContainText('Corrected initial post');
+  await expect(
+    page.getByText('Only you can see this post until a moderator approves it.'),
+  ).toBeVisible();
+  await approveContentReportFixture(staff.page, post.id);
+  await page.reload();
+  await expect(page.locator('.account-control strong')).not.toHaveText('Explore JanSetu');
+  await expect(page.locator('.post-body')).toContainText('Corrected initial post');
+  const replyMarker = `Initial rejected reply ${Date.now()}`;
+  const replyResponse = await page.request.post(`/api/posts/${post.id}/comments`, {
+    headers: { 'x-jansetu-csrf': '1', 'idempotency-key': crypto.randomUUID() },
+    data: { body: replyMarker },
+  });
+  expect(replyResponse.status()).toBe(201);
+  const reply = (await replyResponse.json()) as { id: string };
+  await staff.page.reload();
+  review = staff.page.getByTestId('review-card').filter({ hasText: replyMarker });
+  await review.getByLabel('Review reason').fill(internalReason);
+  await review.getByLabel('Reason shared with author').fill(sharedReason);
+  await review.getByRole('button', { name: 'Restrict revision' }).click();
+  await expect(review).toHaveCount(0);
+  await page.reload();
+  const replyCard = page.getByTestId(`comment-${reply.id}`);
+  await expect(replyCard).toContainText(replyMarker);
+  await replyCard.getByRole('button', { name: 'Edit and resubmit', exact: true }).click();
+  const replyEdit = page.getByRole('dialog', { name: 'Edit comment' });
+  await replyEdit
+    .getByRole('textbox')
+    .fill('Corrected initial reply without private contact details.');
+  await replyEdit.getByRole('button', { name: 'Submit edit for review', exact: true }).click();
+  await expect(replyCard).toContainText('awaiting review');
+  await approveContentReportFixture(staff.page, reply.id);
+  await page.reload();
+  await expect(replyCard).toContainText('Corrected initial reply');
+  await expect(replyCard).not.toContainText(replyMarker);
+  await page.goto('/account#moderation-decisions');
+  const decisions = page.locator('#moderation-decisions');
+  await expect(decisions).toContainText('Approved for publication');
+  await expect(decisions).toContainText(sharedReason);
+  await expect(decisions).not.toContainText(internalReason);
+  await staff.context.close();
 });

@@ -217,6 +217,69 @@ func (q *Queries) AttachReportMedia(ctx context.Context, arg AttachReportMediaPa
 	return err
 }
 
+const authorModerationDecision = `-- name: AuthorModerationDecision :one
+SELECT id, target_type, target_id, post_id, target_revision, action, rule_version, reason, decided_at FROM social.author_moderation_decision WHERE id=$1
+`
+
+func (q *Queries) AuthorModerationDecision(ctx context.Context, id uuid.UUID) (SocialAuthorModerationDecision, error) {
+	row := q.db.QueryRow(ctx, authorModerationDecision, id)
+	var i SocialAuthorModerationDecision
+	err := row.Scan(
+		&i.ID,
+		&i.TargetType,
+		&i.TargetID,
+		&i.PostID,
+		&i.TargetRevision,
+		&i.Action,
+		&i.RuleVersion,
+		&i.Reason,
+		&i.DecidedAt,
+	)
+	return i, err
+}
+
+const authorModerationDecisionPage = `-- name: AuthorModerationDecisionPage :many
+SELECT id, target_type, target_id, post_id, target_revision, action, rule_version, reason, decided_at FROM social.author_moderation_decision
+WHERE NOT $1::boolean OR (decided_at,id)<($2::timestamptz,$3::uuid)
+ORDER BY decided_at DESC,id DESC LIMIT 21
+`
+
+type AuthorModerationDecisionPageParams struct {
+	HasCursor  bool               `json:"has_cursor"`
+	BeforeTime pgtype.Timestamptz `json:"before_time"`
+	BeforeID   uuid.UUID          `json:"before_id"`
+}
+
+func (q *Queries) AuthorModerationDecisionPage(ctx context.Context, arg AuthorModerationDecisionPageParams) ([]SocialAuthorModerationDecision, error) {
+	rows, err := q.db.Query(ctx, authorModerationDecisionPage, arg.HasCursor, arg.BeforeTime, arg.BeforeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SocialAuthorModerationDecision{}
+	for rows.Next() {
+		var i SocialAuthorModerationDecision
+		if err := rows.Scan(
+			&i.ID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.PostID,
+			&i.TargetRevision,
+			&i.Action,
+			&i.RuleVersion,
+			&i.Reason,
+			&i.DecidedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const blockedPeoplePage = `-- name: BlockedPeoplePage :many
 SELECT b.blocked_id,b.created_at,p.state='ACTIVE' AS available,
  CASE WHEN p.state='ACTIVE' THEN p.handle::text ELSE '' END AS handle,
@@ -570,7 +633,7 @@ SELECT c.id,c.created_at,jsonb_build_object('id',c.id,'postId',c.post_id,'parent
   'currentRevision',c.current_revision,'publishedVersion',c.published_version,'createdAt',c.created_at,
   'body',CASE WHEN c.state='PUBLISHED' THEN c.body ELSE NULL END,
   'author',CASE WHEN c.state='DELETED' THEN NULL ELSE jsonb_build_object('id',p.id,'handle',p.handle,'displayName',p.display_name) END,
-  'viewer',jsonb_build_object('canEdit',c.author_id=$1 AND c.state IN ('PENDING','PUBLISHED'),'canDelete',c.author_id=$1 AND c.state<>'DELETED'),
+  'viewer',jsonb_build_object('canEdit',c.author_id=$1 AND (c.state IN ('PENDING','PUBLISHED') OR (c.state='HIDDEN' AND c.published_version IS NULL AND r.review_state='REJECTED')),'canDelete',c.author_id=$1 AND c.state<>'DELETED'),
   'candidate',CASE WHEN c.author_id=$1 AND c.state<>'DELETED' THEN jsonb_build_object('body',r.body,'reviewState',r.review_state) ELSE NULL END) AS data
 FROM social.comment c JOIN accessible_post thread ON thread.id=c.post_id JOIN social.profile p ON p.id=c.author_id
 JOIN social.comment_revision r ON r.comment_id=c.id AND r.version=c.current_revision
@@ -1030,8 +1093,9 @@ func (q *Queries) DeliverReplyActivity(ctx context.Context, arg DeliverReplyActi
 }
 
 const editComment = `-- name: EditComment :one
-UPDATE social.comment SET version=version+1,current_revision=current_revision+1,updated_at=now()
-WHERE id=$1 AND version=$2 AND state IN ('PENDING','PUBLISHED') RETURNING version,current_revision
+UPDATE social.comment SET version=version+1,current_revision=current_revision+1,updated_at=now(),state=CASE WHEN state='HIDDEN' THEN 'PENDING' ELSE state END
+WHERE comment.id=$1 AND comment.version=$2 AND (comment.state IN ('PENDING','PUBLISHED') OR (comment.state='HIDDEN' AND comment.published_version IS NULL
+ AND EXISTS(SELECT FROM social.comment_revision r WHERE r.comment_id=comment.id AND r.version=comment.current_revision AND r.review_state='REJECTED'))) RETURNING version,current_revision
 `
 
 type EditCommentParams struct {
@@ -1052,8 +1116,9 @@ func (q *Queries) EditComment(ctx context.Context, arg EditCommentParams) (EditC
 }
 
 const editPost = `-- name: EditPost :one
-UPDATE social.post SET current_revision=current_revision+1,version=version+1,updated_at=now()
-WHERE id=$1 AND version=$2 AND state IN ('PENDING','PUBLISHED') RETURNING current_revision,version
+UPDATE social.post SET current_revision=current_revision+1,version=version+1,updated_at=now(),state=CASE WHEN state='HIDDEN' THEN 'PENDING' ELSE state END
+WHERE id=$1 AND version=$2 AND (state IN ('PENDING','PUBLISHED') OR (state='HIDDEN' AND published_revision IS NULL
+ AND EXISTS(SELECT FROM social.post_revision r WHERE r.post_id=post.id AND r.revision=post.current_revision AND r.review_state='REJECTED'))) RETURNING current_revision,version
 `
 
 type EditPostParams struct {
@@ -1236,7 +1301,7 @@ SELECT jsonb_build_object(
   'viewer',jsonb_build_object('vote',COALESCE((SELECT value FROM social.post_vote v WHERE v.profile_id=$1 AND v.post_id=p.id),0),
     'bookmarked',EXISTS(SELECT 1 FROM social.bookmark b WHERE b.profile_id=$1 AND b.post_id=p.id),
     'reposted',EXISTS(SELECT 1 FROM social.repost r WHERE r.profile_id=$1 AND r.post_id=p.id),
-    'canEdit',p.author_id=$1 AND p.state IN ('PENDING','PUBLISHED'),
+    'canEdit',p.author_id=$1 AND (p.state IN ('PENDING','PUBLISHED') OR (p.state='HIDDEN' AND p.published_revision IS NULL AND cur.review_state='REJECTED')),
     'canDelete',p.author_id=$1 AND p.state NOT IN ('DELETED'),
     'canReply',p.state='PUBLISHED' AND $1::uuid <> '00000000-0000-0000-0000-000000000000'::uuid,
     'canSelectResponse',COALESCE(p.kind='QUESTION' AND p.state='PUBLISHED' AND (p.author_id=$1
@@ -1458,16 +1523,17 @@ func (q *Queries) InsertContentReport(ctx context.Context, arg InsertContentRepo
 }
 
 const insertContentReportDecision = `-- name: InsertContentReportDecision :exec
-INSERT INTO social.moderation_decision(id,moderation_case_id,sequence,action,rule_version,actor_ref,reason)
-VALUES($1,$2,1,$3,'local-content-report-v1',$4,$5)
+INSERT INTO social.moderation_decision(id,moderation_case_id,sequence,action,rule_version,actor_ref,reason,author_reason)
+VALUES($1,$2,1,$3,'local-content-report-v1',$4,$5,$6)
 `
 
 type InsertContentReportDecisionParams struct {
-	ID               uuid.UUID `json:"id"`
-	ModerationCaseID uuid.UUID `json:"moderation_case_id"`
-	Action           string    `json:"action"`
-	ActorRef         uuid.UUID `json:"actor_ref"`
-	Reason           string    `json:"reason"`
+	ID               uuid.UUID   `json:"id"`
+	ModerationCaseID uuid.UUID   `json:"moderation_case_id"`
+	Action           string      `json:"action"`
+	ActorRef         uuid.UUID   `json:"actor_ref"`
+	Reason           string      `json:"reason"`
+	AuthorReason     pgtype.Text `json:"author_reason"`
 }
 
 func (q *Queries) InsertContentReportDecision(ctx context.Context, arg InsertContentReportDecisionParams) error {
@@ -1477,6 +1543,7 @@ func (q *Queries) InsertContentReportDecision(ctx context.Context, arg InsertCon
 		arg.Action,
 		arg.ActorRef,
 		arg.Reason,
+		arg.AuthorReason,
 	)
 	return err
 }
@@ -1541,15 +1608,16 @@ func (q *Queries) InsertModeration(ctx context.Context, arg InsertModerationPara
 }
 
 const insertModerationDecision = `-- name: InsertModerationDecision :exec
-INSERT INTO social.moderation_decision(id,moderation_case_id,sequence,action,rule_version,actor_ref,reason) VALUES ($1,$2,1,$3,'local-community-v1',$4,$5)
+INSERT INTO social.moderation_decision(id,moderation_case_id,sequence,action,rule_version,actor_ref,reason,author_reason) VALUES ($1,$2,1,$3,'local-community-v1',$4,$5,$6)
 `
 
 type InsertModerationDecisionParams struct {
-	ID               uuid.UUID `json:"id"`
-	ModerationCaseID uuid.UUID `json:"moderation_case_id"`
-	Action           string    `json:"action"`
-	ActorRef         uuid.UUID `json:"actor_ref"`
-	Reason           string    `json:"reason"`
+	ID               uuid.UUID   `json:"id"`
+	ModerationCaseID uuid.UUID   `json:"moderation_case_id"`
+	Action           string      `json:"action"`
+	ActorRef         uuid.UUID   `json:"actor_ref"`
+	Reason           string      `json:"reason"`
+	AuthorReason     pgtype.Text `json:"author_reason"`
 }
 
 func (q *Queries) InsertModerationDecision(ctx context.Context, arg InsertModerationDecisionParams) error {
@@ -1559,6 +1627,7 @@ func (q *Queries) InsertModerationDecision(ctx context.Context, arg InsertModera
 		arg.Action,
 		arg.ActorRef,
 		arg.Reason,
+		arg.AuthorReason,
 	)
 	return err
 }

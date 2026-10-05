@@ -18,7 +18,7 @@ Complaint details and the private outcome remain available when the source becom
 
 ## API and retry contracts
 
-The executable [OpenAPI contract](../contracts/openapi/core.yaml) is version `0.10.0`.
+The executable [OpenAPI contract](../contracts/openapi/core.yaml) is version `0.12.0`.
 
 | Endpoint                                             | Contract                                                                                                                                                                           |
 | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -26,7 +26,7 @@ The executable [OpenAPI contract](../contracts/openapi/core.yaml) is version `0.
 | `GET /v1/me/content-reports`                         | Owner-only, newest first, twenty rows per signed keyset page.                                                                                                                      |
 | `GET /v1/me/content-reports/{id}`                    | Owner-only receipt and current safe source preview; foreign IDs return 404.                                                                                                        |
 | `GET /v1/moderation/content-reports`                 | Platform moderator only, oldest first, twenty open reports per signed keyset page; excludes reports the moderator filed and their own authored targets.                            |
-| `POST /v1/moderation/content-reports/{id}/decisions` | Platform moderator, CSRF and `If-Match`; `action` of `DISMISS` or `REMOVE`, reason of 5–1,000 characters and the reported `targetRevision`.                                        |
+| `POST /v1/moderation/content-reports/{id}/decisions` | Platform moderator, CSRF and `If-Match`; `action` of `DISMISS` or `REMOVE`, reason of 5–1,000 characters and the reported `targetRevision`; REMOVE additionally requires a separate `authorReason` of 5–1,000 characters.                                        |
 
 Reasons are `SPAM`, `HARASSMENT`, `HATE`, `THREATS`, `PRIVACY`, `MISINFORMATION` and `OTHER`. Text limits count Unicode characters after trimming whitespace. Receipt state is `OPEN` or `DECIDED`; decision fields are action, reason and decision time. Read views add `targetState: AVAILABLE | CHANGED | UNAVAILABLE` and a nullable source containing post ID, published title/body and chosen author name. Response fields are explicit projections, not serialized database rows.
 
@@ -42,7 +42,7 @@ Dismissal records a reason without changing source visibility. Removal requires 
 
 The command transaction rechecks the session, active profile and current platform grant after acquiring its locks. Removal hides the target, increments its aggregate version, inserts an immutable decision, closes the report and emits the existing `ContentRevoked` outbox event atomically. That event contains no complaint or reporter metadata. Reporting and dismissal do not emit a public complaint event. Each report is decided separately; removing a source does not silently decide other residents' reports about it.
 
-Removed targets disappear from public reads, feed/search hydration, bookmark results and eligible Activity sources. Retained descendant comments keep their independent visibility; new replies to a removed parent are rejected. Existing publication-review decisions cannot revive a removed target through a pending edit. Removal does not erase authorized private author revision access or audit records, and there is no implemented restoration or appeal flow.
+Removed targets disappear from public reads, feed/search hydration, bookmark results and eligible Activity sources. Retained descendant comments keep their independent visibility; new replies to a removed parent are rejected. Existing publication-review decisions cannot revive a removed target through a pending edit. Removal does not erase authorized private author revision access or audit records, and there is no implemented restoration or appeal flow. Authors receive a separately written safe reason in their [private decision history](AUTHOR_MODERATION_DECISIONS.md); internal notes and reporter details stay private.
 
 Publication review remains a separate staff tab. Its queue selects only `PUBLICATION_REVIEW` cases without a reporter. Each decision endpoint rejects the other workflow's case IDs.
 
@@ -69,4 +69,4 @@ The migrator applies the additive schema and refreshes restricted grants. Existi
 
 [Browser journeys](../tests/e2e/core.spec.ts) cover native modal cancellation, required Other detail, Unicode code-point minimums in resident/staff forms, a lost acknowledgement and same-key recovery, owner history, staff dismissal, an identical submission after dismissal, confirmed post/comment removal, retained replies, suppressed Activity and 320-pixel light/dark layouts. The production build, documentation validation and generated SQL/TypeScript drift checks accompany these tests.
 
-Still pending: anonymous reporting; media/profile/community report targets; author decision notices; independent appeals/restoration; community-scoped moderation; evaluated risk triage and emergency staffing; externally retained moderation audit and evidence-retention policy; production quota/scale evaluation; multilingual and full assistive-technology acceptance. Passing the local synthetic workflows does not satisfy these production gates.
+Still pending: anonymous reporting; media/profile/community report targets; author notification delivery; independent appeals/restoration; community-scoped moderation; evaluated risk triage and emergency staffing; externally retained moderation audit and evidence-retention policy; production quota/scale evaluation; multilingual and full assistive-technology acceptance. Passing the local synthetic workflows does not satisfy these production gates.

@@ -331,13 +331,14 @@ function ContentReportReviewCard({ report: r }: { report: Schema['ContentReport'
   const qc = useQueryClient();
   const { notify } = useSession();
   const [reason, setReason] = useState('');
+  const [authorReason, setAuthorReason] = useState('');
   const [confirm, setConfirm] = useState(false);
   const action = useMutation({
     mutationFn: (choice: 'DISMISS' | 'REMOVE') =>
       api<Schema['ContentReportReceipt']>(`moderation/content-reports/${r.id}/decisions`, {
         method: 'POST',
         version: r.version,
-        body: { action: choice, reason, targetRevision: r.targetRevision },
+        body: { action: choice, reason, authorReason, targetRevision: r.targetRevision },
       }),
     onSuccess: async (saved) => {
       setConfirm(false);
@@ -373,6 +374,19 @@ function ContentReportReviewCard({ report: r }: { report: Schema['ContentReport'
           placeholder="Explain the community policy decision"
         />
       </label>
+      <label>
+        Reason shared with author
+        <textarea
+          maxLength={1000}
+          value={authorReason}
+          disabled={action.isPending}
+          onChange={(e) => setAuthorReason(e.target.value)}
+          placeholder="Explain the policy violation to the author"
+        />
+        <small>
+          Required to remove. Keep reporter identities and private complaint details out.
+        </small>
+      </label>
       <FormError error={action.error} />
       <div className="form-actions">
         <button
@@ -386,7 +400,7 @@ function ContentReportReviewCard({ report: r }: { report: Schema['ContentReport'
         <button
           className="danger"
           type="button"
-          disabled={!ready || r.targetState !== 'AVAILABLE'}
+          disabled={!ready || characterCount(authorReason) < 5 || r.targetState !== 'AVAILABLE'}
           onClick={() => setConfirm(true)}
         >
           Remove reported content
@@ -406,6 +420,11 @@ function ContentReportReviewCard({ report: r }: { report: Schema['ContentReport'
             <strong>Decision reason</strong>
             <br />
             {reason}
+          </p>
+          <p>
+            <strong>Reason shared with author</strong>
+            <br />
+            {authorReason}
           </p>
           <FormError error={action.error} />
           <div className="form-actions">
