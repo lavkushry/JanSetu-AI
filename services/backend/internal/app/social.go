@@ -351,6 +351,29 @@ func (a *App) editComment(w http.ResponseWriter, r *http.Request, actor *Actor) 
 		if _, e = postData(r.Context(), q, c.PostID, actor, false); e != nil {
 			return e
 		}
+		// A rejected initial reply must meet today's posting and parent rules.
+		// Previously published removals remain ineligible in EditComment itself.
+		if c.State == "HIDDEN" && !c.PublishedVersion.Valid {
+			p, err := q.LockPost(r.Context(), c.PostID)
+			if err != nil {
+				return err
+			}
+			if p.State != "PUBLISHED" {
+				return forbidden()
+			}
+			if err = a.canPost(r.Context(), q, actor, p.CommunityID); err != nil {
+				return err
+			}
+			if c.ParentID != nil {
+				allowed, err := q.CommentReplyable(r.Context(), dbgen.CommentReplyableParams{CommentID: *c.ParentID, PostID: c.PostID, ViewerID: actor.ProfileID})
+				if err != nil {
+					return err
+				}
+				if !allowed {
+					return forbidden()
+				}
+			}
+		}
 		v, e := q.EditComment(r.Context(), dbgen.EditCommentParams{ID: cid, Version: version})
 		if e != nil {
 			return conflict()

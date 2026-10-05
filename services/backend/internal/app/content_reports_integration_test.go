@@ -50,7 +50,7 @@ func submitContentReport(t *testing.T, c client, kind string, id uuid.UUID, revi
 }
 func decideContentReport(t *testing.T, mod client, report contentReportResult, action string) {
 	t.Helper()
-	mustStatus(t, mod.request("POST", "moderation/content-reports/"+report.ID.String()+"/decisions", map[string]any{"action": action, "reason": "Reviewed fictional community policy concern", "targetRevision": report.TargetRevision}, report.Version, ""), 200)
+	mustStatus(t, mod.request("POST", "moderation/content-reports/"+report.ID.String()+"/decisions", map[string]any{"action": action, "authorReason": "This content violates community policy", "reason": "Reviewed fictional community policy concern", "targetRevision": report.TargetRevision}, report.Version, ""), 200)
 }
 
 func TestContentReportsPublishedRevisionPrivacyOwnershipAndRetries(t *testing.T) {
@@ -159,7 +159,7 @@ func TestContentReportsPublishedRevisionPrivacyOwnershipAndRetries(t *testing.T)
 	if v := parsed[contentReportResult](t, w); v.TargetState != "CHANGED" || v.Target != nil {
 		t.Fatal("changed revision retained source preview")
 	}
-	mustStatus(t, mod.request("POST", "moderation/content-reports/"+reported.String()+"/decisions", map[string]any{"action": "REMOVE", "reason": "Obsolete content must not be removed", "targetRevision": 1}, 1, ""), 409)
+	mustStatus(t, mod.request("POST", "moderation/content-reports/"+reported.String()+"/decisions", map[string]any{"action": "REMOVE", "authorReason": "This content violates community policy", "reason": "Obsolete content must not be removed", "targetRevision": 1}, 1, ""), 409)
 	decideContentReport(t, mod, duplicate, "DISMISS")
 	mustStatus(t, mod.request("POST", "moderation/content-reports/"+reported.String()+"/decisions", map[string]any{"action": "DISMISS", "reason": "Repeated old decision", "targetRevision": 1}, 1, ""), 412)
 	w = owner.request("GET", "me/content-reports/"+reported.String(), nil, 0, "")
@@ -184,6 +184,11 @@ func TestContentReportRemovalRechecksSnapshotsAndPreventsRevival(t *testing.T) {
 		t.Fatal(err)
 	}
 	decideContentReport(t, mod, reported, "REMOVE")
+	var removedVersion int64
+	if err := integrationAdmin.QueryRow(context.Background(), "SELECT version FROM social.post WHERE id=$1", p.ID).Scan(&removedVersion); err != nil {
+		t.Fatal(err)
+	}
+	mustStatus(t, author.request("PATCH", "posts/"+p.ID.String(), map[string]any{"title": "Removed post", "body": "No revival through rejected resubmission", "submitForReview": true}, removedVersion, ""), 412)
 	mustStatus(t, reporter.request("GET", "posts/"+p.ID.String(), nil, 0, ""), 404)
 	mustStatus(t, mod.request("POST", "moderation/"+pending.String()+"/decisions", map[string]any{"action": "ALLOW", "reason": "Cannot revive removed post", "targetRevision": 2}, 1, ""), 409)
 	for _, c := range []client{author, reporter} {
@@ -217,6 +222,10 @@ func TestContentReportRemovalRechecksSnapshotsAndPreventsRevival(t *testing.T) {
 		t.Fatal(err)
 	}
 	decideContentReport(t, mod, commentReport, "REMOVE")
+	if err := integrationAdmin.QueryRow(context.Background(), "SELECT version FROM social.comment WHERE id=$1", cid).Scan(&removedVersion); err != nil {
+		t.Fatal(err)
+	}
+	mustStatus(t, reporter.request("PATCH", "comments/"+cid.String(), map[string]any{"body": "No comment revival through resubmission"}, removedVersion, ""), 412)
 	w = author.request("GET", "posts/"+thread.ID.String()+"/comments", nil, 0, "")
 	mustStatus(t, w, 200)
 	if strings.Contains(w.Body.String(), cid.String()+`","postId"`) || !strings.Contains(w.Body.String(), child.String()) || strings.Contains(w.Body.String(), "Unpublished removed comment edit") {
@@ -323,7 +332,7 @@ func TestContentReportRequiresIndependentReviewer(t *testing.T) {
 	report := submitContentReport(t, reporter, "POST", p.ID, 1)
 	mustStatus(t, reporter.request("GET", "me/content-reports/"+report.ID.String(), nil, 0, ""), 200)
 	for _, action := range []string{"DISMISS", "REMOVE"} {
-		mustStatus(t, reporter.request("POST", "moderation/content-reports/"+report.ID.String()+"/decisions", map[string]any{"action": action, "reason": "Reporter cannot decide their own complaint", "targetRevision": 1}, 1, ""), 403)
+		mustStatus(t, reporter.request("POST", "moderation/content-reports/"+report.ID.String()+"/decisions", map[string]any{"action": action, "authorReason": "This content violates community policy", "reason": "Reporter cannot decide their own complaint", "targetRevision": 1}, 1, ""), 403)
 	}
 	w := reporter.request("GET", "moderation/content-reports", nil, 0, "")
 	mustStatus(t, w, 200)

@@ -68,8 +68,11 @@ export function PostCard({
       setConfirm(null);
     }
   }
-  const reviewPending = p.candidate?.reviewState === 'PENDING';
-  const displayedBody = p.state === 'PENDING' ? p.candidate?.body : p.body;
+  const reviewPending = p.state !== 'HIDDEN' && p.candidate?.reviewState === 'PENDING';
+  const displayedBody =
+    p.state === 'PENDING' || (p.state === 'HIDDEN' && p.publishedRevision === null)
+      ? p.candidate?.body
+      : p.body;
   return (
     <article
       className={`post-card ${p.kind === 'SHORT' ? 'short-post' : ''}`}
@@ -195,8 +198,17 @@ export function PostCard({
                   : 'Only you can see this post until a moderator approves it.'}
               </div>
             )}
+            {p.state === 'HIDDEN' && p.publishedRevision !== null && (
+              <div className="review-note">
+                This post was removed.{' '}
+                <Link href="/account#moderation-decisions">View your decision</Link>
+              </div>
+            )}
             {p.candidate?.reviewState === 'REJECTED' && (
-              <div className="review-note">This revision was restricted by a moderator.</div>
+              <div className="review-note">
+                This revision was restricted by a moderator.{' '}
+                <Link href="/account#moderation-decisions">View your decision</Link>
+              </div>
             )}
           </>
         )}
@@ -825,7 +837,7 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
                     ? c.candidate?.body
                     : c.body}
               </p>
-              {c.candidate?.reviewState === 'PENDING' && (
+              {c.state !== 'HIDDEN' && c.candidate?.reviewState === 'PENDING' && (
                 <small className="review-note">
                   Your {c.publishedVersion ? 'edit' : 'comment'} is awaiting review.
                 </small>
@@ -834,8 +846,19 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
                 post.data.selectedResponse.commentRevision === c.publishedVersion && (
                   <span className="badge good">Helpful response</span>
                 )}
+              {c.state === 'PUBLISHED' && c.candidate?.reviewState === 'REJECTED' && (
+                <small className="review-note">
+                  Your edit was restricted. The approved reply remains public.{' '}
+                  <Link href="/account#moderation-decisions">View your decision</Link>
+                </small>
+              )}
               {c.state === 'HIDDEN' && (
-                <small className="review-note">This comment was not published.</small>
+                <small className="review-note">
+                  {c.publishedVersion
+                    ? 'This comment was removed.'
+                    : 'This comment was not published.'}{' '}
+                  <Link href="/account#moderation-decisions">View your decision</Link>
+                </small>
               )}
               <div className="comment-actions">
                 {post.data.viewer.canSelectResponse &&
@@ -901,7 +924,7 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
                       setError(null);
                     }}
                   >
-                    Edit
+                    {c.state === 'HIDDEN' ? 'Edit and resubmit' : 'Edit'}
                   </button>
                 )}
                 {c.state === 'PUBLISHED' &&

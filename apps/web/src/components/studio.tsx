@@ -103,12 +103,13 @@ function Reviews() {
 function ReviewCard({ item: v }: { item: Schema['Review'] }) {
   const qc = useQueryClient();
   const [reason, setReason] = useState('');
+  const [authorReason, setAuthorReason] = useState('');
   const action = useMutation({
     mutationFn: (decision: string) =>
       api(`moderation/${v.id}/decisions`, {
         method: 'POST',
         version: v.version,
-        body: { action: decision, reason, targetRevision: v.targetRevision },
+        body: { action: decision, reason, authorReason, targetRevision: v.targetRevision },
       }),
     onSuccess: () => qc.invalidateQueries(),
   });
@@ -146,12 +147,28 @@ function ReviewCard({ item: v }: { item: Schema['Review'] }) {
               onChange={(e) => setReason(e.target.value)}
             />
           </label>
+          <label>
+            Reason shared with author
+            <textarea
+              maxLength={1000}
+              value={authorReason}
+              onChange={(e) => setAuthorReason(e.target.value)}
+              placeholder="Explain what the author needs to correct"
+            />
+            <small>
+              Required to restrict. Keep reporter identities and private complaint details out.
+            </small>
+          </label>
           <FormError error={action.error} />
           <div className="form-actions">
             <button
               type="button"
               className="secondary"
-              disabled={action.isPending || reason.trim().length < 5}
+              disabled={
+                action.isPending ||
+                Array.from(reason.trim()).length < 5 ||
+                Array.from(authorReason.trim()).length < 5
+              }
               onClick={() => action.mutate('RESTRICT')}
             >
               Restrict revision

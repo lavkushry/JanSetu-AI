@@ -2,10 +2,13 @@ package app
 
 import (
 	"errors"
+	"net/http"
+	"strings"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
-	"net/http"
 )
 
 func (a *App) moderationQueue(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
@@ -52,6 +55,7 @@ func (a *App) moderationDecision(w http.ResponseWriter, r *http.Request, actor *
 	var b struct {
 		Action         string `json:"action"`
 		Reason         string `json:"reason"`
+		AuthorReason   string `json:"authorReason"`
 		TargetRevision int64  `json:"targetRevision"`
 	}
 	if e = decode(r, &b); e != nil {
@@ -59,6 +63,14 @@ func (a *App) moderationDecision(w http.ResponseWriter, r *http.Request, actor *
 	}
 	if (b.Action != "ALLOW" && b.Action != "RESTRICT") || !textValid(b.Reason, 5, 1000) {
 		return nil, 0, invalid("Choose a decision and provide a reason")
+	}
+	b.AuthorReason = strings.TrimSpace(b.AuthorReason)
+	if b.Action == "RESTRICT" && !textValid(b.AuthorReason, 5, 1000) {
+		return nil, 0, invalid("Provide a separate reason shared with the author (5–1,000 characters)")
+	}
+	var authorReason pgtype.Text
+	if b.Action == "RESTRICT" {
+		authorReason = pgtype.Text{String: b.AuthorReason, Valid: true}
 	}
 	e = a.transaction(r.Context(), actor, func(q *dbgen.Queries) error {
 		if !actor.Has("PLATFORM_MODERATOR") {
@@ -145,7 +157,7 @@ func (a *App) moderationDecision(w http.ResponseWriter, r *http.Request, actor *
 		} else {
 			return invalid("Unsupported review target")
 		}
-		if e = q.InsertModerationDecision(r.Context(), dbgen.InsertModerationDecisionParams{ID: uuid.New(), ModerationCaseID: mid, Action: b.Action, ActorRef: actor.PrincipalID, Reason: b.Reason}); e != nil {
+		if e = q.InsertModerationDecision(r.Context(), dbgen.InsertModerationDecisionParams{ID: uuid.New(), ModerationCaseID: mid, Action: b.Action, ActorRef: actor.PrincipalID, Reason: b.Reason, AuthorReason: authorReason}); e != nil {
 			return e
 		}
 		if e = q.FinishModeration(r.Context(), mid); e != nil {

@@ -132,6 +132,18 @@ type SocialActivityVisible struct {
 	Title       pgtype.Text        `json:"title"`
 }
 
+type SocialAuthorModerationDecision struct {
+	ID             uuid.UUID          `json:"id"`
+	TargetType     string             `json:"target_type"`
+	TargetID       *uuid.UUID         `json:"target_id"`
+	PostID         uuid.UUID          `json:"post_id"`
+	TargetRevision int64              `json:"target_revision"`
+	Action         string             `json:"action"`
+	RuleVersion    string             `json:"rule_version"`
+	Reason         string             `json:"reason"`
+	DecidedAt      pgtype.Timestamptz `json:"decided_at"`
+}
+
 type SocialCaseReceipt struct {
 	ID                uuid.UUID          `json:"id"`
 	Title             string             `json:"title"`

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.11.0
+  version: 0.12.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -941,6 +941,50 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
+  /me/moderation-decisions:
+    get:
+      operationId: get_author_moderation_decisions
+      description: Private newest-first twenty-item decision history, scoped to the authenticated author. Includes publication approvals, restrictions and reported-content removals. Excludes dismissed complaints, reporter identities, internal notes and source text. Signed five-minute cursors bind the author and endpoint.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 1000
+      responses:
+        '200':
+          description: Author-only moderation history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorModerationDecisionPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /me/moderation-decisions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      operationId: get_author_moderation_decision
+      description: Author-only decision metadata; unavailable or foreign IDs return 404. Deleting source content retains the private record without copying source text.
+      responses:
+        '200':
+          description: Author-facing decision
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorModerationDecision'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
   /me/content-reports:
     get:
       operationId: get_own_content_reports
@@ -1033,6 +1077,13 @@ paths:
               type: object
               additionalProperties: false
               required: [action, reason, targetRevision]
+              allOf:
+                - if:
+                    properties:
+                      action:
+                        const: REMOVE
+                  then:
+                    required: [authorReason]
               properties:
                 action:
                   type: string
@@ -1041,6 +1092,11 @@ paths:
                   type: string
                   minLength: 5
                   maxLength: 1000
+                authorReason:
+                  type: string
+                  minLength: 5
+                  maxLength: 1000
+                  description: Separate reason shared with the author, required for REMOVE. Exclude reporter identities and private complaint details.
                 targetRevision:
                   type: integer
                   minimum: 1
@@ -3517,6 +3573,57 @@ components:
           maxLength: 4000
         languageTag:
           type: string
+    AuthorModerationDecision:
+      type: object
+      additionalProperties: false
+      required: [id, target, action, ruleVersion, reason, decidedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        target:
+          type: object
+          additionalProperties: false
+          required: [type, id, postId, revision]
+          properties:
+            type:
+              type: string
+              enum: [POST, COMMENT]
+            id:
+              type: string
+              format: uuid
+            postId:
+              type: string
+              format: uuid
+            revision:
+              type: integer
+              minimum: 1
+        action:
+          type: string
+          enum: [ALLOW, RESTRICT, REMOVE]
+        ruleVersion:
+          type: string
+        reason:
+          type: string
+          description: Separately authored public-to-author reason. Approvals and legacy decisions use fixed messages; internal review notes are never copied.
+        decidedAt:
+          type: string
+          format: date-time
+    AuthorModerationDecisionPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor, expiresAt]
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/AuthorModerationDecision'
+        nextCursor:
+          type: [string, 'null']
+        expiresAt:
+          type: string
+          format: date-time
     ModerationDecisionInput:
       type: object
       additionalProperties: false
@@ -3524,6 +3631,13 @@ components:
         - action
         - reason
         - targetRevision
+      allOf:
+        - if:
+            properties:
+              action:
+                const: RESTRICT
+          then:
+            required: [authorReason]
       properties:
         action:
           type: string
@@ -3534,6 +3648,11 @@ components:
           type: string
           minLength: 5
           maxLength: 1000
+        authorReason:
+          type: string
+          minLength: 5
+          maxLength: 1000
+          description: Separate reason shared with the author, required for RESTRICT. Exclude reporter identities and private complaint details.
         targetRevision:
           type: integer
           minimum: 1
