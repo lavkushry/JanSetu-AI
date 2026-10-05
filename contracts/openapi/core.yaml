@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.12.0
+  version: 0.13.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -934,6 +934,258 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
         '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /moderation/decisions/{id}/appeals:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    post:
+      operationId: post_author_appeal
+      description: Author-only RESTRICT/REMOVE appeals. One per decision for life; identical grounds return the existing receipt,
+        different grounds conflict. Ten new appeals per hour. Principal-bound 72-hour idempotency receipts contain no source
+        preview or internal notes.
+      parameters:
+      - $ref: '#/components/parameters/Idempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppealInput'
+      responses:
+        '201':
+          description: Private appeal record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppealReceipt'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /me/appeals:
+    get:
+      operationId: get_own_appeals
+      description: Private newest-first twenty-item pages with author/endpoint-bound five-minute cursors. No source text, original
+        internal notes, reviewer or reporter identities.
+      parameters:
+      - name: cursor
+        in: query
+        schema:
+          type: string
+          maxLength: 1000
+      responses:
+        '200':
+          description: Private appeal record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppealPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /me/appeals/{id}:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    get:
+      operationId: get_own_appeal
+      description: Owner-only receipt. Foreign IDs return 404; deleted source content does not remove this record.
+      responses:
+        '200':
+          description: Private appeal record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppealReceipt'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /moderation/appeals:
+    get:
+      operationId: get_appeal_queue
+      description: Fresh platform moderators see oldest-first twenty-item pages. Appellants, original decision makers and reporters
+        are excluded. Claims restrict records to the assigned reviewer. Staff-only source previews recheck current source availability;
+        original internal notes never enter owner receipts.
+      parameters:
+      - name: cursor
+        in: query
+        schema:
+          type: string
+          maxLength: 1000
+      responses:
+        '200':
+          description: Private appeal record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppealReviewPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /moderation/appeals/{id}:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    get:
+      operationId: get_appeal_review
+      description: Independent moderator review context; same conflict and assignment rules as the queue.
+      responses:
+        '200':
+          description: Private appeal record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppealReview'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /moderation/appeals/{id}/claim:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    post:
+      operationId: post_claim_appeal
+      description: Claims an OPEN appeal for a fresh independent moderator; repeated same-reviewer claims with the current version
+        are harmless. Closed or ineligible records return 404.
+      parameters:
+      - $ref: '#/components/parameters/Version'
+      responses:
+        '200':
+          description: Private appeal record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppealReceipt'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /moderation/appeals/{id}/decisions:
+    parameters:
+    - $ref: '#/components/parameters/ID'
+    post:
+      operationId: post_appeal_decision
+      description: Assigned independent reviewer records UPHELD or REVERSED with a separate author-facing reason. Requires original
+        revision and current source version; stale source returns 409. Reversal restores only the exact current reviewed revision
+        after fresh author, community and reply-parent policy checks. Deleted sources, later candidates and other removals remain
+        unavailable. Result, optional publication and outbox commit atomically. Closed appeals return 404 and cannot reopen.
+      parameters:
+      - $ref: '#/components/parameters/Version'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppealDecisionInput'
+      responses:
+        '200':
+          description: Private appeal record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppealReceipt'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '412':
           $ref: '#/components/responses/Problem'
         '422':
           $ref: '#/components/responses/Problem'
@@ -3576,8 +3828,12 @@ components:
     AuthorModerationDecision:
       type: object
       additionalProperties: false
-      required: [id, target, action, ruleVersion, reason, decidedAt]
+      required: [id, target, action, ruleVersion, reason, decidedAt, appeal]
       properties:
+        appeal:
+          oneOf:
+            - $ref: '#/components/schemas/AppealSummary'
+            - type: 'null'
         id:
           type: string
           format: uuid
@@ -4048,5 +4304,286 @@ components:
           type: string
           maxLength: 500
         appliedAt:
+          type: string
+          format: date-time
+
+    AppealSummary:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - state
+      properties:
+        id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum:
+          - OPEN
+          - REVIEWING
+          - UPHELD
+          - REVERSED
+          - WITHDRAWN
+    AppealOutcome:
+      type: object
+      additionalProperties: false
+      required:
+      - result
+      - reason
+      - restorationState
+      - restorationReason
+      - decidedAt
+      properties:
+        result:
+          type: string
+          enum:
+          - UPHELD
+          - REVERSED
+        reason:
+          type: string
+        restorationState:
+          type: string
+          enum:
+          - UNCHANGED
+          - RESTORED
+          - NOT_RESTORED
+        restorationReason:
+          type: string
+          enum:
+          - NONE
+          - TARGET_CHANGED
+          - TARGET_UNAVAILABLE
+          - POSTING_NOT_ALLOWED
+          - PARENT_UNAVAILABLE
+        decidedAt:
+          type: string
+          format: date-time
+    AppealReceipt:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - decisionId
+      - grounds
+      - state
+      - version
+      - createdAt
+      - outcome
+      properties:
+        id:
+          type: string
+          format: uuid
+        decisionId:
+          type: string
+          format: uuid
+        grounds:
+          type: string
+          minLength: 5
+          maxLength: 1000
+        state:
+          type: string
+          enum:
+          - OPEN
+          - REVIEWING
+          - UPHELD
+          - REVERSED
+          - WITHDRAWN
+        version:
+          type: integer
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+        outcome:
+          oneOf:
+          - $ref: '#/components/schemas/AppealOutcome'
+          - type: 'null'
+    AppealReview:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - decisionId
+      - grounds
+      - state
+      - version
+      - createdAt
+      - outcome
+      - original
+      - targetVersion
+      - restorationReason
+      - assignedToMe
+      - preview
+      properties:
+        id:
+          type: string
+          format: uuid
+        decisionId:
+          type: string
+          format: uuid
+        grounds:
+          type: string
+          minLength: 5
+          maxLength: 1000
+        state:
+          type: string
+          enum:
+          - OPEN
+          - REVIEWING
+          - UPHELD
+          - REVERSED
+          - WITHDRAWN
+        version:
+          type: integer
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+        outcome:
+          oneOf:
+          - $ref: '#/components/schemas/AppealOutcome'
+          - type: 'null'
+        original:
+          type: object
+          additionalProperties: false
+          required:
+          - action
+          - ruleVersion
+          - internalReason
+          - target
+          properties:
+            action:
+              type: string
+              enum:
+              - RESTRICT
+              - REMOVE
+            ruleVersion:
+              type: string
+            internalReason:
+              type: string
+              description: Staff-only original note; never included in an owner receipt.
+            target:
+              type: object
+              additionalProperties: false
+              required:
+              - type
+              - id
+              - postId
+              - revision
+              properties:
+                type:
+                  type: string
+                  enum:
+                  - POST
+                  - COMMENT
+                id:
+                  type: string
+                  format: uuid
+                postId:
+                  type: string
+                  format: uuid
+                revision:
+                  type: integer
+                  minimum: 1
+        targetVersion:
+          type: integer
+          minimum: 0
+          description: Current source aggregate version; zero if the original revision is unavailable.
+        restorationReason:
+          type: string
+          enum:
+          - NONE
+          - TARGET_CHANGED
+          - TARGET_UNAVAILABLE
+          - POSTING_NOT_ALLOWED
+          - PARENT_UNAVAILABLE
+        assignedToMe:
+          type: boolean
+        preview:
+          oneOf:
+          - type: object
+            additionalProperties: false
+            required:
+            - title
+            - body
+            properties:
+              title:
+                type: string
+              body:
+                type: string
+          - type: 'null'
+    AppealInput:
+      type: object
+      additionalProperties: false
+      required:
+      - grounds
+      properties:
+        grounds:
+          type: string
+          minLength: 5
+          maxLength: 1000
+    AppealDecisionInput:
+      type: object
+      additionalProperties: false
+      required:
+      - result
+      - authorReason
+      - targetRevision
+      - targetVersion
+      properties:
+        result:
+          type: string
+          enum:
+          - UPHELD
+          - REVERSED
+        authorReason:
+          type: string
+          minLength: 5
+          maxLength: 1000
+        targetRevision:
+          type: integer
+          minimum: 1
+        targetVersion:
+          type: integer
+          minimum: 0
+    AppealPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - nextCursor
+      - expiresAt
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/AppealReceipt'
+        nextCursor:
+          type:
+          - string
+          - 'null'
+        expiresAt:
+          type: string
+          format: date-time
+    AppealReviewPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - nextCursor
+      - expiresAt
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/AppealReview'
+        nextCursor:
+          type:
+          - string
+          - 'null'
+        expiresAt:
           type: string
           format: date-time

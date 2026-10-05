@@ -513,3 +513,72 @@ SELECT * FROM social.author_moderation_decision WHERE id=$1;
 SELECT * FROM social.author_moderation_decision
 WHERE NOT sqlc.arg(has_cursor)::boolean OR (decided_at,id)<(sqlc.arg(before_time)::timestamptz,sqlc.arg(before_id)::uuid)
 ORDER BY decided_at DESC,id DESC LIMIT 21;
+
+-- name: InsertAppeal :one
+INSERT INTO social.appeal(id,decision_id,appellant_ref,grounds,state) VALUES($1,$2,$3,$4,'OPEN') RETURNING *;
+-- name: OwnedAppeal :one
+SELECT * FROM social.appeal WHERE id=$1 AND appellant_ref=$2;
+-- name: OwnedAppealForDecision :one
+SELECT * FROM social.appeal WHERE decision_id=$1 AND appellant_ref=$2;
+-- name: OwnAppealPage :many
+SELECT * FROM social.appeal WHERE appellant_ref=sqlc.arg(appellant_ref)
+AND (NOT sqlc.arg(has_cursor)::boolean OR (created_at,id)<(sqlc.arg(before_time)::timestamptz,sqlc.arg(before_id)::uuid))
+ORDER BY created_at DESC,id DESC LIMIT 21;
+-- name: AppealCount :one
+SELECT count(*) FROM social.appeal WHERE appellant_ref=$1 AND created_at>statement_timestamp()-interval '1 hour';
+-- name: AppealQueue :many
+SELECT * FROM social.appeal WHERE state IN ('OPEN','REVIEWING') AND appellant_ref<>authz.principal()
+AND (reviewer_ref IS NULL OR reviewer_ref=authz.principal())
+AND (NOT sqlc.arg(has_cursor)::boolean OR (created_at,id)>(sqlc.arg(after_time)::timestamptz,sqlc.arg(after_id)::uuid))
+ORDER BY created_at,id LIMIT 21;
+-- name: ReviewerAppeal :one
+SELECT * FROM social.appeal WHERE id=$1 AND appellant_ref<>authz.principal()
+AND (reviewer_ref IS NULL OR reviewer_ref=authz.principal());
+-- name: LockAppeal :one
+SELECT * FROM social.appeal WHERE id=$1 FOR UPDATE;
+-- name: ClaimAppeal :exec
+UPDATE social.appeal SET state='REVIEWING',reviewer_ref=$2,version=version+1 WHERE id=$1;
+-- name: FinishAppeal :exec
+UPDATE social.appeal SET state=$2,version=version+1 WHERE id=$1;
+-- name: AppealDecision :one
+SELECT * FROM social.appeal_decision WHERE appeal_id=$1;
+-- name: InsertAppealDecision :exec
+INSERT INTO social.appeal_decision(id,appeal_id,result,author_reason,restoration_state,restoration_reason,reviewer_ref) VALUES($1,$2,$3,$4,$5,$6,$7);
+-- name: AppealOriginal :one
+SELECT d.id,d.action,d.rule_version,d.actor_ref,d.reason AS internal_reason,m.post_id,m.comment_id,m.target_version,m.reporter_ref
+FROM social.moderation_decision d JOIN social.moderation_case m ON m.id=d.moderation_case_id
+JOIN social.appeal appeal ON appeal.decision_id=d.id
+WHERE d.id=$1 AND authz.has_role('PLATFORM_MODERATOR') AND appeal.appellant_ref<>authz.principal()
+AND (appeal.reviewer_ref IS NULL OR appeal.reviewer_ref=authz.principal());
+-- name: AppealSourceStatus :one
+SELECT p.id AS target_id,p.id AS post_id,p.version,p.current_revision::bigint AS current_revision,coalesce(p.published_revision,0)::bigint AS published_revision,
+p.state,p.author_id,p.community_id,NULL::uuid AS parent_id,r.review_state
+FROM social.post p JOIN social.post_revision r ON r.post_id=p.id AND r.revision=sqlc.arg(target_revision)::bigint
+WHERE p.id=sqlc.arg(post_id)::uuid
+UNION ALL
+SELECT c.id,c.post_id,c.version,c.current_revision,coalesce(c.published_version,0)::bigint,c.state,c.author_id,p.community_id,c.parent_id,r.review_state
+FROM social.comment c JOIN social.post p ON p.id=c.post_id JOIN social.comment_revision r ON r.comment_id=c.id AND r.version=sqlc.arg(target_revision)::bigint
+WHERE c.id=sqlc.arg(comment_id)::uuid;
+-- name: AppealReviewPreview :one
+WITH eligible AS (SELECT FROM social.appeal WHERE decision_id=sqlc.arg(decision_id)::uuid
+AND authz.has_role('PLATFORM_MODERATOR') AND appellant_ref<>authz.principal()
+AND (reviewer_ref IS NULL OR reviewer_ref=authz.principal()))
+SELECT p.id AS post_id,r.title,r.body FROM social.post p JOIN social.profile a ON a.id=p.author_id AND a.state='ACTIVE'
+JOIN social.post_revision r ON r.post_id=p.id AND r.revision=sqlc.arg(target_revision)::bigint
+LEFT JOIN social.community community ON community.id=p.community_id
+WHERE p.id=sqlc.arg(post_id)::uuid AND EXISTS(SELECT FROM eligible) AND p.state IN ('HIDDEN','PUBLISHED')
+AND (community.id IS NULL OR (community.state='ACTIVE' AND community.visibility IN ('PUBLIC','RESTRICTED')))
+UNION ALL
+SELECT p.id,NULL::text,candidate.body FROM social.comment c JOIN social.post p ON p.id=c.post_id AND p.state='PUBLISHED'
+JOIN social.profile a ON a.id=c.author_id AND a.state='ACTIVE'
+JOIN social.profile pa ON pa.id=p.author_id AND pa.state='ACTIVE'
+JOIN social.comment_revision candidate ON candidate.comment_id=c.id AND candidate.version=sqlc.arg(target_revision)::bigint
+LEFT JOIN social.community community ON community.id=p.community_id
+WHERE c.id=sqlc.arg(comment_id)::uuid AND EXISTS(SELECT FROM eligible) AND c.state IN ('HIDDEN','PUBLISHED')
+AND (community.id IS NULL OR (community.state='ACTIVE' AND community.visibility IN ('PUBLIC','RESTRICTED')));
+-- name: ThreadReplyable :one
+SELECT EXISTS(SELECT FROM social.post p JOIN social.profile author ON author.id=p.author_id AND author.state='ACTIVE'
+WHERE p.id=sqlc.arg(post_id)::uuid AND p.state='PUBLISHED'
+AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+(b.blocker_id=sqlc.arg(viewer_id)::uuid AND b.blocked_id=p.author_id) OR
+(b.blocked_id=sqlc.arg(viewer_id)::uuid AND b.blocker_id=p.author_id))) AS allowed;

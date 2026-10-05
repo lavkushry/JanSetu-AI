@@ -1,9 +1,12 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
 )
@@ -11,6 +14,18 @@ import (
 // This DTO is deliberately independent of internal moderation cases and notes.
 func authorDecisionView(d dbgen.SocialAuthorModerationDecision) map[string]any {
 	return map[string]any{"id": d.ID, "target": map[string]any{"type": d.TargetType, "id": d.TargetID, "postId": d.PostID, "revision": d.TargetRevision}, "action": d.Action, "ruleVersion": d.RuleVersion, "reason": d.Reason, "decidedAt": timestamp(d.DecidedAt)}
+}
+func ownDecisionView(ctx context.Context, q *dbgen.Queries, d dbgen.SocialAuthorModerationDecision, actor *Actor) (map[string]any, error) {
+	result := authorDecisionView(d)
+	result["appeal"] = nil
+	appeal, e := q.OwnedAppealForDecision(ctx, dbgen.OwnedAppealForDecisionParams{DecisionID: d.ID, AppellantRef: actor.PrincipalID})
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		return nil, e
+	}
+	if e == nil {
+		result["appeal"] = map[string]any{"id": appeal.ID, "state": appeal.State}
+	}
+	return result, nil
 }
 func (a *App) authorModerationDecision(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
 	if err := require(actor); err != nil {
@@ -24,7 +39,8 @@ func (a *App) authorModerationDecision(w http.ResponseWriter, r *http.Request, a
 	if err != nil {
 		return nil, 0, err
 	}
-	return authorDecisionView(d), 200, nil
+	result, err := ownDecisionView(r.Context(), dbgen.New(a.store(r.Context())), d, actor)
+	return result, 200, err
 }
 func (a *App) authorModerationDecisions(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
 	if err := require(actor); err != nil {
@@ -40,7 +56,11 @@ func (a *App) authorModerationDecisions(w http.ResponseWriter, r *http.Request, 
 	}
 	items := []any{}
 	for _, d := range rows[:min(20, len(rows))] {
-		items = append(items, authorDecisionView(d))
+		result, e := ownDecisionView(r.Context(), dbgen.New(a.store(r.Context())), d, actor)
+		if e != nil {
+			return nil, 0, e
+		}
+		items = append(items, result)
 	}
 	var next any
 	if len(rows) > 20 {

@@ -326,6 +326,11 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request, _ *Actor) (any, i
 		if len(agencies) > 0 {
 			if agencies[0].Role == "VERIFIER" {
 				role = "Independent verifier"
+				for _, r := range roles {
+					if r == "PLATFORM_MODERATOR" {
+						role = "Independent verifier & appeal reviewer"
+					}
+				}
 			} else {
 				role = "Agency officer"
 			}
@@ -430,6 +435,8 @@ func (a *App) Handler() http.Handler {
 		"POST /v1/content-reports": a.createContentReport, "GET /v1/me/content-reports": a.ownContentReports,
 		"GET /v1/me/moderation-decisions": a.authorModerationDecisions, "GET /v1/me/moderation-decisions/{id}": a.authorModerationDecision, "GET /v1/me/content-reports/{id}": a.ownedContentReport,
 		"GET /v1/moderation/content-reports": a.contentReportQueue, "POST /v1/moderation/content-reports/{id}/decisions": a.contentReportDecision,
+		"POST /v1/moderation/decisions/{id}/appeals": a.createAppeal, "GET /v1/me/appeals": a.ownAppeals, "GET /v1/me/appeals/{id}": a.ownAppeal,
+		"GET /v1/moderation/appeals": a.appealQueue, "GET /v1/moderation/appeals/{id}": a.appealReview, "POST /v1/moderation/appeals/{id}/claim": a.claimAppeal, "POST /v1/moderation/appeals/{id}/decisions": a.decideAppeal,
 		"GET /v1/moderation": a.moderationQueue, "POST /v1/moderation/{id}/decisions": a.moderationDecision,
 		"GET /v1/case-receipts/{id}": a.getReceipt, "PUT /v1/case-receipts/{id}/follow": a.caseFollow,
 		"POST /v1/service-reports": a.submitReport, "GET /v1/my-reports": a.myReports, "GET /v1/my-reports/{id}": a.myReport,
