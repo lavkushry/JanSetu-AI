@@ -60,7 +60,7 @@ export function ActivityPage() {
   if (!me)
     return (
       <Empty title="Your activity lives here">
-        <p>Sign in to follow replies, public service progress and your private review decisions.</p>
+        <p>Sign in to follow replies, public service progress and your private review outcomes.</p>
         <button className="primary" onClick={signIn}>
           Sign in
         </button>
@@ -74,7 +74,7 @@ export function ActivityPage() {
           <Bell size={15} /> STAY IN THE LOOP
         </span>
         <h1>Activity</h1>
-        <p>Your conversations, your city’s progress, and your private review decisions.</p>
+        <p>Your conversations, your city’s progress, and your private review outcomes.</p>
         <Link className="text-button" href="/account#activity-settings">
           Manage Activity preferences
         </Link>
@@ -120,8 +120,8 @@ export function ActivityPage() {
         ))}
       </div>
       <p className="muted activity-note">
-        Approved replies, reviewed public updates and your private moderation decisions appear here.
-        Read status is for your inbox.
+        Approved replies, reviewed public updates and your private review outcomes appear here. Read
+        status is for your inbox.
       </p>
       <FormError error={read.error} />
       {summary.error && <ErrorState error={summary.error} retry={() => void summary.refetch()} />}
@@ -155,7 +155,9 @@ export function ActivityPage() {
                     <strong>
                       {item.kind === 'CASE_PROGRESS'
                         ? 'Public service progress'
-                        : 'Private moderation'}
+                        : item.kind === 'CONTENT_REPORT_OUTCOME'
+                          ? 'Private content report'
+                          : 'Private moderation'}
                     </strong>
                   )}
                   <time dateTime={item.createdAt} title={new Date(item.createdAt).toLocaleString()}>
@@ -206,5 +208,7 @@ function activityTargetURL(target: Schema['Activity']['target']) {
       return `/account/moderation-decisions/${target.id}`;
     case 'APPEAL':
       return `/account/appeals/${target.id}`;
+    case 'CONTENT_REPORT':
+      return `/account/content-reports/${target.id}`;
   }
 }

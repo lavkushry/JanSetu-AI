@@ -13,8 +13,8 @@ import (
 )
 
 const activityPage = `-- name: ActivityPage :many
-SELECT id, recipient_id, kind, post_id, receipt_id, created_at, read_at, actor_id, display_name, handle, title, moderation_decision_id, appeal_id FROM social.activity_visible WHERE recipient_id=$1
-AND ($2::text='ALL' OR ($2='SOCIAL' AND kind='REPLY') OR ($2='CASES' AND kind='CASE_PROGRESS') OR ($2='MODERATION' AND kind IN ('MODERATION_DECISION','APPEAL_OUTCOME')))
+SELECT id, recipient_id, kind, post_id, receipt_id, created_at, read_at, actor_id, display_name, handle, title, moderation_decision_id, appeal_id, content_report_id FROM social.activity_visible WHERE recipient_id=$1
+AND ($2::text='ALL' OR ($2='SOCIAL' AND kind='REPLY') OR ($2='CASES' AND kind='CASE_PROGRESS') OR ($2='MODERATION' AND kind IN ('MODERATION_DECISION','APPEAL_OUTCOME','CONTENT_REPORT_OUTCOME')))
 AND (NOT $3::boolean OR (created_at,id)<($4::timestamptz,$5::uuid))
 ORDER BY created_at DESC,id DESC LIMIT 21
 `
@@ -56,6 +56,7 @@ func (q *Queries) ActivityPage(ctx context.Context, arg ActivityPageParams) ([]S
 			&i.Title,
 			&i.ModerationDecisionID,
 			&i.AppealID,
+			&i.ContentReportID,
 		); err != nil {
 			return nil, err
 		}
@@ -1311,10 +1312,11 @@ func (q *Queries) DeliverReplyActivity(ctx context.Context, arg DeliverReplyActi
 }
 
 const deliverReviewActivity = `-- name: DeliverReviewActivity :exec
-INSERT INTO social.notification(id,recipient_id,event_id,channel,kind,source_version,moderation_decision_id,appeal_id,state,created_at)
+INSERT INTO social.notification(id,recipient_id,event_id,channel,kind,source_version,moderation_decision_id,appeal_id,content_report_id,state,created_at)
 SELECT gen_random_uuid(),recipient_id,$1,'IN_APP',kind,source_version,
 CASE WHEN kind='MODERATION_DECISION' THEN source_id ELSE NULL::uuid END,
-CASE WHEN kind='APPEAL_OUTCOME' THEN source_id ELSE NULL::uuid END,'SENT',$2
+CASE WHEN kind='APPEAL_OUTCOME' THEN source_id ELSE NULL::uuid END,
+CASE WHEN kind='CONTENT_REPORT_OUTCOME' THEN source_id ELSE NULL::uuid END,'SENT',$2
 FROM social.activity_review_source WHERE kind=$3::text AND source_id=$4::uuid AND source_version=$5::bigint
 ON CONFLICT DO NOTHING
 `

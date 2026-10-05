@@ -5,22 +5,28 @@ import { ArrowLeft, ShieldCheck } from 'lucide-react';
 import { api, APIError, type Schema } from '@/lib/api';
 import { AuthorDecisionCard } from './moderation-decisions';
 import { PrivateAppealCard } from './appeals';
+import { PrivateContentReportCard } from './content-reports';
 import { Empty, ErrorState, Loading, useSession } from './ui';
 
-export function PrivateReviewRecord({
-  id,
-  kind,
-}: {
-  id: string;
-  kind: 'MODERATION_DECISION' | 'APPEAL';
-}) {
+type PrivateRecord =
+  | { kind: 'MODERATION_DECISION'; value: Schema['AuthorModerationDecision'] }
+  | { kind: 'APPEAL'; value: Schema['AppealReceipt'] }
+  | { kind: 'CONTENT_REPORT'; value: Schema['ContentReport'] };
+
+export function PrivateReviewRecord({ id, kind }: { id: string; kind: PrivateRecord['kind'] }) {
   const { me, signIn } = useSession();
   const appeal = kind === 'APPEAL';
-  const root = appeal ? 'appeals' : 'moderation-decisions';
+  const report = kind === 'CONTENT_REPORT';
+  const root = report ? 'content-reports' : appeal ? 'appeals' : 'moderation-decisions';
   const record = useQuery({
     queryKey: [root, me?.profile.id || 'guest', id],
-    queryFn: () =>
-      api<Schema['AuthorModerationDecision'] | Schema['AppealReceipt']>(`me/${root}/${id}`),
+    queryFn: async (): Promise<PrivateRecord> => {
+      const path = `me/${root}/${id}`;
+      if (kind === 'CONTENT_REPORT')
+        return { kind, value: await api<Schema['ContentReport']>(path) };
+      if (kind === 'APPEAL') return { kind, value: await api<Schema['AppealReceipt']>(path) };
+      return { kind, value: await api<Schema['AuthorModerationDecision']>(path) };
+    },
     enabled: !!me,
     refetchInterval: 30000,
   });
@@ -28,7 +34,8 @@ export function PrivateReviewRecord({
     return (
       <Empty title="Private review record">
         <p>
-          Sign in to view your own decision or appeal. These records are private to their owner.
+          Sign in to view your own decision, appeal or content report. These records are private to
+          their owner.
         </p>
         <button className="primary" onClick={signIn}>
           Sign in
@@ -46,7 +53,7 @@ export function PrivateReviewRecord({
           <ShieldCheck size={15} /> PRIVATE ACCOUNT RECORD
         </span>
         <h1 id="private-review-record-heading">
-          {appeal ? 'Appeal outcome' : 'Moderation decision'}
+          {report ? 'Content report outcome' : appeal ? 'Appeal outcome' : 'Moderation decision'}
         </h1>
         <p>
           This is your private record. Current thread links follow the thread’s current visibility
@@ -74,10 +81,12 @@ export function PrivateReviewRecord({
       ) : (
         record.data && (
           <div className="account-panel">
-            {'target' in record.data ? (
-              <AuthorDecisionCard decision={record.data} />
+            {record.data.kind === 'CONTENT_REPORT' ? (
+              <PrivateContentReportCard report={record.data.value} />
+            ) : record.data.kind === 'MODERATION_DECISION' ? (
+              <AuthorDecisionCard decision={record.data.value} />
             ) : (
-              <PrivateAppealCard appeal={record.data} />
+              <PrivateAppealCard appeal={record.data.value} />
             )}
           </div>
         )

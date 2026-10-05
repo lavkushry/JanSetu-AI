@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.14.0
+  version: 0.15.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -1480,7 +1480,7 @@ paths:
   /me/activity:
     get:
       operationId: get_activity
-      description: Owner-only in-app alerts. Public replies/case progress recheck their existing publication, block/mute and follow rules. Private restriction/removal and appeal-outcome notices recheck record ownership, active recipient and IN_APP consent, remain available after source deletion, and contain fixed messages with no source text, reasons, grounds or reviewer/reporter identities. MODERATION selects these two private kinds. Twenty items per signed viewer/filter-bound page; five-minute cursor deadline.
+      description: Owner-only in-app alerts. Public replies/case progress recheck their existing publication, block/mute and follow rules. Private restriction/removal, appeal-outcome and content-report-outcome notices recheck record ownership, active recipient and IN_APP consent, remain available after source deletion, and contain fixed messages with no source text, reasons, grounds or reviewer/reporter identities. MODERATION selects these three private kinds. Content-report outcomes open exact reporter-owned receipts, with no report text or outcome explanation in the alert. Twenty items per signed viewer/filter-bound page; five-minute cursor deadline.
       parameters:
         - name: filter
           in: query
@@ -2688,7 +2688,7 @@ components:
           format: uuid
         kind:
           type: string
-          enum: [REPLY, CASE_PROGRESS, MODERATION_DECISION, APPEAL_OUTCOME]
+          enum: [REPLY, CASE_PROGRESS, MODERATION_DECISION, APPEAL_OUTCOME, CONTENT_REPORT_OUTCOME]
         createdAt:
           type: string
           format: date-time
@@ -2718,8 +2718,8 @@ components:
           properties:
             kind:
               type: string
-              enum: [POST, RECEIPT, MODERATION_DECISION, APPEAL]
-              description: MODERATION_DECISION and APPEAL identify exact owner-only records opened under /account; POST and RECEIPT retain public source navigation.
+              enum: [POST, RECEIPT, MODERATION_DECISION, APPEAL, CONTENT_REPORT]
+              description: MODERATION_DECISION, APPEAL and CONTENT_REPORT identify exact owner-only records opened under /account; POST and RECEIPT retain public source navigation.
             id:
               type: string
               format: uuid

@@ -22,6 +22,7 @@ sql:
       - ../../db/migrations/00018_author_moderation_decisions.sql
       - ../../db/migrations/00019_moderation_appeals.sql
       - ../../db/migrations/00020_private_moderation_activity.sql
+      - ../../db/migrations/00021_content_report_outcome_activity.sql
     queries: internal/store/queries.sql
     gen:
       go:
