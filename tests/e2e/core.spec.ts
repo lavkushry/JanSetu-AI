@@ -774,6 +774,7 @@ test('multipart draft resumes after reload and rejects a different file before u
 }) => {
   await page.goto('/');
   await signIn(page, 'Ananya Rao');
+  const profileName = await page.locator('.account-control strong').innerText();
   await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Location or landmark').fill('Fictional resumed upload crossing');
@@ -811,6 +812,7 @@ test('multipart draft resumes after reload and rejects a different file before u
   expect(status.completedParts).toHaveLength(1);
   expect(status.parts).toHaveLength(0);
   await page.reload();
+  await expect(page.locator('.account-control strong')).toHaveText(profileName);
   await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
   await dialog.getByRole('button', { name: 'Restore draft', exact: true }).click();
   await expect(
