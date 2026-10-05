@@ -48,12 +48,13 @@ Sessions are required; mutations retain CSRF/origin checks. Unknown, hidden and 
 
 The social runtime can select only its authenticated recipient rows and update only `read_at`. It cannot insert alerts or change recipients, source IDs, channel or delivery state. The worker can read and insert notifications, reads only the comment columns needed for eligibility, and retains no operational report or vault access. The owner scope helper derives the current profile from a live authenticated session; identity-table privileges remain restricted. Preference and mute reads are also owner-scoped for the social runtime.
 
-Upgrade the API, worker and web together, preserving the application and media volumes:
+Upgrade the worker before the API and web, preserving the application and media volumes:
 
 ```bash
 docker compose build migrate api worker web
 docker compose run --rm --no-deps migrate
-docker compose up -d --no-deps --wait api worker web
+docker compose up -d --no-deps --wait worker
+docker compose up -d --no-deps --wait api web
 ```
 
 Pending older reply events do not create activity because only the new approval event triggers it. Existing pending public receipt events may notify only followers who were already subscribed when they were published and remain eligible. Historical processed events are not replayed. For private review alerts, apply [migration 00020](../db/migrations/00020_private_moderation_activity.sql) and follow the [worker-first upgrade sequence](PRIVATE_MODERATION_ACTIVITY.md#database-and-upgrade).
