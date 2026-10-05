@@ -860,6 +860,7 @@ test('a committed part with a lost acknowledgement completes after reload withou
 }) => {
   await page.goto('/');
   await signIn(page, 'Ananya Rao');
+  const profileName = await page.locator('.account-control strong').innerText();
   await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Save this private draft on this device').check();
@@ -874,7 +875,13 @@ test('a committed part with a lost acknowledgement completes after reload withou
     .getByLabel('Choose report photos')
     .setInputFiles('services/backend/internal/media/testdata/notice.png');
   await expect(dialog.getByRole('button', { name: 'Retry upload', exact: true })).toBeVisible();
+  // Exercise draft recovery while a fresh client session lookup is delayed.
+  await page.route('**/api/me', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    await route.continue();
+  });
   await page.reload();
+  await expect(page.locator('.account-control strong')).toHaveText(profileName);
   await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
   await dialog.getByRole('button', { name: 'Restore draft', exact: true }).click();
   await dialog.getByRole('button', { name: 'Finish upload', exact: true }).click();
