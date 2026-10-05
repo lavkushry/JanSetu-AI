@@ -43,7 +43,7 @@ func validateProjectionEvent(event dbgen.InfraOutbox) error {
 		aggregate = "REPORT"
 	case "CaseCreated", "ObligationChanged", "VerificationRecorded", "SafeReceiptPublished":
 		aggregate = "CASE"
-	case "ModerationDecisionRecorded":
+	case "ModerationDecisionRecorded", "PublicationApprovalRecorded":
 		aggregate = "MODERATION_DECISION"
 	case "AppealOutcomeRecorded":
 		aggregate = "APPEAL"
@@ -134,8 +134,11 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 				if e = q.DeliverReplyActivity(ctx, dbgen.DeliverReplyActivityParams{EventID: claimed.ID, CommentID: payload.CommentID, SourceVersion: pgtype.Int8{Int64: payload.Revision, Valid: true}, EventTime: claimed.CreatedAt}); e != nil {
 					return e
 				}
-			case "ModerationDecisionRecorded", "AppealOutcomeRecorded", "ContentReportOutcomeRecorded":
+			case "ModerationDecisionRecorded", "PublicationApprovalRecorded", "AppealOutcomeRecorded", "ContentReportOutcomeRecorded":
 				sourceKind := "MODERATION_DECISION"
+				if claimed.EventType == "PublicationApprovalRecorded" {
+					sourceKind = "PUBLICATION_APPROVAL"
+				}
 				if claimed.EventType == "AppealOutcomeRecorded" {
 					sourceKind = "APPEAL_OUTCOME"
 				}

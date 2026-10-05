@@ -2329,6 +2329,243 @@ function reviewActivityCard(
     .getByTestId('activity-card')
     .filter({ has: page.locator(`a[href="/account/${kind}/${id}"]`) });
 }
+
+async function authorApproval(page: Page, target: string, revision: number) {
+  const history = (await (
+    await page.request.get('/api/me/moderation-decisions')
+  ).json()) as Schema['AuthorModerationDecisionPage'];
+  const decision = history.items.find(
+    (d) => d.target.id === target && d.target.revision === revision && d.action === 'ALLOW',
+  );
+  if (!decision) throw new Error('Missing exact publication approval');
+  return decision;
+}
+
+test('publication approvals open exact private revisions and survive source deletion', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  const other = await staffPage(browser, 'Rohan Mehta');
+  const marker = `Private approval source ${Date.now()}`;
+  const internal = `PRIVATE PUBLICATION REVIEW NOTE ${Date.now()}`;
+  const created = await page.request.post('/api/posts', {
+    headers: { 'X-JanSetu-CSRF': '1', 'Idempotency-Key': crypto.randomUUID() },
+    data: { kind: 'SHORT', body: marker, languageTag: 'en-IN', submitForReview: true },
+  });
+  expect(created.status()).toBe(201);
+  const post = (await created.json()) as Schema['Post'];
+  const pending = (await (
+    await page.request.get('/api/me/moderation-decisions')
+  ).json()) as Schema['AuthorModerationDecisionPage'];
+  expect(pending.items.some((d) => d.target.id === post.id)).toBe(false);
+  await staff.page.reload();
+  let review = staff.page.getByTestId('review-card').filter({ hasText: marker });
+  await review.getByLabel('Review reason').fill(internal);
+  await review.getByRole('button', { name: 'Approve & publish', exact: true }).click();
+  await expect(review).toHaveCount(0);
+  const first = await authorApproval(page, post.id, 1);
+  await privateReviewNotice(page, first.id);
+  const alerts = (await (
+    await page.request.get('/api/me/activity?filter=MODERATION')
+  ).json()) as Schema['ActivityPage'];
+  const notice = alerts.items.find((n) => n.target.id === first.id);
+  expect(notice?.kind).toBe('PUBLICATION_APPROVAL');
+  expect(notice?.actor).toBeNull();
+  for (const secret of [marker, internal, post.id])
+    expect(JSON.stringify(alerts)).not.toContain(secret);
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  const firstCard = reviewActivityCard(page, 'moderation-decisions', first.id);
+  await expect(firstCard).toContainText('Publication review');
+  await expect(firstCard).toContainText('A publication approval is available for your content.');
+  await expect(firstCard).toHaveClass(/unread/);
+  await firstCard.locator('.activity-target').click();
+  await expect(page).toHaveURL(`/account/moderation-decisions/${first.id}`);
+  const exact = page.getByTestId(`moderation-decision-${first.id}`);
+  await expect(exact).toContainText('Approved for publication');
+  await expect(exact).toContainText('REVISION 1');
+  await expect(exact).toContainText('This revision was approved for publication.');
+  await expect(exact).not.toContainText(internal);
+  await expect(exact).not.toContainText(marker);
+  await expect(exact.getByRole('button', { name: 'Appeal decision', exact: true })).toHaveCount(0);
+  await other.page.goto(`/account/moderation-decisions/${first.id}`);
+  await expect(
+    other.page.getByRole('heading', { name: 'This private record is unavailable' }),
+  ).toBeVisible();
+  expect((await staff.page.request.get(`/api/me/moderation-decisions/${first.id}`)).status()).toBe(
+    404,
+  );
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  await expect(firstCard).toHaveClass(/unread/);
+  await firstCard.getByRole('button', { name: 'Mark as read', exact: true }).click();
+  await expect(firstCard).not.toHaveClass(/unread/);
+  await page.reload();
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  await expect(firstCard).not.toHaveClass(/unread/);
+  await page.goto(`/posts/${post.id}`);
+  await page.getByLabel('Post options').click();
+  await page.getByRole('button', { name: 'Edit post', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit your post' });
+  const revised = `Revised publication approval source ${Date.now()}`;
+  await edit.getByRole('textbox').fill(revised);
+  await edit.getByRole('button', { name: 'Submit for review', exact: true }).click();
+  await expect(
+    page.getByText('Your edit is awaiting review. The approved version remains public.'),
+  ).toBeVisible();
+  await expect(page.locator('.post-body')).toContainText(marker);
+  await staff.page.reload();
+  review = staff.page.getByTestId('review-card').filter({ hasText: revised });
+  await review.getByLabel('Review reason').fill('PRIVATE SECOND APPROVAL NOTE');
+  await review.getByRole('button', { name: 'Approve & publish', exact: true }).click();
+  await expect(review).toHaveCount(0);
+  const second = await authorApproval(page, post.id, 2);
+  expect(second.id).not.toBe(first.id);
+  await privateReviewNotice(page, second.id);
+  await page.goto(`/account/moderation-decisions/${first.id}`);
+  await expect(exact).toContainText('REVISION 1');
+  await page.goto(`/account/moderation-decisions/${second.id}`);
+  const latest = page.getByTestId(`moderation-decision-${second.id}`);
+  await expect(latest).toContainText('REVISION 2');
+  await page.setViewportSize({ width: 320, height: 740 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: 'test-results/publication-approval-mobile-light.png' });
+  await page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: 'test-results/publication-approval-mobile-dark.png' });
+  await latest.getByRole('link', { name: 'Open current thread', exact: true }).click();
+  await expect(page.locator('.post-body')).toContainText(revised);
+  await page.getByLabel('Post options').click();
+  await page.getByRole('button', { name: 'Delete post', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete this post?' })
+    .getByRole('button', { name: 'Delete post', exact: true })
+    .click();
+  await expect(page.getByText('This post was deleted.')).toBeVisible();
+  await page.goto(`/account/moderation-decisions/${second.id}`);
+  await expect(latest).toContainText('Approved for publication');
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  await expect(firstCard).not.toHaveClass(/unread/);
+  await expect(reviewActivityCard(page, 'moderation-decisions', second.id)).toBeVisible();
+  await other.context.close();
+  await staff.context.close();
+});
+
+test('reply authors receive private approvals separately from conversation alerts and consent', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(75_000);
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  const restoreFixtureConsent = async () => {
+    const response = await page.request.get('/api/me/notification-preferences');
+    expect(response.ok()).toBe(true);
+    const preference = (await response.json()) as Schema['NotificationPreference'];
+    if (!preference.inApp) {
+      const updated = await page.request.patch('/api/me/notification-preferences', {
+        headers: { 'x-jansetu-csrf': '1', 'if-match': `"${preference.version}"` },
+        data: { inApp: true },
+      });
+      expect(updated.ok()).toBe(true);
+    }
+  };
+  await restoreFixtureConsent();
+  const author = await staffPage(browser, 'Ananya Rao');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  try {
+    const post = await publishedContentReportFixture(
+      author.page,
+      staff.page,
+      `Approval reply thread ${Date.now()}`,
+    );
+    await page.goto(`/posts/${post.id}`);
+    const body = `Private reply approval candidate ${Date.now()}`;
+    await page.getByLabel('Add to the conversation').fill(body);
+    await page.getByRole('button', { name: 'Submit comment', exact: true }).click();
+    await expect(page.getByText(body, { exact: true })).toBeVisible();
+    const comments = (await (
+      await page.request.get(`/api/posts/${post.id}/comments`)
+    ).json()) as Schema['CommentPage'];
+    const reply = comments.items.find((c) => c.candidate?.body === body);
+    if (!reply) throw new Error('Missing submitted reply');
+    await staff.page.reload();
+    const review = staff.page.getByTestId('review-card').filter({ hasText: body });
+    await review.getByLabel('Review reason').fill('PRIVATE REPLY APPROVAL NOTE');
+    await review.getByRole('button', { name: 'Approve & publish', exact: true }).click();
+    await expect(review).toHaveCount(0);
+    const decision = await authorApproval(page, reply.id, 1);
+    await privateReviewNotice(page, decision.id);
+    await expect
+      .poll(async () => {
+        const list = (await (
+          await author.page.request.get('/api/me/activity?filter=SOCIAL')
+        ).json()) as Schema['ActivityPage'];
+        return list.items.some((n) => n.kind === 'REPLY' && n.target.id === post.id);
+      })
+      .toBe(true);
+    const writerAlerts = (await (
+      await page.request.get('/api/me/activity?filter=MODERATION')
+    ).json()) as Schema['ActivityPage'];
+    expect(writerAlerts.items.find((n) => n.target.id === decision.id)?.kind).toBe(
+      'PUBLICATION_APPROVAL',
+    );
+    const parentAlerts = (await (
+      await author.page.request.get('/api/me/activity?filter=MODERATION')
+    ).json()) as Schema['ActivityPage'];
+    expect(parentAlerts.items.some((n) => n.target.id === decision.id)).toBe(false);
+    expect(
+      (await author.page.request.get(`/api/me/moderation-decisions/${decision.id}`)).status(),
+    ).toBe(404);
+    await page.goto('/activity');
+    await page.getByRole('button', { name: 'Conversations', exact: true }).click();
+    await expect(reviewActivityCard(page, 'moderation-decisions', decision.id)).toHaveCount(0);
+    await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+    const card = reviewActivityCard(page, 'moderation-decisions', decision.id);
+    await expect(card).toContainText('Publication review');
+    await card.getByRole('button', { name: 'Mark as read', exact: true }).click();
+    await expect(card).not.toHaveClass(/unread/);
+    await page.goto('/account#activity-settings');
+    await page.getByRole('switch', { name: 'In-app notifications' }).uncheck();
+    await page.getByRole('button', { name: 'Save activity preferences', exact: true }).click();
+    await expect(page.getByRole('status')).toContainText('In-app notifications paused');
+    await page.goto('/activity');
+    await expect(
+      page.getByText('In-app notifications are paused.', { exact: false }),
+    ).toBeVisible();
+    await expect(page.getByText('0 unread', { exact: true })).toBeVisible();
+    await expect(card).toHaveCount(0);
+    await page.goto(`/account/moderation-decisions/${decision.id}`);
+    await expect(page.getByTestId(`moderation-decision-${decision.id}`)).toContainText(
+      'Approved for publication',
+    );
+    await page.goto('/account#activity-settings');
+    await page.getByRole('switch', { name: 'In-app notifications' }).check();
+    await page.getByRole('button', { name: 'Save activity preferences', exact: true }).click();
+    await expect(page.getByRole('status')).toContainText('In-app notifications enabled');
+    await page.goto('/activity');
+    await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+    await expect(card).not.toHaveClass(/unread/);
+    await card.getByRole('button', { name: 'Mark as unread', exact: true }).click();
+    await expect(card).toHaveClass(/unread/);
+  } finally {
+    try {
+      await restoreFixtureConsent();
+    } finally {
+      await Promise.all([staff.context.close(), author.context.close()]);
+    }
+  }
+});
+
 test('private moderation activity opens exact owner records and preserves appeal history after deletion', async ({
   page,
   browser,

@@ -43,4 +43,4 @@ Go integration tests cover post dismissal, comment removal, pending/historical s
 
 Browser journeys use real OIDC accounts and worker delivery for dismissal/removal, distinct author/reporter records, exact links, receipt retention, consent, persistent read state and sign-out/account switching. They inspect 320px light/dark screens. CI also runs the complete social, civic and private-photo workflows.
 
-This is local IN_APP feedback for post/comment reports. Outbound channels, approval alerts, account-security notifications, additional reporting targets, governed moderation policy, configurable retention, large-scale delivery and full accessibility acceptance remain pending.
+This is local IN_APP feedback for post/comment reports. Outbound channels, account-security notifications, additional reporting targets, governed moderation policy, configurable retention, large-scale delivery and full accessibility acceptance remain pending.

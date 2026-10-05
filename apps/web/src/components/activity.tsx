@@ -157,7 +157,9 @@ export function ActivityPage() {
                         ? 'Public service progress'
                         : item.kind === 'CONTENT_REPORT_OUTCOME'
                           ? 'Private content report'
-                          : 'Private moderation'}
+                          : item.kind === 'PUBLICATION_APPROVAL'
+                            ? 'Publication review'
+                            : 'Private moderation'}
                     </strong>
                   )}
                   <time dateTime={item.createdAt} title={new Date(item.createdAt).toLocaleString()}>

@@ -164,10 +164,12 @@ func (a *App) moderationDecision(w http.ResponseWriter, r *http.Request, actor *
 		if e = q.FinishModeration(r.Context(), mid); e != nil {
 			return e
 		}
-		if b.Action == "RESTRICT" {
-			if e = addEvent(r.Context(), q, "MODERATION_DECISION", decisionID, 1, "ModerationDecisionRecorded", map[string]any{}); e != nil {
-				return e
-			}
+		eventType := "ModerationDecisionRecorded"
+		if b.Action == "ALLOW" {
+			eventType = "PublicationApprovalRecorded"
+		}
+		if e = addEvent(r.Context(), q, "MODERATION_DECISION", decisionID, 1, eventType, map[string]any{}); e != nil {
+			return e
 		}
 		return addEvent(r.Context(), q, "POST", aggregate, aggregateVersion, "PublicationReviewed", map[string]any{"decision": b.Action})
 	})

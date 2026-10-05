@@ -16,7 +16,8 @@ Loading, signed-out, empty and retry states are explicit. Refresh clears the sel
 | -------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | First approved top-level comment | Post author                      | Moderation approval writes `CommentPublished` in the same transaction. One notification per recipient/comment; later approved edits do not notify again.                         |
 | First approved nested reply      | Direct parent comment author     | Same approval rule. Self replies do not notify. The parent and thread must still be published.                                                                                   |
-| Restriction or removal           | Content author                   | `ModerationDecisionRecorded` targets the immutable decision. One notification per recipient/decision. Approval and report dismissal do not create alerts.                        |
+| Publication approval | Content author | `PublicationApprovalRecorded` opens the exact private ALLOW decision. First publication, approved edits and corrected initial resubmissions each notify once; no historical backfill. |
+| Restriction or removal           | Content author                   | `ModerationDecisionRecorded` targets the immutable decision. One notification per recipient/decision. Approval uses a separate private kind; report dismissal does not alert the source author.                        |
 | Final independent appeal outcome | Appellant                        | `AppealOutcomeRecorded` targets the finalized appeal. One notification per recipient/appeal, including reversals that cannot restore content.                                    |
 | Final content report outcome     | Original reporter                | `ContentReportOutcomeRecorded` opens the private receipt. One notification per recipient/report, for both dismissal and removal. |
 | Reviewed public case progress    | Current public receipt followers | `SafeReceiptPublished` projects from the current published receipt. One notification per recipient/receipt/projection version. Internal case events never deliver public alerts. |
@@ -61,6 +62,8 @@ docker compose up -d --no-deps --wait api web
 Pending older reply events do not create activity because only the new approval event triggers it. Existing pending public receipt events may notify only followers who were already subscribed when they were published and remain eligible. Historical processed events are not replayed. For private review alerts, apply [migration 00020](../db/migrations/00020_private_moderation_activity.sql) and follow the [worker-first upgrade sequence](PRIVATE_MODERATION_ACTIVITY.md#database-and-upgrade).
 
 The [outbox compatibility guard](OUTBOX_EVENT_COMPATIBILITY.md) validates supported event types, aggregate metadata and payload versions before projection. Unsupported deliveries remain recoverable failures with fixed diagnostic codes; existing consent/visibility skips and historical deduplication remain unchanged.
+
+[Publication approval Activity](PUBLICATION_APPROVAL_ACTIVITY.md) adds private author feedback for fresh approved revisions and shares the existing owner, consent, retained-history and duplicate-delivery controls.
 
 ## Verification and remaining work
 
