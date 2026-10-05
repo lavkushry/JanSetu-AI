@@ -61,7 +61,7 @@ After deploying a compatible consumer, events below the attempt limit retry auto
 
 ```sql
 UPDATE infra.outbox o
-SET available_at = now(), dead_lettered_at = NULL, attempts = 0,
+SET available_at = now(), dead_lettered_at = NULL,
     lease_until = NULL, lease_owner = NULL, lease_token = NULL,
     last_error_code = NULL
 WHERE o.id = :'event_id'::uuid
@@ -72,7 +72,7 @@ WHERE o.id = :'event_id'::uuid
 RETURNING o.id;
 ```
 
-Require exactly the reviewed ID in the result. Zero rows means it is ineligible; do not broaden the update. Investigate malformed events and generic failures separately. Never bulk reset delivered/processed history, consent-skipped events, volumes or notifications. Recovery rechecks eligibility and preserves duplicate protection.
+Require exactly the reviewed ID in the result. Zero rows means it is ineligible; do not broaden the update. The attempt count is preserved: a compatible consumer can complete the next attempt, while another failure returns immediately to dead letter for investigation. Investigate malformed events and generic failures separately. Never bulk reset delivered/processed history, consent-skipped events, volumes or notifications. Recovery rechecks eligibility and preserves duplicate protection.
 
 ## Verification and boundaries
 
