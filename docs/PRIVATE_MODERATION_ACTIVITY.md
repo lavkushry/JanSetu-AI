@@ -4,7 +4,7 @@ Authors receive IN_APP Activity notices when a new publication review restricts 
 
 ## Resident experience
 
-The Activity **Moderation** filter has independent twenty-item signed cursor pages, alongside All, Conversations and Service progress. Notices use fixed messages and generic titles. They expose no content preview, complaint grounds, internal note, shared reason, reporter/reviewer identity or principal/provider binding. Their actor is null. Mark as read/unread persists and opening a record does not automatically mark it read.
+The Activity **Moderation** filter has independent twenty-item signed cursor pages, alongside All, Conversations and Service progress. [Private content report outcomes](CONTENT_REPORT_OUTCOME_ACTIVITY.md) also appear in this filter. Notices use fixed messages and generic titles. They expose no content preview, complaint grounds, internal note, shared reason, reporter/reviewer identity or principal/provider binding. Their actor is null. Mark as read/unread persists and opening a record does not automatically mark it read.
 
 | Notice                | Exact owner page                             | Delivery rule                                                              |
 | --------------------- | -------------------------------------------- | -------------------------------------------------------------------------- |
@@ -48,4 +48,4 @@ Go integration checks cover restrictions and comment removals, finalized appeals
 
 Browser journeys use real OIDC sessions and worker delivery for private links, foreign-record denial, outcome access after source deletion, consent changes and persistent read state. They check 320px overflow and light/dark screens. Existing reply/case/media/social/civic checks remain part of CI.
 
-This remains a local IN_APP milestone. Approval notices, complaint-reporter outcome alerts, account-security alerts, outbound channels, quiet hours, configurable retention, realtime delivery, production moderation policy, accessibility acceptance and large-scale delivery are pending. Pilot command serialization and process-local cursor keys retain their existing capacity/restart limits.
+This remains a local IN_APP milestone. Approval notices, account-security alerts, outbound channels, quiet hours, configurable retention, realtime delivery, production moderation policy, accessibility acceptance and large-scale delivery are pending. Pilot command serialization and process-local cursor keys retain their existing capacity/restart limits.

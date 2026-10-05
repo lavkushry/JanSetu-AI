@@ -318,6 +318,9 @@ func (a *App) contentReportDecision(w http.ResponseWriter, r *http.Request, acto
 			}
 		}
 		m.State, m.Version = "DECIDED", m.Version+1
+		if err := addEvent(r.Context(), q, "CONTENT_REPORT", m.ID, m.Version, "ContentReportOutcomeRecorded", map[string]any{}); err != nil {
+			return err
+		}
 		receipt, err = contentReportReceipt(r.Context(), q, m)
 		return err
 	})

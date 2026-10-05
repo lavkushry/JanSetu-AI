@@ -239,38 +239,7 @@ export function MyContentReports() {
       ) : (
         <div className="content-report-list">
           {items.map((r) => (
-            <article
-              key={r.id}
-              className="content-report-receipt"
-              data-testid={`content-report-${r.id}`}
-            >
-              <div className="receipt-eyebrow">
-                <span>
-                  {r.targetType} · {dateLabel(r.createdAt)}
-                </span>
-                <Badge
-                  state={
-                    r.decision
-                      ? r.decision.action === 'REMOVE'
-                        ? 'REMOVED'
-                        : 'DISMISSED'
-                      : 'PENDING'
-                  }
-                />
-              </div>
-              <h3>{reasons[r.reasonCode]}</h3>
-              {r.details && <p>{r.details}</p>}
-              <SourcePreview report={r} />
-              {r.decision && (
-                <div className="content-report-outcome">
-                  <strong>
-                    {r.decision.action === 'REMOVE' ? 'Content removed' : 'Report dismissed'}
-                  </strong>
-                  <p>{r.decision.reason}</p>
-                  <small>{dateLabel(r.decision.decidedAt)}</small>
-                </div>
-              )}
-            </article>
+            <PrivateContentReportCard key={r.id} report={r} link />
           ))}
           {q.hasNextPage && (
             <button
@@ -446,6 +415,44 @@ function ContentReportReviewCard({ report: r }: { report: Schema['ContentReport'
             </button>
           </div>
         </Modal>
+      )}
+    </article>
+  );
+}
+
+export function PrivateContentReportCard({
+  report: r,
+  link = false,
+}: {
+  report: Schema['ContentReport'];
+  link?: boolean;
+}) {
+  return (
+    <article className="content-report-receipt" data-testid={`content-report-${r.id}`}>
+      <div className="receipt-eyebrow">
+        <span>
+          {r.targetType} · {dateLabel(r.createdAt)}
+        </span>
+        <Badge
+          state={
+            r.decision ? (r.decision.action === 'REMOVE' ? 'REMOVED' : 'DISMISSED') : 'PENDING'
+          }
+        />
+      </div>
+      {link && (
+        <Link className="text-button" href={`/account/content-reports/${r.id}`}>
+          Open private report receipt
+        </Link>
+      )}
+      <h3>{reasons[r.reasonCode]}</h3>
+      {r.details && <p>{r.details}</p>}
+      <SourcePreview report={r} />
+      {r.decision && (
+        <div className="content-report-outcome">
+          <strong>{r.decision.action === 'REMOVE' ? 'Content removed' : 'Report dismissed'}</strong>
+          <p>{r.decision.reason}</p>
+          <small>{dateLabel(r.decision.decidedAt)}</small>
+        </div>
       )}
     </article>
   );

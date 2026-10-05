@@ -132,6 +132,7 @@ type SocialActivityVisible struct {
 	Title                pgtype.Text        `json:"title"`
 	ModerationDecisionID *uuid.UUID         `json:"moderation_decision_id"`
 	AppealID             *uuid.UUID         `json:"appeal_id"`
+	ContentReportID      *uuid.UUID         `json:"content_report_id"`
 }
 
 type SocialAppeal struct {

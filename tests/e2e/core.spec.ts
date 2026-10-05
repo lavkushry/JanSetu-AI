@@ -377,6 +377,7 @@ test('private report, triage, agency work, independent verification, and reviewe
   page,
   browser,
 }) => {
+  await page.setViewportSize({ width: 1280, height: 640 });
   const statement = 'Fictional footpath damage for browser workflow ' + Date.now();
   await page.goto('/');
   await signIn(page, 'Ananya Rao');
@@ -2319,7 +2320,11 @@ async function privateReviewNotice(page: Page, target: string) {
     )
     .toBe(true);
 }
-function reviewActivityCard(page: Page, kind: 'moderation-decisions' | 'appeals', id: string) {
+function reviewActivityCard(
+  page: Page,
+  kind: 'moderation-decisions' | 'appeals' | 'content-reports',
+  id: string,
+) {
   return page
     .getByTestId('activity-card')
     .filter({ has: page.locator(`a[href="/account/${kind}/${id}"]`) });
@@ -2489,4 +2494,210 @@ test('private moderation alerts honor in-app consent while exact records stay av
   await card.getByRole('button', { name: 'Mark as unread', exact: true }).click();
   await expect(card).toHaveClass(/unread/);
   await original.context.close();
+});
+
+test('reporter activity opens a private dismissed receipt and retains it after source deletion', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  const author = await staffPage(browser, 'Ananya Rao');
+  const mod = await staffPage(browser, 'Kiran Shah');
+  const marker = `Reported activity source ${Date.now()}`;
+  const details = `PRIVATE REPORTER DETAILS ${Date.now()}`;
+  const explanation = 'This fictional report was dismissed after an independent policy review.';
+  const post = await publishedContentReportFixture(author.page, mod.page, marker);
+  await page.goto(`/posts/${post.id}`);
+  await page.getByLabel('Post options').click();
+  await page.getByRole('button', { name: 'Report post', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Report this post?' });
+  await dialog.getByLabel(/Additional detail/).fill(details);
+  await dialog.getByRole('button', { name: 'Submit content report', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Content report received' })
+    .getByRole('button', { name: 'Done', exact: true })
+    .click();
+  const receipt = await ownContentReportFor(page, post.id);
+  await mod.page.goto('/studio');
+  await mod.page.getByRole('button', { name: 'Reported content', exact: true }).click();
+  const review = mod.page.getByTestId(`content-report-review-${receipt.id}`);
+  await review.getByLabel('Decision reason').fill(explanation);
+  await review.getByRole('button', { name: 'Dismiss report', exact: true }).click();
+  await expect(review).toHaveCount(0);
+  await privateReviewNotice(page, receipt.id);
+  const notices = (await (
+    await page.request.get('/api/me/activity?filter=MODERATION')
+  ).json()) as Schema['ActivityPage'];
+  const notice = notices.items.find((item) => item.target.id === receipt.id);
+  expect(notice?.kind).toBe('CONTENT_REPORT_OUTCOME');
+  expect(notice?.target.kind).toBe('CONTENT_REPORT');
+  expect(notice?.actor).toBeNull();
+  for (const secret of [details, explanation, marker, post.id])
+    expect(JSON.stringify(notice)).not.toContain(secret);
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  const alert = reviewActivityCard(page, 'content-reports', receipt.id);
+  await expect(alert).toContainText('Private content report');
+  await expect(alert).toContainText('A review outcome is available');
+  await alert.getByRole('button', { name: 'Mark as read', exact: true }).click();
+  await expect(alert).not.toHaveClass(/unread/);
+  await page.reload();
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  await expect(alert).not.toHaveClass(/unread/);
+  await alert.locator('.activity-target').click();
+  await expect(page).toHaveURL(`/account/content-reports/${receipt.id}`);
+  const record = page.getByTestId(`content-report-${receipt.id}`);
+  await expect(record).toContainText(details);
+  await expect(record).toContainText(explanation);
+  await expect(record).toContainText(marker);
+  await author.page.goto(`/account/content-reports/${receipt.id}`);
+  await expect(
+    author.page.getByRole('heading', { name: 'This private record is unavailable' }),
+  ).toBeVisible();
+  await expect(author.page.locator('main')).not.toContainText(details);
+  expect((await mod.page.request.get(`/api/me/content-reports/${receipt.id}`)).status()).toBe(404);
+  expect(
+    (
+      await author.page.request.delete(`/api/posts/${post.id}`, {
+        headers: { 'x-jansetu-csrf': '1', 'if-match': `"${post.version}"` },
+      })
+    ).status(),
+  ).toBe(204);
+  await page.getByRole('button', { name: 'Refresh record', exact: true }).click();
+  await expect(record).toContainText('This content is unavailable');
+  await expect(record).not.toContainText(marker);
+  await expect(record).toContainText(explanation);
+  await page.setViewportSize({ width: 320, height: 740 });
+  await record.evaluate((el) =>
+    window.scrollTo({
+      top: el.getBoundingClientRect().top + window.scrollY - 150,
+      behavior: 'instant',
+    }),
+  );
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: 'test-results/content-report-outcome-mobile-light.png' });
+  await page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: 'test-results/content-report-outcome-mobile-dark.png' });
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  await expect(alert).toBeVisible();
+  await expect(alert).not.toHaveClass(/unread/);
+  await page.goto('/account');
+  await page.getByRole('button', { name: 'Sign out here', exact: true }).click();
+  await page.goto(`/account/content-reports/${receipt.id}`);
+  await expect(
+    page.getByRole('heading', { name: 'Private review record', exact: true }),
+  ).toBeVisible();
+  await expect(page.locator('main')).not.toContainText(details);
+  await signIn(page, 'Ananya Rao');
+  await page.goto(`/account/content-reports/${receipt.id}`);
+  await expect(
+    page.getByRole('heading', { name: 'This private record is unavailable' }),
+  ).toBeVisible();
+  await expect(page.locator('main')).not.toContainText(details);
+  await author.context.close();
+  await mod.context.close();
+});
+
+test('report removal alerts separate reporter and author records and honor notification consent', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  const author = await staffPage(browser, 'Ananya Rao');
+  const mod = await staffPage(browser, 'Kiran Shah');
+  const marker = `Removed reporter activity ${Date.now()}`;
+  const details = `PRIVATE REMOVAL REPORT DETAILS ${Date.now()}`;
+  const reporterReason =
+    'PRIVATE REPORTER OUTCOME: fictional content was removed under community policy.';
+  const authorReason = 'This fictional revision does not meet the publication rule.';
+  const post = await publishedContentReportFixture(author.page, mod.page, marker);
+  const response = await page.request.post('/api/content-reports', {
+    headers: { 'x-jansetu-csrf': '1', 'idempotency-key': crypto.randomUUID() },
+    data: {
+      targetType: 'POST',
+      targetId: post.id,
+      targetRevision: 1,
+      reasonCode: 'PRIVACY',
+      details,
+    },
+  });
+  expect(response.status()).toBe(201);
+  const receipt = (await response.json()) as Schema['ContentReportReceipt'];
+  await mod.page.goto('/studio');
+  await mod.page.getByRole('button', { name: 'Reported content', exact: true }).click();
+  const review = mod.page.getByTestId(`content-report-review-${receipt.id}`);
+  await review.getByLabel('Decision reason').fill(reporterReason);
+  await review.getByLabel('Reason shared with author').fill(authorReason);
+  await review.getByRole('button', { name: 'Remove reported content', exact: true }).click();
+  await mod.page
+    .getByRole('dialog', { name: 'Remove reported content?' })
+    .getByRole('button', { name: 'Confirm removal', exact: true })
+    .click();
+  await expect(review).toHaveCount(0);
+  await privateReviewNotice(page, receipt.id);
+  const authorHistory = (await (
+    await author.page.request.get('/api/me/moderation-decisions')
+  ).json()) as Schema['AuthorModerationDecisionPage'];
+  const authorDecision = authorHistory.items.find(
+    (decision) => decision.target.id === post.id && decision.action === 'REMOVE',
+  );
+  if (!authorDecision) throw new Error('Missing separate author removal record');
+  await privateReviewNotice(author.page, authorDecision.id);
+  const own = (await (
+    await page.request.get('/api/me/activity?filter=MODERATION')
+  ).json()) as Schema['ActivityPage'];
+  const theirs = (await (
+    await author.page.request.get('/api/me/activity?filter=MODERATION')
+  ).json()) as Schema['ActivityPage'];
+  expect(own.items.some((item) => item.target.id === authorDecision.id)).toBe(false);
+  expect(theirs.items.some((item) => item.target.id === receipt.id)).toBe(false);
+  expect((await author.page.request.get(`/api/me/content-reports/${receipt.id}`)).status()).toBe(
+    404,
+  );
+  await author.page.goto(`/account/moderation-decisions/${authorDecision.id}`);
+  const authorRecord = author.page.getByTestId(`moderation-decision-${authorDecision.id}`);
+  await expect(authorRecord).toContainText(authorReason);
+  await expect(authorRecord).not.toContainText(reporterReason);
+  await expect(authorRecord).not.toContainText(details);
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  const alert = reviewActivityCard(page, 'content-reports', receipt.id);
+  await alert.getByRole('button', { name: 'Mark as read', exact: true }).click();
+  await expect(alert).not.toHaveClass(/unread/);
+  await page.goto('/account#activity-settings');
+  await page.getByRole('switch', { name: 'In-app notifications' }).uncheck();
+  await page.getByRole('button', { name: 'Save activity preferences', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('In-app notifications paused');
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  await expect(alert).toHaveCount(0);
+  expect((await (await page.request.get('/api/me/activity/summary')).json()).unreadCount).toBe(0);
+  await page.goto(`/account/content-reports/${receipt.id}`);
+  const record = page.getByTestId(`content-report-${receipt.id}`);
+  await expect(record).toContainText('Content removed');
+  await expect(record).toContainText(details);
+  await expect(record).toContainText(reporterReason);
+  await expect(record).not.toContainText(marker);
+  await page.goto('/account#activity-settings');
+  await page.getByRole('switch', { name: 'In-app notifications' }).check();
+  await page.getByRole('button', { name: 'Save activity preferences', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('In-app notifications enabled');
+  await page.goto('/activity');
+  await page.getByRole('button', { name: 'Moderation', exact: true }).click();
+  await expect(alert).toBeVisible();
+  await expect(alert).not.toHaveClass(/unread/);
+  await alert.getByRole('button', { name: 'Mark as unread', exact: true }).click();
+  await expect(alert).toHaveClass(/unread/);
+  await author.context.close();
+  await mod.context.close();
 });

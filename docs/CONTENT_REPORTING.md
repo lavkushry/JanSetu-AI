@@ -2,7 +2,7 @@
 
 Residents can report another person's published post or comment from its actions. The dialog captures the published revision being viewed, offers seven reasons, and accepts up to 1,000 characters of private detail. Choosing **Another concern** requires at least five characters. Submitting a report creates a private receipt; it does not automatically hide the source.
 
-**Account → Your content reports** shows the owner's reports, source availability, and recorded outcomes. **Staff workspace → Reported content** gives platform moderators a separate queue with reasoned dismissal or confirmed removal. These content reports are separate from private civic-service intake and its vault-backed case workflow.
+**Account → Your content reports** shows the owner's reports, source availability, and recorded outcomes, with exact private receipt links. [Report outcome Activity](CONTENT_REPORT_OUTCOME_ACTIVITY.md) alerts the reporter after dismissal or removal. **Staff workspace → Reported content** gives platform moderators a separate queue with reasoned dismissal or confirmed removal. These content reports are separate from private civic-service intake and its vault-backed case workflow.
 
 This implementation uses fictional local accounts and human moderation. It does not establish production moderation policy, emergency response, or full P0 acceptance.
 
@@ -18,7 +18,7 @@ Complaint details and the private outcome remain available when the source becom
 
 ## API and retry contracts
 
-The executable [OpenAPI contract](../contracts/openapi/core.yaml) is version `0.12.0`.
+The executable [OpenAPI contract](../contracts/openapi/core.yaml) is version `0.15.0`.
 
 | Endpoint                                             | Contract                                                                                                                                                                           |
 | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -57,11 +57,12 @@ Upgrade existing named volumes with:
 ```bash
 docker compose build migrate api worker web
 docker compose run --rm --no-deps migrate
-docker compose up -d --no-deps api worker web
+docker compose up -d --no-deps --wait worker
+docker compose up -d --no-deps --wait api web
 docker compose ps
 ```
 
-The migrator applies the additive schema and refreshes restricted grants. Existing service reports, posts, media, case data and volumes are preserved. Existing worker event contracts are unchanged. Retained reports require a reviewed forward migration rather than destructive rollback. See the [database/vault guide](DATABASE_VAULT_ISOLATION.md) for the broader deployment boundary.
+The migrator applies the additive schema and refreshes restricted grants. Existing service reports, posts, media, case data and volumes are preserved. The new report-outcome event requires upgrading the worker before the API emits it; see the [outcome delivery guide](CONTENT_REPORT_OUTCOME_ACTIVITY.md). Retained reports require a reviewed forward migration rather than destructive rollback. See the [database/vault guide](DATABASE_VAULT_ISOLATION.md) for the broader deployment boundary.
 
 ## Verification and remaining work
 
@@ -69,4 +70,4 @@ The migrator applies the additive schema and refreshes restricted grants. Existi
 
 [Browser journeys](../tests/e2e/core.spec.ts) cover native modal cancellation, required Other detail, Unicode code-point minimums in resident/staff forms, a lost acknowledgement and same-key recovery, owner history, staff dismissal, an identical submission after dismissal, confirmed post/comment removal, retained replies, suppressed Activity and 320-pixel light/dark layouts. The production build, documentation validation and generated SQL/TypeScript drift checks accompany these tests.
 
-Still pending: anonymous reporting; media/profile/community report targets; author notification delivery; independent appeals/restoration; community-scoped moderation; evaluated risk triage and emergency staffing; externally retained moderation audit and evidence-retention policy; production quota/scale evaluation; multilingual and full assistive-technology acceptance. Passing the local synthetic workflows does not satisfy these production gates.
+[Private author restriction/removal notices](PRIVATE_MODERATION_ACTIVITY.md) and [independent appeals/restoration](INDEPENDENT_MODERATION_APPEALS.md) are implemented locally. Still pending: anonymous reporting; media/profile/community report targets; community-scoped moderation; evaluated risk triage and emergency staffing; externally retained moderation audit and evidence-retention policy; production quota/scale evaluation; multilingual and full assistive-technology acceptance. Passing the local synthetic workflows does not satisfy these production gates.

@@ -543,13 +543,21 @@ function Page({
   if (
     parts[0] === 'account' &&
     parts.length === 3 &&
-    (parts[1] === 'moderation-decisions' || parts[1] === 'appeals')
+    (parts[1] === 'moderation-decisions' ||
+      parts[1] === 'appeals' ||
+      parts[1] === 'content-reports')
   )
     return (
       <PrivateReviewRecord
         key={pathname}
         id={parts[2]}
-        kind={parts[1] === 'appeals' ? 'APPEAL' : 'MODERATION_DECISION'}
+        kind={
+          parts[1] === 'content-reports'
+            ? 'CONTENT_REPORT'
+            : parts[1] === 'appeals'
+              ? 'APPEAL'
+              : 'MODERATION_DECISION'
+        }
       />
     );
   if (pathname === '/account') return <AccountSecurity />;

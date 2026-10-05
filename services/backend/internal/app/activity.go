@@ -45,6 +45,10 @@ func (a *App) activity(w http.ResponseWriter, r *http.Request, actor *Actor) (an
 			target = map[string]any{"kind": "APPEAL", "id": n.AppealID, "title": "Your appeal outcome"}
 			message = "An independent decision is available for your appeal."
 		}
+		if n.Kind == "CONTENT_REPORT_OUTCOME" {
+			target = map[string]any{"kind": "CONTENT_REPORT", "id": n.ContentReportID, "title": "Your content report outcome"}
+			message = "A review outcome is available for your content report."
+		}
 		items = append(items, map[string]any{"id": n.ID, "kind": n.Kind, "createdAt": timestamp(n.CreatedAt), "readAt": timestamp(n.ReadAt), "actor": author, "message": message, "target": target})
 	}
 	var next any

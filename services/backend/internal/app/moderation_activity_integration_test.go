@@ -280,7 +280,7 @@ func TestPrivateReviewActivityPaginationAndFilterScope(t *testing.T) {
 	mustStatus(t, owner.request("GET", path+"&cursor="+url.QueryEscape(a.encodeProfileCursor(c)), nil, 0, ""), 410)
 	for page := first; ; {
 		for _, v := range page.Items {
-			if v.Kind != "MODERATION_DECISION" && v.Kind != "APPEAL_OUTCOME" {
+			if v.Kind != "MODERATION_DECISION" && v.Kind != "APPEAL_OUTCOME" && v.Kind != "CONTENT_REPORT_OUTCOME" {
 				t.Fatal("mixed activity filter")
 			}
 			if seen, ok := ids[v.ID]; ok {
