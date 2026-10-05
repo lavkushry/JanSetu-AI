@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.9.0
+  version: 0.10.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -823,6 +823,173 @@ paths:
         '410':
           $ref: '#/components/responses/Problem'
         '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /content-reports:
+    post:
+      operationId: create_content_report
+      description: Signed-in private report of an available published post/comment revision. Never automatically removes content. Identical retries deduplicate for the lifetime of the reporter/target/revision; ten new reports per hour.
+      parameters:
+        - $ref: '#/components/parameters/Idempotency'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContentReportInput'
+      responses:
+        '201':
+          description: Private report receipt, without a cached source preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentReportReceipt'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /me/content-reports:
+    get:
+      operationId: get_own_content_reports
+      description: Owner-only newest-first twenty-item pages. Source previews recheck current publication, reported revision and blocks.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 1000
+      responses:
+        '200':
+          description: Private report history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentReportPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /me/content-reports/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      operationId: get_own_content_report
+      responses:
+        '200':
+          description: Owner-only receipt and currently eligible source preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentReport'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /moderation/content-reports:
+    get:
+      operationId: get_content_report_queue
+      description: Platform moderators only, oldest-first twenty-item pages. Includes changed/unavailable placeholders; excludes the reviewer's own authored targets. Reporter identity is omitted.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 1000
+      responses:
+        '200':
+          description: Private open report queue
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentReportPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '410':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /moderation/content-reports/{id}/decisions:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      operationId: decide_content_report
+      description: Fresh platform-moderator grant required. Reasoned DISMISS or REMOVE, bound to report version and reported revision. REMOVE rechecks current source eligibility and rejects changed/unavailable sources. Own authored targets cannot be reviewed. Decision and optional content revocation commit together.
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action, reason, targetRevision]
+              properties:
+                action:
+                  type: string
+                  enum: [DISMISS, REMOVE]
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 1000
+                targetRevision:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Private decided receipt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentReportReceipt'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '428':
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
@@ -1910,6 +2077,121 @@ components:
           type: string
         version:
           type: integer
+    ContentReportReason:
+      type: string
+      enum: [SPAM, HARASSMENT, HATE, THREATS, PRIVACY, MISINFORMATION, OTHER]
+    ContentReportInput:
+      type: object
+      additionalProperties: false
+      required: [targetType, targetId, targetRevision, reasonCode]
+      properties:
+        targetType:
+          type: string
+          enum: [POST, COMMENT]
+        targetId:
+          type: string
+          format: uuid
+        targetRevision:
+          type: integer
+          minimum: 1
+        reasonCode:
+          $ref: '#/components/schemas/ContentReportReason'
+        details:
+          type: string
+          maxLength: 1000
+          description: OTHER requires at least five non-whitespace characters.
+    ContentReportReceipt:
+      type: object
+      required:
+        [
+          id,
+          targetType,
+          targetId,
+          targetRevision,
+          reasonCode,
+          details,
+          state,
+          version,
+          createdAt,
+          decision,
+        ]
+      properties:
+        id:
+          type: string
+          format: uuid
+        targetType:
+          type: string
+          enum: [POST, COMMENT]
+        targetId:
+          type: string
+          format: uuid
+        targetRevision:
+          type: integer
+          minimum: 1
+        reasonCode:
+          $ref: '#/components/schemas/ContentReportReason'
+        details:
+          type: string
+        state:
+          type: string
+          enum: [OPEN, DECIDED]
+        version:
+          type: integer
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+        decision:
+          oneOf:
+            - type: object
+              required: [action, reason, decidedAt]
+              properties:
+                action:
+                  type: string
+                  enum: [DISMISS, REMOVE]
+                reason:
+                  type: string
+                decidedAt:
+                  type: string
+                  format: date-time
+            - type: 'null'
+    ContentReport:
+      allOf:
+        - $ref: '#/components/schemas/ContentReportReceipt'
+        - type: object
+          required: [target, targetState]
+          properties:
+            targetState:
+              type: string
+              enum: [AVAILABLE, CHANGED, UNAVAILABLE]
+            target:
+              oneOf:
+                - type: object
+                  required: [postId, title, body, authorName]
+                  properties:
+                    postId:
+                      type: string
+                      format: uuid
+                    title:
+                      type: [string, 'null']
+                    body:
+                      type: string
+                    authorName:
+                      type: string
+                - type: 'null'
+    ContentReportPage:
+      type: object
+      required: [items, nextCursor, expiresAt]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContentReport'
+        nextCursor:
+          type: [string, 'null']
+        expiresAt:
+          type: string
+          format: date-time
     NotificationPreference:
       type: object
       additionalProperties: false

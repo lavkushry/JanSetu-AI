@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, ShieldCheck, ClipboardList } from 'lucide-react';
 import { api, dateLabel, readable, type Schema, type Me } from '@/lib/api';
 import { Badge, Empty, Loading, ErrorState, FormError, useSession } from './ui';
+import { ContentReportQueue } from './content-reports';
 
 export function Studio() {
   const { me, signIn } = useSession();
@@ -48,6 +49,14 @@ export function Studio() {
             Content review
           </button>
         )}
+        {moderator && (
+          <button
+            className={active === 'content-reports' ? 'selected' : ''}
+            onClick={() => setTab('content-reports')}
+          >
+            Reported content
+          </button>
+        )}
         {coordinator && (
           <button
             className={active === 'intake' ? 'selected' : ''}
@@ -62,6 +71,8 @@ export function Studio() {
       </div>
       {active === 'reviews' ? (
         <Reviews />
+      ) : active === 'content-reports' ? (
+        <ContentReportQueue />
       ) : active === 'intake' ? (
         <IntakeQueue />
       ) : (

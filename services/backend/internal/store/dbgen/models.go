@@ -175,6 +175,18 @@ type SocialComment struct {
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
+type SocialContentReportTarget struct {
+	TargetType   string      `json:"target_type"`
+	TargetID     uuid.UUID   `json:"target_id"`
+	PostID       uuid.UUID   `json:"post_id"`
+	AuthorID     *uuid.UUID  `json:"author_id"`
+	PostAuthorID *uuid.UUID  `json:"post_author_id"`
+	Revision     int64       `json:"revision"`
+	Title        pgtype.Text `json:"title"`
+	Body         string      `json:"body"`
+	DisplayName  string      `json:"display_name"`
+}
+
 type SocialModerationCase struct {
 	ID            uuid.UUID          `json:"id"`
 	PostID        *uuid.UUID         `json:"post_id"`

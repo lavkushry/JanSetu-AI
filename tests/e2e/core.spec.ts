@@ -1531,3 +1531,295 @@ test('person and community mutes preserve explicit access and can be managed fro
   await neighbour.context.close();
   await staff.context.close();
 });
+
+async function approveContentReportFixture(staff: Page, id: string) {
+  const queue = (await (await staff.request.get('/api/moderation')).json()) as {
+    items: Schema['Review'][];
+  };
+  const review = queue.items.find((item) => item.postId === id || item.commentId === id);
+  if (!review) throw new Error('Missing content report publication review');
+  expect(
+    (
+      await staff.request.post(`/api/moderation/${review.id}/decisions`, {
+        headers: { 'x-jansetu-csrf': '1', 'if-match': `"${review.version}"` },
+        data: {
+          action: 'ALLOW',
+          reason: 'Fictional content reporting fixture',
+          targetRevision: review.targetRevision,
+        },
+      })
+    ).status(),
+  ).toBe(200);
+}
+async function publishedContentReportFixture(writer: Page, staff: Page, body: string) {
+  const response = await writer.request.post('/api/posts', {
+    headers: { 'x-jansetu-csrf': '1', 'idempotency-key': crypto.randomUUID() },
+    data: { kind: 'SHORT', body, languageTag: 'en-IN', mediaIds: [], submitForReview: true },
+  });
+  expect(response.status()).toBe(201);
+  const post = (await response.json()) as Schema['Post'];
+  await approveContentReportFixture(staff, post.id);
+  return (await (await writer.request.get(`/api/posts/${post.id}`)).json()) as Schema['Post'];
+}
+async function ownContentReportFor(page: Page, target: string) {
+  const reports = (await (
+    await page.request.get('/api/me/content-reports')
+  ).json()) as Schema['ContentReportPage'];
+  const item = reports.items.find((report) => report.targetId === target);
+  if (!item) throw new Error('Missing private content report receipt');
+  return item;
+}
+
+test('private content report receipts recover lost acknowledgements and retain dismissal outcomes', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const writer = await staffPage(browser, 'Rohan Mehta');
+  const mod = await staffPage(browser, 'Kiran Shah');
+  const marker = `Fictional reported source ${Date.now()}`;
+  const detail = `Private fictional report detail ${Date.now()}`;
+  const post = await publishedContentReportFixture(writer.page, mod.page, marker);
+  await page.goto(`/posts/${post.id}`);
+  await page.getByLabel('Post options').click();
+  await page.getByRole('button', { name: 'Report post', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Report this post?' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel('Report reason').selectOption('OTHER');
+  await expect(dialog.getByRole('button', { name: 'Submit content report' })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await page.getByLabel('Post options').click();
+  await page.getByRole('button', { name: 'Report post', exact: true }).click();
+  await dialog.getByLabel('Report reason').selectOption('PRIVACY');
+  await dialog.getByLabel(/Additional detail/).fill(detail);
+  let lost = false;
+  let allocated: string | undefined;
+  const requestKeys: string[] = [];
+  await page.route('**/api/content-reports', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    requestKeys.push(route.request().headers()['idempotency-key']);
+    const response = await route.fetch();
+    if (!lost && response.status() === 201) {
+      lost = true;
+      allocated = ((await response.json()) as Schema['ContentReportReceipt']).id;
+      await route.fulfill({
+        status: 503,
+        json: {
+          status: 503,
+          code: 'LOST_ACKNOWLEDGEMENT',
+          title: 'Please retry your content report',
+          retryable: true,
+        },
+      });
+    } else await route.fulfill({ response });
+  });
+  await dialog.getByRole('button', { name: 'Submit content report' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Please retry');
+  await expect(dialog.getByLabel(/Additional detail/)).toHaveValue(detail);
+  await dialog.getByRole('button', { name: 'Submit content report' }).click();
+  await expect(page.getByRole('dialog', { name: 'Content report received' })).toBeVisible();
+  expect(requestKeys).toHaveLength(2);
+  expect(requestKeys[0]).toBe(requestKeys[1]);
+  const receipt = await ownContentReportFor(page, post.id);
+  expect(receipt.id).toBe(allocated);
+  expect(receipt.state).toBe('OPEN');
+  expect((await writer.page.request.get(`/api/me/content-reports/${receipt.id}`)).status()).toBe(
+    404,
+  );
+  const publicSource = await (await writer.page.request.get(`/api/posts/${post.id}`)).json();
+  expect(JSON.stringify(publicSource)).not.toContain(detail);
+  expect(JSON.stringify(publicSource)).not.toContain(receipt.id);
+  await page.getByRole('link', { name: 'View my content reports' }).click();
+  const own = page.getByTestId(`content-report-${receipt.id}`);
+  await expect(own).toContainText(detail);
+  await expect(own).toContainText(marker);
+  await page.reload();
+  await expect(own).toBeVisible();
+  await mod.page.goto('/studio');
+  await mod.page.getByRole('button', { name: 'Reported content', exact: true }).click();
+  const card = mod.page.getByTestId(`content-report-review-${receipt.id}`);
+  await expect(card).toContainText(marker);
+  await expect(card).not.toContainText('Ananya Rao');
+  await card.getByLabel('Decision reason').fill('The fictional report does not warrant removal.');
+  await card.getByRole('button', { name: 'Dismiss report', exact: true }).click();
+  await expect(card).toHaveCount(0);
+  await page.reload();
+  await expect(own).toContainText('Report dismissed');
+  await expect(own).toContainText('does not warrant removal');
+  expect((await page.request.get(`/api/posts/${post.id}`)).status()).toBe(200);
+  await page.goto(`/posts/${post.id}`);
+  await page.getByLabel('Post options').click();
+  await page.getByRole('button', { name: 'Report post', exact: true }).click();
+  await dialog.getByLabel('Report reason').selectOption('PRIVACY');
+  await dialog.getByLabel(/Additional detail/).fill(detail);
+  await dialog.getByRole('button', { name: 'Submit content report' }).click();
+  await expect(page.getByRole('dialog', { name: 'Report outcome available' })).toContainText(
+    'existing private receipt',
+  );
+  expect((await ownContentReportFor(page, post.id)).id).toBe(receipt.id);
+  await page.getByRole('link', { name: 'View my content reports' }).click();
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await own.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/content-report-receipt-mobile.png' });
+  await writer.context.close();
+  await mod.context.close();
+});
+
+test('reviewed removal revokes published posts and comments without reviving edits or deleting replies', async ({
+  page,
+  browser,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const writer = await staffPage(browser, 'Rohan Mehta');
+  const mod = await staffPage(browser, 'Kiran Shah');
+  const csrf = { 'x-jansetu-csrf': '1' };
+  const marker = `Fictional removal source ${Date.now()}`;
+  const post = await publishedContentReportFixture(writer.page, mod.page, marker);
+  await page.goto(`/posts/${post.id}`);
+  await page.getByRole('button', { name: 'Bookmark post' }).click();
+  await page.getByLabel('Post options').click();
+  await page.getByRole('button', { name: 'Report post', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Report this post?' })
+    .getByRole('button', { name: 'Submit content report' })
+    .click();
+  await page
+    .getByRole('dialog', { name: 'Content report received' })
+    .getByRole('button', { name: 'Done', exact: true })
+    .click();
+  const receipt = await ownContentReportFor(page, post.id);
+  expect(
+    (
+      await writer.page.request.patch(`/api/posts/${post.id}`, {
+        headers: { ...csrf, 'if-match': `"${post.version}"` },
+        data: {
+          body: 'Private pending edit must not replace reported content',
+          languageTag: 'en-IN',
+          mediaIds: [],
+          submitForReview: true,
+        },
+      })
+    ).status(),
+  ).toBe(200);
+  const pendingQueue = (await (await mod.page.request.get('/api/moderation')).json()) as {
+    items: Schema['Review'][];
+  };
+  const pending = pendingQueue.items.find((r) => r.postId === post.id && r.targetRevision === 2);
+  if (!pending) throw new Error('Missing pending edit fixture');
+  await mod.page.goto('/studio');
+  await mod.page.getByRole('button', { name: 'Reported content', exact: true }).click();
+  const card = mod.page.getByTestId(`content-report-review-${receipt.id}`);
+  await expect(card).toContainText(marker);
+  await expect(card).not.toContainText('Private pending edit');
+  await card
+    .getByLabel('Decision reason')
+    .fill('Reviewed fictional post removal under local policy.');
+  await card.getByRole('button', { name: 'Remove reported content' }).click();
+  let confirmation = mod.page.getByRole('dialog', { name: 'Remove reported content?' });
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(card).toBeVisible();
+  await card.getByRole('button', { name: 'Remove reported content' }).click();
+  await confirmation.getByRole('button', { name: 'Confirm removal' }).click();
+  await expect(card).toHaveCount(0);
+  expect((await page.request.get(`/api/posts/${post.id}`)).status()).toBe(404);
+  expect(
+    (
+      await mod.page.request.post(`/api/moderation/${pending.id}/decisions`, {
+        headers: { ...csrf, 'if-match': `"${pending.version}"` },
+        data: {
+          action: 'ALLOW',
+          reason: 'Cannot revive removed published content',
+          targetRevision: 2,
+        },
+      })
+    ).status(),
+  ).toBe(409);
+  await page.goto('/bookmarks');
+  await expect(page.getByText(marker, { exact: true })).toHaveCount(0);
+  const removed = await ownContentReportFor(page, post.id);
+  expect(removed.decision?.action).toBe('REMOVE');
+  expect(removed.target).toBeNull();
+  const thread = await publishedContentReportFixture(
+    page,
+    mod.page,
+    `Fictional retained discussion ${Date.now()}`,
+  );
+  async function addReply(author: Page, body: string, parentId: string | null) {
+    const response = await author.request.post(`/api/posts/${thread.id}/comments`, {
+      headers: { ...csrf, 'idempotency-key': crypto.randomUUID() },
+      data: { body, languageTag: 'en-IN', parentId },
+    });
+    expect(response.status()).toBe(201);
+    const result = (await response.json()) as { id: string };
+    await approveContentReportFixture(mod.page, result.id);
+    return result.id;
+  }
+  const commentBody = `Fictional reported comment ${Date.now()}`;
+  const comment = await addReply(writer.page, commentBody, null);
+  const childBody = `Fictional retained reply ${Date.now()}`;
+  const child = await addReply(page, childBody, comment);
+  await expect
+    .poll(async () => {
+      const activity = (await (
+        await page.request.get('/api/me/activity?filter=SOCIAL')
+      ).json()) as Schema['ActivityPage'];
+      return activity.items.some((n) => n.target.id === thread.id);
+    })
+    .toBe(true);
+  await page.goto(`/posts/${thread.id}`);
+  await page
+    .getByTestId(`comment-${comment}`)
+    .getByRole('button', { name: 'Report comment', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Report this comment?' });
+  await dialog.getByLabel('Report reason').selectOption('HARASSMENT');
+  await dialog.getByRole('button', { name: 'Submit content report' }).click();
+  await page
+    .getByRole('dialog', { name: 'Content report received' })
+    .getByRole('button', { name: 'Done', exact: true })
+    .click();
+  const commentReceipt = await ownContentReportFor(page, comment);
+  await mod.page.getByRole('button', { name: 'Refresh reported content' }).click();
+  const commentCard = mod.page.getByTestId(`content-report-review-${commentReceipt.id}`);
+  await expect(commentCard).toContainText(commentBody);
+  await commentCard
+    .getByLabel('Decision reason')
+    .fill('Reviewed fictional comment removal under local policy.');
+  await mod.page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+  await mod.page.setViewportSize({ width: 320, height: 720 });
+  expect(
+    await mod.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+  await commentCard.getByRole('button', { name: 'Remove reported content' }).click();
+  confirmation = mod.page.getByRole('dialog', { name: 'Remove reported content?' });
+  await expect(confirmation).toBeVisible();
+  expect(
+    await mod.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+  ).toBe(true);
+  await mod.page.screenshot({ path: 'test-results/content-report-review-mobile-dark.png' });
+  await confirmation.getByRole('button', { name: 'Confirm removal' }).click();
+  await expect(commentCard).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId(`comment-${comment}`)).toHaveCount(0);
+  await expect(page.getByTestId(`comment-${child}`)).toContainText(childBody);
+  expect(
+    (
+      await page.request.post(`/api/posts/${thread.id}/comments`, {
+        headers: { ...csrf, 'idempotency-key': crypto.randomUUID() },
+        data: { body: 'Cannot reply to removed comment', languageTag: 'en-IN', parentId: comment },
+      })
+    ).status(),
+  ).toBe(422);
+  const activity = (await (
+    await page.request.get('/api/me/activity?filter=SOCIAL')
+  ).json()) as Schema['ActivityPage'];
+  expect(activity.items.some((n) => n.target.id === thread.id)).toBe(false);
+  await writer.context.close();
+  await mod.context.close();
+});

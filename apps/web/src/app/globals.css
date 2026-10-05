@@ -3039,6 +3039,74 @@ textarea {
   color: var(--blue);
   text-decoration: underline;
 }
+.content-report-received {
+  display: grid;
+  gap: 16px;
+  padding-top: 8px;
+}
+.content-report-received > svg {
+  color: var(--blue);
+}
+.content-report-list {
+  margin-top: 16px;
+}
+.content-report-receipt {
+  border-top: 1px solid var(--line);
+  padding: 20px 0;
+  overflow-wrap: anywhere;
+}
+.content-report-receipt h3 {
+  margin: 12px 0;
+  font-size: 15px;
+}
+.content-report-receipt p {
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.content-report-source {
+  background: var(--surface-alt);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 16px 0;
+  overflow-wrap: anywhere;
+}
+.content-report-source > small,
+.content-report-source > strong {
+  display: block;
+  margin-bottom: 10px;
+}
+.content-report-source .text-button {
+  margin-top: 12px;
+}
+.content-report-outcome {
+  border-left: 3px solid var(--blue);
+  padding: 10px 14px;
+  margin-top: 16px;
+}
+.content-report-outcome strong {
+  font-size: 13px;
+}
+.staff-report-intro {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.staff-report-intro svg {
+  flex-shrink: 0;
+}
+.content-report-review > .text-button {
+  margin: 0 20px 20px;
+}
+.content-report-grounds {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 @media (max-width: 420px) {
   .mute-row {
     flex-wrap: wrap;

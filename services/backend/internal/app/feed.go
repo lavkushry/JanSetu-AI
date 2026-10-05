@@ -330,6 +330,15 @@ func (a *App) search(w http.ResponseWriter, r *http.Request, actor *Actor) (any,
 		if e != nil {
 			return nil, 0, e
 		}
+		var current struct {
+			State string `json:"state"`
+		}
+		if e = json.Unmarshal(p, &current); e != nil {
+			return nil, 0, e
+		}
+		if current.State != "PUBLISHED" {
+			continue
+		}
 		items = append(items, map[string]any{"type": "POST", "post": p})
 	}
 	receipts, e := q.Receipts(r.Context(), term)

@@ -32,6 +32,7 @@ import { Avatar, Badge, Modal, FormError, Loading, ErrorState, Empty, useSession
 import { refreshSocialVisibility } from '@/lib/social-cache';
 import { conversation } from '@/lib/conversation';
 import { MuteControl } from './preferences';
+import { ContentReportControl } from './content-reports';
 
 export function PostCard({
   post: p,
@@ -139,6 +140,15 @@ export function PostCard({
                   active={p.viewer.mutedAuthor}
                   menu
                 />
+                {p.state === 'PUBLISHED' && p.publishedRevision !== null && (
+                  <ContentReportControl
+                    type="POST"
+                    id={p.id}
+                    revision={p.publishedRevision}
+                    label={p.title || `Post by ${p.author.displayName}`}
+                    menu
+                  />
+                )}
                 <button
                   onClick={() => {
                     if (!me) signIn();
@@ -815,6 +825,17 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
                     Edit
                   </button>
                 )}
+                {c.state === 'PUBLISHED' &&
+                  c.publishedVersion !== null &&
+                  c.author &&
+                  c.author.id !== me?.profile.id && (
+                    <ContentReportControl
+                      type="COMMENT"
+                      id={c.id}
+                      revision={c.publishedVersion}
+                      label={`Comment by ${c.author.displayName}`}
+                    />
+                  )}
                 {c.viewer.canDelete && (
                   <button
                     onClick={() => {
