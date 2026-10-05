@@ -2,6 +2,8 @@
 
 Authors receive IN_APP Activity notices when a new publication review restricts their post/reply, a content report removes their published content, or an independent review finalizes their appeal. Each notice opens the exact private record. The [author decision history](AUTHOR_MODERATION_DECISIONS.md), [independent appeal workflow](INDEPENDENT_MODERATION_APPEALS.md) and public publication rules retain their existing ownership and revision checks.
 
+[Publication approval Activity](PUBLICATION_APPROVAL_ACTIVITY.md) now covers fresh ALLOW publication decisions with a separate fixed approval card.
+
 ## Resident experience
 
 The Activity **Moderation** filter has independent twenty-item signed cursor pages, alongside All, Conversations and Service progress. [Private content report outcomes](CONTENT_REPORT_OUTCOME_ACTIVITY.md) also appear in this filter. Notices use fixed messages and generic titles. They expose no content preview, complaint grounds, internal note, shared reason, reporter/reviewer identity or principal/provider binding. Their actor is null. Mark as read/unread persists and opening a record does not automatically mark it read.
@@ -19,7 +21,7 @@ Account → Activity preferences controls IN_APP consent for all Activity kinds.
 
 Blocks and person/community mutes do not suppress the owner's own institutional review notices. They retain their existing effects on public content and reply Activity. Browser views refresh every thirty seconds or on manual refresh; changes in another session are not instantly streamed into rendered content.
 
-Negative moderation commands atomically record a `ModerationDecisionRecorded` outbox event with the decision as aggregate and version 1. Final appeal commands atomically record `AppealOutcomeRecorded` with the appeal and its finalized version. Both payloads are empty objects. Positive approval, report dismissal, opening/claiming an appeal and historical decisions without new events generate no review alert.
+Negative moderation commands atomically record a `ModerationDecisionRecorded` outbox event with the decision as aggregate and version 1. Final appeal commands atomically record `AppealOutcomeRecorded` with the appeal and its finalized version. Both payloads are empty objects. Fresh publication approvals separately record `PublicationApprovalRecorded`. Report dismissal sends only the reporter outcome, while opening/claiming an appeal and historical decisions without new events generate no author review alert.
 
 The worker resolves the recipient from the canonical source, honors current eligibility, inserts the notice, records event deduplication and acknowledges its fenced lease in one transaction. Source/recipient uniqueness protects both event redelivery and equivalent events. Failed projections roll back and use existing retry/dead-letter handling. Existing public-source events and publication projections continue independently.
 
@@ -50,4 +52,4 @@ Go integration checks cover restrictions and comment removals, finalized appeals
 
 Browser journeys use real OIDC sessions and worker delivery for private links, foreign-record denial, outcome access after source deletion, consent changes and persistent read state. They check 320px overflow and light/dark screens. Existing reply/case/media/social/civic checks remain part of CI.
 
-This remains a local IN_APP milestone. Approval notices, account-security alerts, outbound channels, quiet hours, configurable retention, realtime delivery, production moderation policy, accessibility acceptance and large-scale delivery are pending. Pilot command serialization and process-local cursor keys retain their existing capacity/restart limits.
+This remains a local IN_APP milestone. Account-security alerts, outbound channels, quiet hours, configurable retention, realtime delivery, production moderation policy, accessibility acceptance and large-scale delivery are pending. Pilot command serialization and process-local cursor keys retain their existing capacity/restart limits.

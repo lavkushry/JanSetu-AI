@@ -929,7 +929,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Owner-only in-app alerts. Public replies/case progress recheck their existing publication, block/mute and follow rules. Private restriction/removal, appeal-outcome and content-report-outcome notices recheck record ownership, active recipient and IN_APP consent, remain available after source deletion, and contain fixed messages with no source text, reasons, grounds or reviewer/reporter identities. MODERATION selects these three private kinds. Content-report outcomes open exact reporter-owned receipts, with no report text or outcome explanation in the alert. Twenty items per signed viewer/filter-bound page; five-minute cursor deadline. */
+        /** @description Owner-only in-app alerts. Public replies/case progress recheck their existing publication, block/mute and follow rules. Private publication-approval, restriction/removal, appeal-outcome and content-report-outcome notices recheck record ownership, active recipient and IN_APP consent, remain available after source deletion, and contain fixed messages with no source text, reasons, grounds or reviewer/reporter identities. MODERATION selects these four private kinds. Publication approvals open an exact historical author decision; they do not assert current source visibility. Content-report outcomes open exact reporter-owned receipts, with no report text or outcome explanation in the alert. Twenty items per signed viewer/filter-bound page; five-minute cursor deadline. */
         get: operations["get_activity"];
         put?: never;
         post?: never;
@@ -1527,7 +1527,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            kind: "REPLY" | "CASE_PROGRESS" | "MODERATION_DECISION" | "APPEAL_OUTCOME" | "CONTENT_REPORT_OUTCOME";
+            kind: "REPLY" | "CASE_PROGRESS" | "MODERATION_DECISION" | "PUBLICATION_APPROVAL" | "APPEAL_OUTCOME" | "CONTENT_REPORT_OUTCOME";
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */

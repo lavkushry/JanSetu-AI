@@ -220,8 +220,8 @@ func TestPrivateReviewActivityRemovalAndNoHistoricalBackfill(t *testing.T) {
 	if e := integrationAdmin.QueryRow(context.Background(), "SELECT d.id FROM social.moderation_decision d JOIN social.moderation_case m ON m.id=d.moderation_case_id WHERE m.post_id=$1 AND d.action='ALLOW' AND m.reporter_ref IS NULL", p.ID).Scan(&approved); e != nil {
 		t.Fatal(e)
 	}
-	if len(activityFor(t, owner, approved).Items) != 0 {
-		t.Fatal("positive publication generated unwanted notice")
+	if got := activityFor(t, owner, approved).Items; len(got) != 1 || got[0].Kind != "PUBLICATION_APPROVAL" {
+		t.Fatal("publication approval is missing", got)
 	}
 	mid, legacy := uuid.New(), uuid.New()
 	if _, e := integrationAdmin.Exec(context.Background(), "INSERT INTO social.moderation_case(id,post_id,target_version,reason_code,grounds,state) VALUES($1,$2,1,'PUBLICATION_REVIEW','Historical synthetic review','DECIDED')", mid, p.ID); e != nil {
@@ -280,7 +280,7 @@ func TestPrivateReviewActivityPaginationAndFilterScope(t *testing.T) {
 	mustStatus(t, owner.request("GET", path+"&cursor="+url.QueryEscape(a.encodeProfileCursor(c)), nil, 0, ""), 410)
 	for page := first; ; {
 		for _, v := range page.Items {
-			if v.Kind != "MODERATION_DECISION" && v.Kind != "APPEAL_OUTCOME" && v.Kind != "CONTENT_REPORT_OUTCOME" {
+			if v.Kind != "MODERATION_DECISION" && v.Kind != "PUBLICATION_APPROVAL" && v.Kind != "APPEAL_OUTCOME" && v.Kind != "CONTENT_REPORT_OUTCOME" {
 				t.Fatal("mixed activity filter")
 			}
 			if seen, ok := ids[v.ID]; ok {

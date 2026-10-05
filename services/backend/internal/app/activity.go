@@ -41,6 +41,10 @@ func (a *App) activity(w http.ResponseWriter, r *http.Request, actor *Actor) (an
 			target = map[string]any{"kind": "MODERATION_DECISION", "id": n.ModerationDecisionID, "title": "Your moderation decision"}
 			message = "A moderation decision is available for your content."
 		}
+		if n.Kind == "PUBLICATION_APPROVAL" {
+			target = map[string]any{"kind": "MODERATION_DECISION", "id": n.ModerationDecisionID, "title": "Your publication approval"}
+			message = "A publication approval is available for your content."
+		}
 		if n.Kind == "APPEAL_OUTCOME" {
 			target = map[string]any{"kind": "APPEAL", "id": n.AppealID, "title": "Your appeal outcome"}
 			message = "An independent decision is available for your appeal."
