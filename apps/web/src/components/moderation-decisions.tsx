@@ -50,44 +50,7 @@ export function MyModerationDecisions() {
       ) : (
         <div className="content-report-list">
           {items.map((d) => (
-            <article
-              key={d.id}
-              className="content-report-receipt"
-              data-testid={`moderation-decision-${d.id}`}
-            >
-              <div className="receipt-eyebrow">
-                <span>
-                  {d.target.type} · REVISION {d.target.revision}
-                </span>
-                <Badge
-                  state={
-                    d.action === 'ALLOW'
-                      ? 'APPROVED'
-                      : d.action === 'REMOVE'
-                        ? 'REMOVED'
-                        : 'RESTRICTED'
-                  }
-                />
-              </div>
-              <h3>
-                {d.action === 'ALLOW'
-                  ? 'Approved for publication'
-                  : d.action === 'REMOVE'
-                    ? 'Content removed'
-                    : 'Revision restricted'}
-              </h3>
-              <p>{d.reason}</p>
-              <small>
-                {dateLabel(d.decidedAt)} · Policy {d.ruleVersion}
-              </small>
-              <AppealControl decision={d} />
-              <Link
-                className="text-button"
-                href={`/posts/${d.target.postId}${d.target.type === 'COMMENT' ? `#comment-${d.target.id}` : ''}`}
-              >
-                Open current thread
-              </Link>
-            </article>
+            <AuthorDecisionCard key={d.id} decision={d} link />
           ))}
           {q.hasNextPage && (
             <button
@@ -101,5 +64,51 @@ export function MyModerationDecisions() {
         </div>
       )}
     </section>
+  );
+}
+
+export function AuthorDecisionCard({
+  decision: d,
+  link = false,
+}: {
+  decision: Schema['AuthorModerationDecision'];
+  link?: boolean;
+}) {
+  return (
+    <article className="content-report-receipt" data-testid={`moderation-decision-${d.id}`}>
+      <div className="receipt-eyebrow">
+        <span>
+          {d.target.type} · REVISION {d.target.revision}
+        </span>
+        <Badge
+          state={
+            d.action === 'ALLOW' ? 'APPROVED' : d.action === 'REMOVE' ? 'REMOVED' : 'RESTRICTED'
+          }
+        />
+      </div>
+      <h3>
+        {d.action === 'ALLOW'
+          ? 'Approved for publication'
+          : d.action === 'REMOVE'
+            ? 'Content removed'
+            : 'Revision restricted'}
+      </h3>
+      <p>{d.reason}</p>
+      <small>
+        {dateLabel(d.decidedAt)} · Policy {d.ruleVersion}
+      </small>
+      {link && (
+        <Link className="text-button" href={`/account/moderation-decisions/${d.id}`}>
+          Open private decision
+        </Link>
+      )}
+      <AppealControl decision={d} />
+      <Link
+        className="text-button"
+        href={`/posts/${d.target.postId}${d.target.type === 'COMMENT' ? `#comment-${d.target.id}` : ''}`}
+      >
+        Open current thread
+      </Link>
+    </article>
   );
 }

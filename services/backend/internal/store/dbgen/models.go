@@ -119,17 +119,19 @@ type OpsReport struct {
 }
 
 type SocialActivityVisible struct {
-	ID          uuid.UUID          `json:"id"`
-	RecipientID uuid.UUID          `json:"recipient_id"`
-	Kind        string             `json:"kind"`
-	PostID      *uuid.UUID         `json:"post_id"`
-	ReceiptID   *uuid.UUID         `json:"receipt_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	ReadAt      pgtype.Timestamptz `json:"read_at"`
-	ActorID     *uuid.UUID         `json:"actor_id"`
-	DisplayName pgtype.Text        `json:"display_name"`
-	Handle      pgtype.Text        `json:"handle"`
-	Title       pgtype.Text        `json:"title"`
+	ID                   uuid.UUID          `json:"id"`
+	RecipientID          uuid.UUID          `json:"recipient_id"`
+	Kind                 string             `json:"kind"`
+	PostID               *uuid.UUID         `json:"post_id"`
+	ReceiptID            *uuid.UUID         `json:"receipt_id"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	ReadAt               pgtype.Timestamptz `json:"read_at"`
+	ActorID              *uuid.UUID         `json:"actor_id"`
+	DisplayName          pgtype.Text        `json:"display_name"`
+	Handle               pgtype.Text        `json:"handle"`
+	Title                pgtype.Text        `json:"title"`
+	ModerationDecisionID *uuid.UUID         `json:"moderation_decision_id"`
+	AppealID             *uuid.UUID         `json:"appeal_id"`
 }
 
 type SocialAppeal struct {

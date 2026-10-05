@@ -416,7 +416,7 @@ ON CONFLICT DO NOTHING;
 
 -- name: ActivityPage :many
 SELECT * FROM social.activity_visible WHERE recipient_id=sqlc.arg(viewer_id)
-AND (sqlc.arg(filter)::text='ALL' OR (sqlc.arg(filter)='SOCIAL' AND kind='REPLY') OR (sqlc.arg(filter)='CASES' AND kind='CASE_PROGRESS'))
+AND (sqlc.arg(filter)::text='ALL' OR (sqlc.arg(filter)='SOCIAL' AND kind='REPLY') OR (sqlc.arg(filter)='CASES' AND kind='CASE_PROGRESS') OR (sqlc.arg(filter)='MODERATION' AND kind IN ('MODERATION_DECISION','APPEAL_OUTCOME')))
 AND (NOT sqlc.arg(has_cursor)::boolean OR (created_at,id)<(sqlc.arg(before_time)::timestamptz,sqlc.arg(before_id)::uuid))
 ORDER BY created_at DESC,id DESC LIMIT 21;
 
@@ -582,3 +582,11 @@ WHERE p.id=sqlc.arg(post_id)::uuid AND p.state='PUBLISHED'
 AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
 (b.blocker_id=sqlc.arg(viewer_id)::uuid AND b.blocked_id=p.author_id) OR
 (b.blocked_id=sqlc.arg(viewer_id)::uuid AND b.blocker_id=p.author_id))) AS allowed;
+
+-- name: DeliverReviewActivity :exec
+INSERT INTO social.notification(id,recipient_id,event_id,channel,kind,source_version,moderation_decision_id,appeal_id,state,created_at)
+SELECT gen_random_uuid(),recipient_id,sqlc.arg(event_id),'IN_APP',kind,source_version,
+CASE WHEN kind='MODERATION_DECISION' THEN source_id ELSE NULL::uuid END,
+CASE WHEN kind='APPEAL_OUTCOME' THEN source_id ELSE NULL::uuid END,'SENT',sqlc.arg(event_time)
+FROM social.activity_review_source WHERE kind=sqlc.arg(source_kind)::text AND source_id=sqlc.arg(source_id)::uuid AND source_version=sqlc.arg(source_version)::bigint
+ON CONFLICT DO NOTHING;

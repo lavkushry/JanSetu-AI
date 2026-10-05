@@ -4,7 +4,7 @@ This local milestone adds account controls for IN_APP notification consent and p
 
 ## Resident controls
 
-Account contains **Activity preferences** and **Muted people and communities**. The IN_APP switch requires an explicit save. Turning it off hides eligible existing inbox entries and unread counts, and suppresses new worker delivery. Turning it back on restores previously delivered entries whose sources remain eligible. Events processed while consent was off are skipped; they are not backfilled.
+Account contains **Activity preferences** and **Muted people and communities**. The IN_APP switch requires an explicit save and also covers [private moderation notices](PRIVATE_MODERATION_ACTIVITY.md). Pausing notifications does not prevent opening your private decision or appeal history. Turning it off hides eligible existing inbox entries and unread counts, and suppresses new worker delivery. Turning it back on restores previously delivered entries whose sources remain eligible. Events processed while consent was off are skipped; they are not backfilled.
 
 Mute a person from their public profile or a post's options menu. Mute a community from its detail page. Choose one hour, 24 hours, seven days or **Until I unmute**. Account lists active, expired and unavailable targets with a removal action and twenty-item pages. A mute on an inactive or blocked target can still be removed; unavailable metadata is replaced with a placeholder.
 
@@ -17,6 +17,8 @@ Mute a person from their public profile or a post's options menu. Mute a communi
 | Follows and memberships                          | Remain intact. Unmuting does not require following or joining again.                                                                                 |
 | Public service receipts                          | Remain available; interpersonal and community mutes do not suppress institutional case progress. IN_APP consent still applies to all inbox delivery. |
 | Deleted post                                     | Author and body remain hidden. Its mute flag is false so the tombstone cannot reveal a former author indirectly.                                     |
+
+Private moderation decisions and appeal outcomes remain eligible despite person/community mutes or blocks; they are the owner’s institutional records.
 
 Mute expiry restores eligibility on the next read or refresh. A delivered alert can reappear after unmuting if its source is still available; a skipped alert is not replayed. Notification preference changes and mutes clear affected caches before fresh content is displayed. Changes from another session are reflected on the next query refresh; existing rendered browser content is not a realtime stream.
 

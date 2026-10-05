@@ -31,6 +31,7 @@ func newAppeal(t *testing.T, owner client, d uuid.UUID) appealResponse {
 	mustStatus(t, w, 201)
 	v := parsed[appealResponse](t, w)
 	t.Cleanup(func() {
+		integrationAdmin.Exec(context.Background(), "DELETE FROM social.notification WHERE appeal_id=$1", v.ID)
 		integrationAdmin.Exec(context.Background(), "DELETE FROM social.appeal_decision WHERE appeal_id=$1", v.ID)
 		integrationAdmin.Exec(context.Background(), "DELETE FROM social.appeal WHERE id=$1", v.ID)
 	})

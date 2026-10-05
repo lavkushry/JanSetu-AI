@@ -929,7 +929,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Owner-only in-app alerts. Each page rechecks publication, blocks, mutes, channel preferences and current case follows. Twenty items per signed viewer/filter-bound page; five-minute cursor deadline. */
+        /** @description Owner-only in-app alerts. Public replies/case progress recheck their existing publication, block/mute and follow rules. Private restriction/removal and appeal-outcome notices recheck record ownership, active recipient and IN_APP consent, remain available after source deletion, and contain fixed messages with no source text, reasons, grounds or reviewer/reporter identities. MODERATION selects these two private kinds. Twenty items per signed viewer/filter-bound page; five-minute cursor deadline. */
         get: operations["get_activity"];
         put?: never;
         post?: never;
@@ -1527,7 +1527,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            kind: "REPLY" | "CASE_PROGRESS";
+            kind: "REPLY" | "CASE_PROGRESS" | "MODERATION_DECISION" | "APPEAL_OUTCOME";
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -1540,8 +1540,11 @@ export interface components {
             } | null;
             message: string;
             target: {
-                /** @enum {string} */
-                kind: "POST" | "RECEIPT";
+                /**
+                 * @description MODERATION_DECISION and APPEAL identify exact owner-only records opened under /account; POST and RECEIPT retain public source navigation.
+                 * @enum {string}
+                 */
+                kind: "POST" | "RECEIPT" | "MODERATION_DECISION" | "APPEAL";
                 /** Format: uuid */
                 id: string;
                 title: string;
@@ -3742,7 +3745,7 @@ export interface operations {
     get_activity: {
         parameters: {
             query?: {
-                filter?: "ALL" | "SOCIAL" | "CASES";
+                filter?: "ALL" | "SOCIAL" | "CASES" | "MODERATION";
                 cursor?: string;
             };
             header?: never;
