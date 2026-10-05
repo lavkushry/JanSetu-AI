@@ -707,7 +707,7 @@ paths:
     put:
       operationId: put_posts_by_id_selected_response
       summary: Choose or clear a helpful response to a published question
-      description: Question author or active moderator/owner of the same community. The choice binds to approved question and comment revisions; it conveys usefulness, never factual verification.
+      description: Question author or active moderator/owner of the same community. Non-null selection requires commentRevision matching the displayed approved reply; clear omits it or sends null. The choice binds to approved question and comment revisions; it conveys usefulness, never factual verification.
       parameters:
         - $ref: '#/components/parameters/Version'
         - name: X-JanSetu-CSRF
@@ -721,16 +721,33 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              required: [commentId]
-              properties:
-                commentId:
-                  type: [string, 'null']
-                  format: uuid
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [commentId, commentRevision]
+                  properties:
+                    commentId:
+                      type: string
+                      format: uuid
+                    commentRevision:
+                      type: integer
+                      minimum: 1
+                - type: object
+                  additionalProperties: false
+                  required: [commentId]
+                  properties:
+                    commentId:
+                      type: 'null'
+                    commentRevision:
+                      type: 'null'
       responses:
         '200':
           description: Current choice and post version; an identical choice at the current version is a no-op
+          headers:
+            ETag:
+              description: Quoted current post version
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -742,6 +759,8 @@ paths:
                     format: uuid
                   version:
                     type: integer
+        '400':
+          $ref: '#/components/responses/Problem'
         '401':
           $ref: '#/components/responses/Problem'
         '403':

@@ -531,7 +531,7 @@ export interface paths {
         get?: never;
         /**
          * Choose or clear a helpful response to a published question
-         * @description Question author or active moderator/owner of the same community. The choice binds to approved question and comment revisions; it conveys usefulness, never factual verification.
+         * @description Question author or active moderator/owner of the same community. Non-null selection requires commentRevision matching the displayed approved reply; clear omits it or sends null. The choice binds to approved question and comment revisions; it conveys usefulness, never factual verification.
          */
         put: operations["put_posts_by_id_selected_response"];
         post?: never;
@@ -2753,7 +2753,11 @@ export interface operations {
             content: {
                 "application/json": {
                     /** Format: uuid */
-                    commentId: string | null;
+                    commentId: string;
+                    commentRevision: number;
+                } | {
+                    commentId: null;
+                    commentRevision?: null;
                 };
             };
         };
@@ -2761,6 +2765,8 @@ export interface operations {
             /** @description Current choice and post version; an identical choice at the current version is a no-op */
             200: {
                 headers: {
+                    /** @description Quoted current post version */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -2771,6 +2777,7 @@ export interface operations {
                     };
                 };
             };
+            400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
             404: components["responses"]["Problem"];

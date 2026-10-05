@@ -6,7 +6,7 @@ The thread presents a summary above the conversation and a badge beside the sele
 
 ## API and revision contract
 
-`PUT /v1/posts/{id}/selected-response` requires a current authenticated session, `X-JanSetu-CSRF: 1`, and `If-Match` on the **post version**. Send `{ "commentId": "<uuid>" }` to choose or `{ "commentId": null }` to clear. Omitting the field is rejected. The response is `{commentId, version}`, with the same version in `ETag`.
+`PUT /v1/posts/{id}/selected-response` requires a current authenticated session, `X-JanSetu-CSRF: 1`, and `If-Match` on the **post version**. Send `{ "commentId": "<uuid>", "commentRevision": 1 }` to choose the displayed published reply revision, or `{ "commentId": null }` to clear. Omitting commentId or a non-null choice's positive commentRevision is rejected. The response is `{commentId, version}`, with the same version in `ETag`.
 
 The target must be a published `QUESTION` in an active public/restricted community. Selection requires an approved, published comment in that same question, active question/comment authors, and current visibility to the selector. Either-direction blocks between the question and response authors prevent eligibility. Either-direction viewer blocks suppress that viewer's summary. Self-authored replies are permitted; the label records usefulness rather than independent fact verification.
 
@@ -14,9 +14,9 @@ A choice binds to the current **published question revision and published commen
 
 The post read adds nullable `selectedResponse: {commentId, postRevision, commentRevision, body, author, selectedBy}` and `viewer.canSelectResponse`. The summary body comes from eligible published text at read time; there is no copied pending candidate or cached source snapshot. `selectedBy` is `AUTHOR` or `COMMUNITY_MODERATOR`. Existing comment pagination and chronology remain unchanged.
 
-Selection, version increment and a body-free `HelpfulResponseChanged` outbox event commit together. An identical choice at the current version, or clearing an already-empty choice, is a no-op and emits no event. Replaying a stale version returns 412 even if the desired comment is unchanged. The UI refreshes the post after a conflict and requires another deliberate choice rather than silently overwriting a concurrent selection. Changed selections do not alter votes, comment counts, review state or case verification.
+Selection, version increment and a body-free `HelpfulResponseChanged` outbox event commit together. An identical choice at the current version, or clearing an already-empty choice, is a no-op and emits no event. Replaying a stale post version or reply revision returns 412 even if the desired comment ID is unchanged. Comment approval changes the comment aggregate without changing the post version, so both preconditions are necessary to avoid selecting text the author has not seen. The UI resets/refetches the post and conversation after a conflict and requires another deliberate choice. Changed selections do not alter votes, comment counts, review state or case verification.
 
-Error cases include 401 for an invalid session, 403 for missing community/author authority or CSRF failure, 404 for an inaccessible question, 412 for a stale post version, 422 for missing/invalid input or an ineligible response, and 428 for a missing precondition. UUIDs belonging to another question, unpublished comments and removed comments are rejected.
+Error cases include 401 for an invalid session, 403 for missing community/author authority or CSRF failure, 404 for an inaccessible question, 412 for a stale post version or reply revision, 422 for missing/invalid input or an ineligible response, and 428 for a missing precondition. UUIDs belonging to another question, unpublished comments and removed comments are rejected.
 
 ## Persistence and upgrade
 

@@ -638,19 +638,22 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
   const [busy, setBusy] = useState(false);
   const [deletion, setDeletion] = useState<Schema['Comment'] | null>(null);
   const selection = useMutation({
-    mutationFn: (commentId: string | null) =>
+    mutationFn: (choice: { commentId: string; commentRevision: number } | null) =>
       api(`posts/${id}/selected-response`, {
         method: 'PUT',
-        body: { commentId },
+        body: choice || { commentId: null },
         version: post.data?.version,
       }),
-    onSuccess: async (_, commentId) => {
+    onSuccess: async (_, choice) => {
       await qc.invalidateQueries();
-      notify(commentId ? 'Helpful response selected' : 'Helpful response cleared');
+      notify(choice ? 'Helpful response selected' : 'Helpful response cleared');
     },
     onError: async (error) => {
       if (error instanceof APIError && error.status === 412) {
-        await qc.invalidateQueries({ queryKey: ['post', id, viewer], exact: true });
+        await Promise.all([
+          qc.resetQueries({ queryKey: ['post', id, viewer], exact: true }),
+          qc.resetQueries({ queryKey: ['comments', id, viewer], exact: true }),
+        ]);
       }
     },
   });
@@ -842,7 +845,13 @@ export function Thread({ id, onEdit }: { id: string; onEdit: (p: Post) => void }
                     <button
                       type="button"
                       disabled={selection.isPending}
-                      onClick={() => selection.mutate(c.id)}
+                      onClick={() => {
+                        if (c.publishedVersion !== null)
+                          selection.mutate({
+                            commentId: c.id,
+                            commentRevision: c.publishedVersion,
+                          });
+                      }}
                     >
                       {post.data.selectedResponse ? 'Replace helpful response' : 'Mark helpful'}
                     </button>

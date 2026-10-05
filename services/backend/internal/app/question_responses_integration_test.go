@@ -39,12 +39,20 @@ func readQuestion(t *testing.T, c client, id uuid.UUID) questionPost {
 	mustStatus(t, w, 200)
 	return parsed[questionPost](t, w)
 }
-func responseRequest(c client, p questionPost, comment *uuid.UUID) *httptest.ResponseRecorder {
-	return c.request("PUT", "posts/"+p.ID.String()+"/selected-response", map[string]any{"commentId": comment}, p.Version, "")
+func responseRequest(c client, p questionPost, comment *uuid.UUID, revisions ...int64) *httptest.ResponseRecorder {
+	input := map[string]any{"commentId": comment}
+	if comment != nil {
+		revision := int64(1)
+		if len(revisions) > 0 {
+			revision = revisions[0]
+		}
+		input["commentRevision"] = revision
+	}
+	return c.request("PUT", "posts/"+p.ID.String()+"/selected-response", input, p.Version, "")
 }
-func chooseResponse(t *testing.T, c client, p questionPost, comment *uuid.UUID) questionPost {
+func chooseResponse(t *testing.T, c client, p questionPost, comment *uuid.UUID, revisions ...int64) questionPost {
 	t.Helper()
-	w := responseRequest(c, p, comment)
+	w := responseRequest(c, p, comment, revisions...)
 	mustStatus(t, w, 200)
 	result := parsed[struct {
 		CommentID *uuid.UUID
@@ -65,9 +73,10 @@ func TestQuestionResponsePermissionsDesiredStateAndConcurrency(t *testing.T) {
 	ids := threadComments(t, p.ID, myProfileID(t, writer), nil, 0, time.Now().UTC(), 2)
 	path := "posts/" + p.ID.String() + "/selected-response"
 	mustStatus(t, owner.request("PUT", path, map[string]any{}, p.Version, ""), 422)
+	mustStatus(t, owner.request("PUT", path, map[string]any{"commentId": ids[0]}, p.Version, ""), 422)
 	mustStatus(t, owner.request("PUT", path, map[string]any{"commentId": nil}, 0, ""), 428)
 	mustStatus(t, owner.request("PUT", path, map[string]any{"commentId": "invalid"}, p.Version, ""), 422)
-	mustStatus(t, anon.request("PUT", path, map[string]any{"commentId": ids[0]}, p.Version, ""), 401)
+	mustStatus(t, anon.request("PUT", path, map[string]any{"commentId": ids[0], "commentRevision": 1}, p.Version, ""), 401)
 	mustStatus(t, responseRequest(writer, p, &ids[0]), 403)
 	// A platform moderation grant alone is not community authority.
 	mustStatus(t, responseRequest(mod, p, &ids[0]), 403)
@@ -181,8 +190,11 @@ func TestQuestionResponseRevisionBindingAndVisibility(t *testing.T) {
 	assertSelected(anon, true)
 	review(t, mod, uuid.Nil, cid, 2)
 	assertSelected(anon, false)
+	// Comment approval changes no post version, so If-Match alone is insufficient.
+	mustStatus(t, responseRequest(owner, p, &cid, 1), 412)
+	assertSelected(anon, false)
 	// The old reply's helpful label cannot attach to newly approved text.
-	p = chooseResponse(t, owner, p, &cid)
+	p = chooseResponse(t, owner, p, &cid, 2)
 	if p.SelectedResponse.CommentRevision != 2 {
 		t.Fatal("reply not rebound")
 	}
@@ -192,7 +204,7 @@ func TestQuestionResponseRevisionBindingAndVisibility(t *testing.T) {
 	review(t, mod, p.ID, uuid.Nil, 2)
 	p = readQuestion(t, owner, p.ID)
 	assertSelected(anon, false)
-	p = chooseResponse(t, owner, p, &cid)
+	p = chooseResponse(t, owner, p, &cid, 2)
 	if p.SelectedResponse.PostRevision != 2 {
 		t.Fatal("question not rebound")
 	}

@@ -12,6 +12,9 @@ import (
 )
 
 func (a *App) selectResponse(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
+	if err := require(actor); err != nil {
+		return nil, 0, err
+	}
 	pid, err := id(r, "id")
 	if err != nil {
 		return nil, 0, err
@@ -21,7 +24,8 @@ func (a *App) selectResponse(w http.ResponseWriter, r *http.Request, actor *Acto
 		return nil, 0, err
 	}
 	var input struct {
-		CommentID json.RawMessage `json:"commentId"`
+		CommentID       json.RawMessage `json:"commentId"`
+		CommentRevision *int64          `json:"commentRevision"`
 	}
 	if err = decode(r, &input); err != nil {
 		return nil, 0, err
@@ -32,6 +36,12 @@ func (a *App) selectResponse(w http.ResponseWriter, r *http.Request, actor *Acto
 	var commentID *uuid.UUID
 	if err = json.Unmarshal(input.CommentID, &commentID); err != nil {
 		return nil, 0, invalid("Choose a valid comment ID")
+	}
+	if commentID != nil && (input.CommentRevision == nil || *input.CommentRevision < 1) {
+		return nil, 0, invalid("Provide the published reply revision you are choosing")
+	}
+	if commentID == nil && input.CommentRevision != nil {
+		return nil, 0, invalid("Clear the choice without a reply revision")
 	}
 	var result any
 	err = a.transaction(r.Context(), actor, func(q *dbgen.Queries) error {
@@ -77,6 +87,9 @@ func (a *App) selectResponse(w http.ResponseWriter, r *http.Request, actor *Acto
 			}
 			if e != nil {
 				return e
+			}
+			if candidate.CommentRevision.Int64 != *input.CommentRevision {
+				return conflict()
 			}
 			changed = !present || previous.CommentID != candidate.CommentID || previous.PostRevision != candidate.PostRevision.Int32 || previous.CommentRevision != candidate.CommentRevision.Int64
 			if changed {

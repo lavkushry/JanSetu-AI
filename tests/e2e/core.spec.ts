@@ -1663,7 +1663,7 @@ test('questions retain revision-bound helpful responses and recover a stale choi
     (
       await page.request.put(`/api/posts/${question.id}/selected-response`, {
         headers: { 'x-jansetu-csrf': '1', 'if-match': `"${current.version}"` },
-        data: { commentId: first },
+        data: { commentId: first, commentRevision: 1 },
       })
     ).status(),
   ).toBe(200);
@@ -1689,12 +1689,28 @@ test('questions retain revision-bound helpful responses and recover a stale choi
   await summary.getByRole('button', { name: 'Clear helpful response', exact: true }).click();
   await expect(summary).toHaveCount(0);
   await expect(secondCard.locator('.badge')).toHaveCount(0);
+  // Approval can race a click without changing the post version. The UI must
+  // refresh the reply and require a deliberate choice of its new revision.
+  expect(
+    (
+      await writer.page.request.patch(`/api/comments/${first}`, {
+        headers: { 'x-jansetu-csrf': '1', 'if-match': '"2"' },
+        data: { body: 'A newly approved fictional meeting location.', languageTag: 'en-IN' },
+      })
+    ).status(),
+  ).toBe(200);
+  await approveContentReportFixture(staff.page, first);
+  await firstCard.getByRole('button', { name: 'Mark helpful', exact: true }).click();
+  await expect(page.locator('.thread').getByRole('alert')).toContainText('This item changed');
+  await expect(summary).toHaveCount(0);
+  await expect(firstCard).toContainText('A newly approved fictional meeting location.');
   await firstCard.getByRole('button', { name: 'Mark helpful', exact: true }).click();
   await expect(summary).toBeVisible();
+  await expect(summary).toContainText('A newly approved fictional meeting location.');
   expect(
     (
       await writer.page.request.delete(`/api/comments/${first}`, {
-        headers: { 'x-jansetu-csrf': '1', 'if-match': '"2"' },
+        headers: { 'x-jansetu-csrf': '1', 'if-match': '"4"' },
       })
     ).status(),
   ).toBe(204);

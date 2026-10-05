@@ -1510,7 +1510,7 @@ Development limits, configurable only within the deployed contract: SHORT/QUOTE/
 | `PUT /v1/communities/{id}/membership` | `active:boolean,rulesRevision:number` | 200 `{state,role,version}`; restricted join PENDING; stale rules -> 409 |
 | `PUT /v1/communities/{id}/follow` | `active:boolean` | 200 `{active}`; membership independent |
 | `PUT /v1/case-receipts/{id}/follow` | `active:boolean` | 200 `{active}`; sanitized notification subscription |
-| `PUT /v1/posts/{id}/selected-response` | `commentId:null\|string`; If-Match on post | 200 `{commentId,version}`; question author/scoped moderator; visible same-post comment |
+| `PUT /v1/posts/{id}/selected-response` | `commentId:null\|string`; non-null choice requires displayed published `commentRevision`; If-Match on post | 200 `{commentId,version}`; question author/scoped moderator; visible same-post comment; stale post/reply revision returns 412 |
 | `PUT /v1/me/mutes` | `targetType:PROFILE\|COMMUNITY,targetId,active,expiresAt:null\|string` | 200 `{active}`; typed target and owner-only policy |
 
 Desired-state PUTs are naturally idempotent and need no creation key. The client serializes each actor/target interaction, coalesces unsent taps, and applies responses in send order. Their writes use the revocation locks above. PATCH/DELETE require If-Match; all POST creates/actions require a key, except authenticated callbacks with partner event identity. Security-sensitive permission changes also invalidate the actor's cache namespace.
