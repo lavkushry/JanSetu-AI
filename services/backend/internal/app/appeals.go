@@ -227,6 +227,16 @@ func (a *App) planAppeal(ctx context.Context, q *dbgen.Queries, d dbgen.AppealOr
 			return p, e
 		}
 	}
+	if d.CommentID != nil {
+		allowed, e := q.ThreadReplyable(ctx, dbgen.ThreadReplyableParams{PostID: s.PostID, ViewerID: *s.AuthorID})
+		if e != nil {
+			return p, e
+		}
+		if !allowed {
+			p.Reason = "TARGET_UNAVAILABLE"
+			return p, nil
+		}
+	}
 	p.Reason = "NONE"
 	return p, nil
 }

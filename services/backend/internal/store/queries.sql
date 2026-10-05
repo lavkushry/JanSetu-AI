@@ -576,3 +576,9 @@ JOIN social.comment_revision candidate ON candidate.comment_id=c.id AND candidat
 LEFT JOIN social.community community ON community.id=p.community_id
 WHERE c.id=sqlc.arg(comment_id)::uuid AND EXISTS(SELECT FROM eligible) AND c.state IN ('HIDDEN','PUBLISHED')
 AND (community.id IS NULL OR (community.state='ACTIVE' AND community.visibility IN ('PUBLIC','RESTRICTED')));
+-- name: ThreadReplyable :one
+SELECT EXISTS(SELECT FROM social.post p JOIN social.profile author ON author.id=p.author_id AND author.state='ACTIVE'
+WHERE p.id=sqlc.arg(post_id)::uuid AND p.state='PUBLISHED'
+AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+(b.blocker_id=sqlc.arg(viewer_id)::uuid AND b.blocked_id=p.author_id) OR
+(b.blocked_id=sqlc.arg(viewer_id)::uuid AND b.blocker_id=p.author_id))) AS allowed;

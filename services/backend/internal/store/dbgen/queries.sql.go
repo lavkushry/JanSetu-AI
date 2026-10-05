@@ -3741,6 +3741,26 @@ func (q *Queries) SetVote(ctx context.Context, arg SetVoteParams) error {
 	return err
 }
 
+const threadReplyable = `-- name: ThreadReplyable :one
+SELECT EXISTS(SELECT FROM social.post p JOIN social.profile author ON author.id=p.author_id AND author.state='ACTIVE'
+WHERE p.id=$1::uuid AND p.state='PUBLISHED'
+AND NOT EXISTS(SELECT FROM social.profile_block b WHERE
+(b.blocker_id=$2::uuid AND b.blocked_id=p.author_id) OR
+(b.blocked_id=$2::uuid AND b.blocker_id=p.author_id))) AS allowed
+`
+
+type ThreadReplyableParams struct {
+	PostID   uuid.UUID `json:"post_id"`
+	ViewerID uuid.UUID `json:"viewer_id"`
+}
+
+func (q *Queries) ThreadReplyable(ctx context.Context, arg ThreadReplyableParams) (bool, error) {
+	row := q.db.QueryRow(ctx, threadReplyable, arg.PostID, arg.ViewerID)
+	var allowed bool
+	err := row.Scan(&allowed)
+	return allowed, err
+}
+
 const touchQuestionResponse = `-- name: TouchQuestionResponse :exec
 UPDATE social.post SET version=version+1,updated_at=now() WHERE id=$1
 `

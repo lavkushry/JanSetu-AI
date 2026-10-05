@@ -208,8 +208,12 @@ func TestAppealCurrentPolicyAndIndependentGrant(t *testing.T) {
 	owner, writer, original, reviewer := login(t, a, 0), login(t, a, 1), login(t, a, 2), login(t, a, 4)
 	p := published(t, a, owner, original, "Policy restoration thread "+uuid.NewString())
 	parent := approvedReply(t, owner, original, p.ID, nil)
-	for _, mode := range []string{"PARENT_UNAVAILABLE", "POSTING_NOT_ALLOWED", "TARGET_UNAVAILABLE", "GRANT_REVOKED"} {
-		w := writer.request("POST", "posts/"+p.ID.String()+"/comments", CommentInput{Body: "Policy appeal fixture " + mode, ParentID: &parent}, 0, uuid.NewString())
+	for _, mode := range []string{"PARENT_UNAVAILABLE", "THREAD_BLOCKED", "POSTING_NOT_ALLOWED", "TARGET_UNAVAILABLE", "GRANT_REVOKED"} {
+		parentID := &parent
+		if mode == "THREAD_BLOCKED" {
+			parentID = nil
+		}
+		w := writer.request("POST", "posts/"+p.ID.String()+"/comments", CommentInput{Body: "Policy appeal fixture " + mode, ParentID: parentID}, 0, uuid.NewString())
 		mustStatus(t, w, 201)
 		cid := parsed[struct{ ID uuid.UUID }](t, w).ID
 		did := restrictInitial(t, original, uuid.Nil, cid)
@@ -217,7 +221,7 @@ func TestAppealCurrentPolicyAndIndependentGrant(t *testing.T) {
 		var community uuid.UUID
 		integrationAdmin.QueryRow(context.Background(), "SELECT community_id FROM social.post WHERE id=$1", p.ID).Scan(&community)
 		switch mode {
-		case "PARENT_UNAVAILABLE":
+		case "PARENT_UNAVAILABLE", "THREAD_BLOCKED":
 			flag(t, writer, "blocks", myProfileID(t, owner), true)
 			t.Cleanup(func() { flag(t, writer, "blocks", myProfileID(t, owner), false) })
 		case "POSTING_NOT_ALLOWED":
@@ -237,7 +241,11 @@ func TestAppealCurrentPolicyAndIndependentGrant(t *testing.T) {
 			}
 		} else {
 			v = appealContext(t, reviewer, v)
-			if v.RestorationReason != mode {
+			expectedReason := mode
+			if mode == "THREAD_BLOCKED" {
+				expectedReason = "TARGET_UNAVAILABLE"
+			}
+			if v.RestorationReason != expectedReason {
 				t.Fatal("current policy bypass", mode, v.RestorationReason)
 			}
 			got := decideAppealTest(t, reviewer, v, "REVERSED")
@@ -246,7 +254,7 @@ func TestAppealCurrentPolicyAndIndependentGrant(t *testing.T) {
 			}
 		}
 		switch mode {
-		case "PARENT_UNAVAILABLE":
+		case "PARENT_UNAVAILABLE", "THREAD_BLOCKED":
 			flag(t, writer, "blocks", myProfileID(t, owner), false)
 		case "POSTING_NOT_ALLOWED":
 			integrationAdmin.Exec(context.Background(), "UPDATE social.community_member SET state='ACTIVE' WHERE community_id=$1 AND profile_id=$2", community, myProfileID(t, writer))
