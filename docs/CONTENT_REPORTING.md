@@ -55,9 +55,9 @@ Both moderation tables have forced row-level security. Residents select only the
 Upgrade existing named volumes with:
 
 ```bash
-docker compose build migrate api web
+docker compose build migrate api worker web
 docker compose run --rm --no-deps migrate
-docker compose up -d --no-deps api web
+docker compose up -d --no-deps api worker web
 docker compose ps
 ```
 
@@ -65,7 +65,7 @@ The migrator applies the additive schema and refreshes restricted grants. Existi
 
 ## Verification and remaining work
 
-[Go integration tests](../services/backend/internal/app/content_reports_integration_test.go) use temporary real PostgreSQL databases and restricted roles. They cover concurrent retries, lifetime deduplication, published-revision privacy, cross-owner denial, forged reporters/timestamps, immutable decisions, revoked staff grants, cursor ownership/expiry, quotas, blocks, changed/deleted sources, stale decisions, reporter/author self-moderation denial and independent reviewer acceptance, post/comment removal, retained replies and pending-edit revival rejection. The full suite runs with race detection.
+[Go integration tests](../services/backend/internal/app/content_reports_integration_test.go) use temporary real PostgreSQL databases and restricted roles. They cover concurrent retries, lifetime deduplication, published-revision privacy, cross-owner denial, forged reporters/timestamps, immutable decisions, revoked staff grants, cursor ownership/expiry, quotas, blocks, changed/deleted sources, stale decisions, reporter/author self-moderation denial and independent reviewer acceptance, post/comment removal, retained replies and pending-edit revival rejection. A [worker concurrency regression](../services/backend/internal/app/worker_concurrency_integration_test.go) coordinates real notification insertion and a command targeting its recipient/post to detect the profile/post deadlock. Commands and projections share the pilot mutation lock before row locks; notification delivery, lease fencing and deduplication remain atomic. The full suite runs with race detection.
 
 [Browser journeys](../tests/e2e/core.spec.ts) cover native modal cancellation, required Other detail, Unicode code-point minimums in resident/staff forms, a lost acknowledgement and same-key recovery, owner history, staff dismissal, an identical submission after dismissal, confirmed post/comment removal, retained replies, suppressed Activity and 320-pixel light/dark layouts. The production build, documentation validation and generated SQL/TypeScript drift checks accompany these tests.
 
