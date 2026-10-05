@@ -24,6 +24,8 @@ Error cases include 401 for an invalid session, 403 for missing community/author
 
 Forced row-level security permits eligible public reads and reserves writes for the question author or active moderator/owner of the same community. A write must identify the current selector and pass current eligibility/block checks. Authorized selectors can replace or clear retained rows after their old sources stop being eligible. Public DTO queries independently join current eligible revisions, including for the author. Restricted runtime grants prevent changing the post ID or forging selection timestamps. Session, profile and membership checks run inside the existing serialized pilot command boundary.
 
+[Migration 00017](../db/migrations/00017_community_membership_scope.sql) protects the underlying community authority. Runtime membership inserts must belong to the current profile and use `MEMBER`; updates can change only that profile's active/left state and version. Provisioned moderator/owner roles survive join/leave. Runtime credentials cannot change roles, mutate another profile's membership, delete a membership/ban, or rejoin a banned member. Membership reads remain available for counts and existing community access checks. Privileged role provisioning remains outside the resident runtime.
+
 Upgrade without resetting volumes:
 
 ```bash

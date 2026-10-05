@@ -146,6 +146,27 @@ func TestQuestionResponsePermissionsDesiredStateAndConcurrency(t *testing.T) {
 	deniedSQL(t, a.DB, `UPDATE social.selected_response SET selected_at=now() WHERE post_id=$1`, p.ID)
 	community := uuid.MustParse("50000000-0000-4000-8000-000000000001")
 	writerID := myProfileID(t, writer)
+	// A resident cannot manufacture the scoped role on which selection relies.
+	if _, e := a.store(scope).Exec(scope, `UPDATE social.community_member SET role='MODERATOR' WHERE community_id=$1 AND profile_id=$2`, community, writerID); e == nil {
+		t.Fatal("runtime could provision moderator authority")
+	}
+	if _, e := a.store(scope).Exec(scope, `INSERT INTO social.community_member(community_id,profile_id,role,state) VALUES($1,$2,'MODERATOR','ACTIVE') ON CONFLICT(community_id,profile_id) DO UPDATE SET role='MODERATOR'`, community, writerID); e == nil {
+		t.Fatal("forged moderator upsert accepted")
+	}
+	if _, e := a.store(scope).Exec(scope, `DELETE FROM social.community_member WHERE community_id=$1 AND profile_id=$2`, community, writerID); e == nil {
+		t.Fatal("runtime could erase a membership/ban")
+	}
+	newCommunity := uuid.New()
+	if _, e := integrationAdmin.Exec(context.Background(), `INSERT INTO social.community(id,slug,title,scope_kind,visibility,rules_body,state) VALUES($1,$2,'Fictional role fixture','TOPIC','PUBLIC','Be constructive','ACTIVE')`, newCommunity, "role-fixture-"+newCommunity.String()); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := a.store(scope).Exec(scope, `INSERT INTO social.community_member(community_id,profile_id,role,state) VALUES($1,$2,'MODERATOR','ACTIVE')`, newCommunity, writerID); e == nil {
+		t.Fatal("forged moderator insert accepted")
+	}
+	mustStatus(t, writer.request("PUT", "communities/"+newCommunity.String()+"/membership", map[string]any{"joined": true, "rulesRevision": 1}, 0, ""), 200)
+	if tag, e := a.store(scope).Exec(scope, `UPDATE social.community_member SET state='LEFT' WHERE community_id=$1 AND profile_id=$2`, community, myProfileID(t, owner)); e != nil || tag.RowsAffected() != 0 {
+		t.Fatal("foreign membership changed", e)
+	}
 	if _, e := integrationAdmin.Exec(context.Background(), `UPDATE social.community_member SET role='MODERATOR' WHERE community_id=$1 AND profile_id=$2`, community, writerID); e != nil {
 		t.Fatal(e)
 	}
@@ -154,6 +175,12 @@ func TestQuestionResponsePermissionsDesiredStateAndConcurrency(t *testing.T) {
 	})
 	if !readQuestion(t, writer, p.ID).Viewer.CanSelectResponse {
 		t.Fatal("scoped moderator missing control")
+	}
+	// Join/leave preserves a provisioned role; neither state command can replace it.
+	mustStatus(t, writer.request("PUT", "communities/"+community.String()+"/membership", map[string]any{"joined": false, "rulesRevision": 1}, 0, ""), 200)
+	mustStatus(t, writer.request("PUT", "communities/"+community.String()+"/membership", map[string]any{"joined": true, "rulesRevision": 1}, 0, ""), 200)
+	if !readQuestion(t, writer, p.ID).Viewer.CanSelectResponse {
+		t.Fatal("membership command discarded provisioned role")
 	}
 	p = chooseResponse(t, writer, p, &ids[1])
 	if p.SelectedResponse.SelectedBy != "COMMUNITY_MODERATOR" {
@@ -165,6 +192,13 @@ func TestQuestionResponsePermissionsDesiredStateAndConcurrency(t *testing.T) {
 	mustStatus(t, responseRequest(writer, p, nil), 403)
 	if readQuestion(t, writer, p.ID).Viewer.CanSelectResponse {
 		t.Fatal("revoked scope retained control")
+	}
+	if _, e := integrationAdmin.Exec(context.Background(), `UPDATE social.community_member SET state='BANNED' WHERE community_id=$1 AND profile_id=$2`, community, writerID); e != nil {
+		t.Fatal(e)
+	}
+	mustStatus(t, writer.request("PUT", "communities/"+community.String()+"/membership", map[string]any{"joined": true, "rulesRevision": 1}, 0, ""), 403)
+	if tag, e := a.store(scope).Exec(scope, `UPDATE social.community_member SET state='ACTIVE' WHERE community_id=$1 AND profile_id=$2`, community, writerID); e != nil || tag.RowsAffected() != 0 {
+		t.Fatal("runtime removed own ban", e)
 	}
 }
 

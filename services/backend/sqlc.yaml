@@ -18,6 +18,7 @@ sql:
       - ../../db/migrations/00014_activity_preferences.sql
       - ../../db/migrations/00015_content_reporting.sql
       - ../../db/migrations/00016_question_responses.sql
+      - ../../db/migrations/00017_community_membership_scope.sql
     queries: internal/store/queries.sql
     gen:
       go:
