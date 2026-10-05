@@ -22,7 +22,7 @@ export function PublicationReview({ caseDetail: c }: { caseDetail: Schema['CaseD
   const [withdrawReason, setWithdrawReason] = useState('');
   const [withdrawReviewed, setWithdrawReviewed] = useState(false);
   const stale =
-    base.caseVersion !== c.version || base.publicationVersion !== (publication?.version || 0);
+    c.version > base.caseVersion || (publication?.version || 0) > base.publicationVersion;
   const refresh = useMutation({
     mutationFn: () => api<Schema['CaseDetail']>(`authority/cases/${c.id}`),
     onSuccess: (latest) => {

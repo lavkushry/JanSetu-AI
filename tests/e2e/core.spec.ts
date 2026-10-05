@@ -128,9 +128,34 @@ test('publisher corrections, withdrawal and reviewed republication preserve priv
       .getByRole('textbox', { name: 'Private publication reason', exact: true })
       .fill('PRIVATE CORRECTION REASON');
     await review.getByLabel('I reviewed this public preview for identifying details.').check();
-    const correction = await savePublicProgress(staff.page, 'Save reviewed correction');
-    expect(correction.version).toBe(1);
-    expect(correction.publicationVersion).toBe(2);
+    // Hold the case refresh after a committed correction: the new reviewed
+    // base must not announce a conflict while the query still has the old data.
+    let releaseRefresh = () => {};
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    let refreshingCase = false;
+    await staff.page.route(
+      `**/api/authority/cases/${caseId}`,
+      async (route) => {
+        const response = await route.fetch();
+        refreshingCase = true;
+        await refreshGate;
+        await route.fulfill({ response });
+      },
+      { times: 1 },
+    );
+    try {
+      const correction = await savePublicProgress(staff.page, 'Save reviewed correction');
+      expect(correction.version).toBe(1);
+      expect(correction.publicationVersion).toBe(2);
+      await expect.poll(() => refreshingCase).toBe(true);
+      await expect(current).toContainText('PUBLICATION REVISION 1');
+      await expect(review.getByRole('alert')).toHaveCount(0);
+    } finally {
+      releaseRefresh();
+    }
+    await expect(current).toContainText('PUBLICATION REVISION 2');
     await expect
       .poll(async () => (await activity()).items.filter((n) => n.target.id === receiptId).length)
       .toBe(1);
