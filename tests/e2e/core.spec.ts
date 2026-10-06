@@ -2858,8 +2858,13 @@ test('reply authors receive private approvals separately from conversation alert
     await page.goto(`/posts/${post.id}`);
     const body = `Private reply approval candidate ${Date.now()}`;
     await page.getByLabel('Add to the conversation').fill(body);
+    const submitted = page.waitForResponse(
+      (r) => r.url().endsWith(`/posts/${post.id}/comments`) && r.request().method() === 'POST',
+    );
     await page.getByRole('button', { name: 'Submit comment', exact: true }).click();
-    await expect(page.getByText(body, { exact: true })).toBeVisible();
+    expect((await submitted).status()).toBe(201);
+    await expect(page.getByLabel('Add to the conversation')).toHaveValue('');
+    await expect(page.locator('.comment').getByText(body, { exact: true })).toBeVisible();
     const comments = (await (
       await page.request.get(`/api/posts/${post.id}/comments`)
     ).json()) as Schema['CommentPage'];
