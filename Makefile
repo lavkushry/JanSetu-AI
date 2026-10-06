@@ -1,9 +1,16 @@
-.PHONY: dev db identity vault migrate seed api worker media-worker vision-setup vision-test web test test-integration check generate
+.PHONY: dev db identity vault migrate seed api worker media-worker vision-setup pothole-setup vision-test web test test-integration check generate
+PYTHON ?= python3
 vision-setup:
-	python3 -m venv services/vision/.venv
+	$(PYTHON) -m venv services/vision/.venv
 	services/vision/.venv/bin/pip install -r services/vision/requirements.txt
 	services/vision/.venv/bin/python services/vision/download_model.py
 	services/vision/run --version
+pothole-setup: vision-setup
+	services/vision/.venv/bin/python -m venv services/vision/.export-venv
+	services/vision/.export-venv/bin/pip install -r services/vision/export-requirements.txt
+	services/vision/.export-venv/bin/pip install --no-deps torch==2.10.0+cpu torchvision==0.25.0+cpu --index-url https://download.pytorch.org/whl/cpu
+	services/vision/.export-venv/bin/python -I services/vision/export_pothole.py
+	services/vision/pothole-run --version
 vision-test:
 	services/vision/.venv/bin/python -m unittest discover -s services/vision -p '*_test.py'
 db:

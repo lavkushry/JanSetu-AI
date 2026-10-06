@@ -90,6 +90,7 @@ services:
       JANSETU_WEB_ORIGIN: http://localhost:3100
       JANSETU_MEDIA_DATABASE_URL: postgres://js_media:js_media-local@db:5432/jansetu?sslmode=disable
       JANSETU_VISION_BINARY: /opt/vision/run
+      JANSETU_POTHOLE_BINARY: /opt/vision/pothole-run
       JANSETU_MEDIA_DIR: /data/media
     ports:
       - 0.0.0.0:8081:8080
@@ -184,6 +185,7 @@ services:
       JANSETU_ENV: local
       JANSETU_MEDIA_WORKER_DATABASE_URL: postgres://js_media_worker:js_media_worker-local@db:5432/jansetu?sslmode=disable
       JANSETU_VISION_BINARY: /opt/vision/run
+      JANSETU_POTHOLE_BINARY: /opt/vision/pothole-run
       JANSETU_MEDIA_DIR: /data/media
     volumes:
       - jansetu-media:/data/media
@@ -196,7 +198,7 @@ services:
     cap_drop:
       - ALL
     pids_limit: 64
-    mem_limit: 768m
+    mem_limit: 1g
     cpus: 1.0
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m

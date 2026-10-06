@@ -14,5 +14,7 @@ __pycache__/
 .DS_Store
 *.tsbuildinfo
 services/vision/.venv
+services/vision/.export-venv
+services/vision/pothole-manifest.json
 services/vision/*.onnx
 services/vision/*.tmp

@@ -44,7 +44,7 @@ def main():
     args = parser.parse_args()
     files = sorted(ROOT.rglob("*.md"))
     # Installed packages and generated reports are not repository documentation.
-    excluded = {".git", "node_modules", ".venv", ".next", "test-results", "playwright-report"}
+    excluded = {".git", "node_modules", ".venv", ".export-venv", ".next", "test-results", "playwright-report"}
     files = [p for p in files if not excluded.intersection(p.relative_to(ROOT).parts)]
     texts = {p.resolve(): p.read_text() for p in files}
     ids = {p: anchors(body) for p, body in texts.items()}

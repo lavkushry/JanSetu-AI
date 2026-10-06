@@ -699,12 +699,12 @@ func (a *App) createAnalysis(w http.ResponseWriter, r *http.Request, actor *Acto
 	if e = decode(r, &b); e != nil {
 		return nil, 0, e
 	}
-	if len(b.Tasks) < 1 || len(b.Tasks) > 5 || !textValid(b.Language, 2, 40) {
+	if len(b.Tasks) < 1 || len(b.Tasks) > 6 || !textValid(b.Language, 2, 40) {
 		return nil, 0, invalid("Choose analysis tasks and a language")
 	}
 	seen := map[string]bool{}
 	for _, kind := range b.Tasks {
-		if seen[kind] || (kind != "QUALITY" && kind != "OCR" && kind != "ISSUE_DETECTION" && kind != "REDACTION" && kind != "VOICE_TRANSCRIPTION") {
+		if seen[kind] || (kind != "QUALITY" && kind != "OCR" && kind != "ISSUE_DETECTION" && kind != "POTHOLE_DETECTION" && kind != "REDACTION" && kind != "VOICE_TRANSCRIPTION") {
 			return nil, 0, invalid("Choose distinct supported task names")
 		}
 		seen[kind] = true
@@ -735,7 +735,7 @@ func (a *App) createAnalysis(w http.ResponseWriter, r *http.Request, actor *Acto
 	}
 	for _, kind := range b.Tasks {
 		state, code := "QUEUED", ""
-		if kind != "OCR" && kind != "QUALITY" && !(kind == "ISSUE_DETECTION" && a.Config.VisionBinary != "") {
+		if kind != "OCR" && kind != "QUALITY" && !(kind == "ISSUE_DETECTION" && a.Config.VisionBinary != "") && !(kind == "POTHOLE_DETECTION" && a.Config.PotholeBinary != "") {
 			state, code = "UNSUPPORTED", "CAPABILITY_UNAVAILABLE"
 		}
 		if kind == "OCR" && b.Language != "en" && b.Language != "en-IN" && b.Language != "en-US" && b.Language != "en-GB" {
@@ -781,7 +781,7 @@ func (a *App) changeAnalysis(w http.ResponseWriter, r *http.Request, actor *Acto
 		if e = decode(r, &b); e != nil {
 			return nil, 0, e
 		}
-		if len(b.Tasks) < 1 || len(b.Tasks) > 5 {
+		if len(b.Tasks) < 1 || len(b.Tasks) > 6 {
 			return nil, 0, invalid("Choose failed tasks to retry")
 		}
 	}

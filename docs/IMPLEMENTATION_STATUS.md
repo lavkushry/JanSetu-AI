@@ -132,6 +132,8 @@ Browser checks use real Keycloak sign-in and API/database workflows for social p
 
 Upload browser checks also cover lost allocation/part/completion acknowledgements, same-file recovery after reload, skipped committed parts and finishing a fully committed upload without a local file. The [CI workflow](../.github/workflows/core.yml) repeats these checks and verifies generated SQL/types have no drift. Passing these focused checks does not constitute all 68 canonical acceptance contracts, a load test, a full accessibility audit, or a security review.
 
+The optional [private pothole CNN](PRIVATE_POTHOLE_RECOGNITION.md) now returns experimental candidates for road-report photos and reviewed video frames. Its smoke sample records an extra glove candidate; verified held-out field evaluation, calibration and training-image rights review remain pending.
+
 ## Next implementation milestones
 
 1. Complete production privacy/identity gates: managed envelope encryption and rotation/recovery, independent vault hosting/administration, independent API service identities, external immutable audit retention, provider revocation/MFA and controlled staff provisioning. Restricted database roles/RLS, the separate self-scope vault service, encrypted locators, purpose audit and focused adversarial tests are implemented locally.

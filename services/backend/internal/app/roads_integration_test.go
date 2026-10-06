@@ -79,7 +79,10 @@ func TestRoadReportSnapshotRetryPrivacyAndTriage(t *testing.T) {
 }
 
 func TestRoadGuidanceAndForgedReportSources(t *testing.T) {
-	a := testApp(t)
+	base := testApp(t)
+	cfg := base.Config
+	cfg.PotholeBinary = ""
+	a := cloneTestApp(t, cfg)
 	owner := login(t, a, 0)
 	for _, kind := range []string{"UNKNOWN", "NHAI_HIGHWAY", "BENGALURU_CITY", "KARNATAKA_PWD"} {
 		w := owner.request("GET", "road-guidance?roadType="+kind, nil, 0, "")
@@ -97,7 +100,7 @@ func TestRoadGuidanceAndForgedReportSources(t *testing.T) {
 	mustStatus(t, owner.request("POST", "service-reports", forged, 0, uuid.NewString()), 400)
 	w := owner.request("GET", "capabilities", nil, 0, "")
 	mustStatus(t, w, 200)
-	if !strings.Contains(w.Body.String(), `"kind":"POTHOLE_DETECTION"`) || !strings.Contains(w.Body.String(), "Automatic pothole detection is unavailable") {
+	if !strings.Contains(w.Body.String(), `"kind":"POTHOLE_DETECTION"`) || !strings.Contains(w.Body.String(), "Pothole recognition is unavailable") {
 		t.Fatal("must expose the hazard model readiness boundary")
 	}
 }

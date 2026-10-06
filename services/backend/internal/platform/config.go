@@ -11,7 +11,7 @@ import (
 )
 
 type Config struct {
-	VisionBinary                                                                                                         string
+	VisionBinary, PotholeBinary                                                                                          string
 	MediaURL, MediaWorkerURL, MediaDir, OCRBinary                                                                        string
 	Environment, DatabaseURL, SocialURL, OperationsURL, PublicationURL, WorkerURL, VaultURL, VaultToken, Addr, WebOrigin string
 	AuthMode, OIDCIssuer, OIDCClientID, OIDCClientSecret, OIDCBackchannel                                                string
@@ -27,6 +27,7 @@ func env(key, fallback string) string {
 func Load() (Config, error) {
 	c := Config{
 		VisionBinary:     os.Getenv("JANSETU_VISION_BINARY"),
+		PotholeBinary:    os.Getenv("JANSETU_POTHOLE_BINARY"),
 		MediaURL:         env("JANSETU_MEDIA_DATABASE_URL", "postgres://js_media:js_media-local@localhost:5438/jansetu?sslmode=disable"),
 		MediaWorkerURL:   env("JANSETU_MEDIA_WORKER_DATABASE_URL", "postgres://js_media_worker:js_media_worker-local@localhost:5438/jansetu?sslmode=disable"),
 		MediaDir:         env("JANSETU_MEDIA_DIR", "/tmp/jansetu-media"),

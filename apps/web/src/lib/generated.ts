@@ -2345,7 +2345,7 @@ export interface components {
         DetectionRegion: {
             id: string;
             /** @enum {string} */
-            label: "person" | "bicycle" | "car" | "motorcycle" | "bus" | "truck" | "traffic light" | "fire hydrant" | "stop sign" | "bench";
+            label: "person" | "bicycle" | "car" | "motorcycle" | "bus" | "truck" | "traffic light" | "fire hydrant" | "stop sign" | "bench" | "pothole";
             polygon: number[][];
             /** @description Uncalibrated engine scores are not probabilities and are not exposed. */
             confidence: null;
@@ -2369,7 +2369,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            kind: "QUALITY" | "OCR" | "ISSUE_DETECTION" | "REDACTION" | "VOICE_TRANSCRIPTION";
+            kind: "QUALITY" | "OCR" | "ISSUE_DETECTION" | "POTHOLE_DETECTION" | "REDACTION" | "VOICE_TRANSCRIPTION";
             /** @enum {string} */
             state: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "UNSUPPORTED" | "CANCELLED";
             result: components["schemas"]["ImageAnalysisResult"] | null;
@@ -2387,7 +2387,7 @@ export interface components {
             tasks: components["schemas"]["AnalysisTask"][];
         };
         AnalysisInput: {
-            tasks: ("QUALITY" | "OCR" | "ISSUE_DETECTION" | "REDACTION" | "VOICE_TRANSCRIPTION")[];
+            tasks: ("QUALITY" | "OCR" | "ISSUE_DETECTION" | "POTHOLE_DETECTION" | "REDACTION" | "VOICE_TRANSCRIPTION")[];
             languageTag: string;
         };
         OCRCorrection: {

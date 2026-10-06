@@ -13,12 +13,14 @@ import (
 )
 
 type Worker struct {
-	Vision      *Detector
-	VisionModel string
-	DB          *pgxpool.Pool
-	Files       *Storage
-	Engine      OCR
-	Model       string
+	Pothole      *Detector
+	PotholeModel string
+	Vision       *Detector
+	VisionModel  string
+	DB           *pgxpool.Pool
+	Files        *Storage
+	Engine       OCR
+	Model        string
 }
 
 func (w *Worker) Once(ctx context.Context) error {
@@ -273,13 +275,17 @@ func (w *Worker) analyzeOne(ctx context.Context) error {
 			if code != "" {
 				state = "FAILED"
 			}
-		} else if t.kind == "ISSUE_DETECTION" && w.Vision != nil {
+		} else if (t.kind == "ISSUE_DETECTION" && w.Vision != nil) || (t.kind == "POTHOLE_DETECTION" && w.Pothole != nil) {
+			detector := w.Vision
 			model = w.VisionModel
+			if t.kind == "POTHOLE_DETECTION" {
+				detector, model = w.Pothole, w.PotholeModel
+			}
 			path, err := w.Files.Path(key)
 			if err != nil {
 				return err
 			}
-			result, code = w.Vision.Run(ctx, path, model, hash, width, height)
+			result, code = detector.Run(ctx, path, model, hash, width, height)
 			if code != "" {
 				state = "FAILED"
 			}

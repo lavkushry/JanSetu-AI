@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.20.0
+  version: 0.21.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -4793,6 +4793,7 @@ components:
               fire hydrant,
               stop sign,
               bench,
+              pothole,
             ]
         polygon:
           type: array
@@ -4860,6 +4861,7 @@ components:
             - QUALITY
             - OCR
             - ISSUE_DETECTION
+            - POTHOLE_DETECTION
             - REDACTION
             - VOICE_TRANSCRIPTION
         state:
@@ -4912,7 +4914,7 @@ components:
         tasks:
           type: array
           items: *id006
-          maxItems: 5
+          maxItems: 6
         languageTag: *id003
     OCRCorrection:
       type: object

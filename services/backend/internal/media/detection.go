@@ -8,15 +8,23 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
 
 const DetectionModel = "yolox-nano-0.1.1rc0/sha256:c789161ed43c8269fcd4e67c67eeeb4e80c622da2eb296a20bc6007bd18a0b7d/ort-1.23.2/opencv-4.12.0/road-objects-v1"
 
+const PotholeModel = "pothole-fasterrcnn/sha256:c8f5de9a18d1e5980b3b0f1febe653583b19843b7d7ed549d0dc3eb2e2fc79e5/torch-2.10.0-tv-0.25.0-onnx-1.20.1/ort-1.23.2/opencv-4.12.0/pothole-v1"
+
+var potholeVersion = regexp.MustCompile("^" + regexp.QuoteMeta(PotholeModel) + "/onnx-sha256:[a-f0-9]{64}$")
+
 // Detector invokes one fixed local executable against a decoded private image.
 // It receives no credentials, caller-selected options, or external image URLs.
-type Detector struct{ Binary string }
+type Detector struct {
+	Binary string
+	Kind   string
+}
 
 func (d Detector) command(ctx context.Context, argument string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, d.Binary, argument)
@@ -34,10 +42,15 @@ func (d Detector) Version(ctx context.Context) (string, error) {
 	if err := cmd.Run(); err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(output.String()) != DetectionModel {
+	version := strings.TrimSpace(output.String())
+	expected := version == DetectionModel
+	if d.Kind == "POTHOLE_DETECTION" {
+		expected = potholeVersion.MatchString(version)
+	}
+	if !expected {
 		return "", errors.New("unexpected image recognition model")
 	}
-	return DetectionModel, nil
+	return version, nil
 }
 
 func (d Detector) Run(ctx context.Context, path, model string, hash []byte, width, height int) (ImageResult, string) {
@@ -55,10 +68,14 @@ func (d Detector) Run(ctx context.Context, path, model string, hash []byte, widt
 		}
 		return ImageResult{}, "VISION_FAILED"
 	}
-	return parseDetection(output.Bytes(), model, hash, width, height)
+	return parseCandidates(output.Bytes(), model, hash, width, height, d.Kind)
 }
 
 func parseDetection(data []byte, model string, hash []byte, width, height int) (ImageResult, string) {
+	return parseCandidates(data, model, hash, width, height, "ISSUE_DETECTION")
+}
+
+func parseCandidates(data []byte, model string, hash []byte, width, height int, kind string) (ImageResult, string) {
 	var wire struct {
 		Width   int   `json:"width"`
 		Height  int   `json:"height"`
@@ -80,6 +97,10 @@ func parseDetection(data []byte, model string, hash []byte, width, height int) (
 	result := Result(model, hash, width, height)
 	result.Empty = *wire.Empty
 	result.Codes = []string{"OBJECT_CANDIDATES_ONLY", "UNSUPPORTED_HAZARD_TAXONOMY"}
+	if kind == "POTHOLE_DETECTION" {
+		allowed = map[string]bool{"pothole": true}
+		result.Codes = []string{"POTHOLE_CANDIDATES_ONLY", "FIELD_EVALUATION_PENDING"}
+	}
 	for i, region := range wire.Regions {
 		if !allowed[region.Label] || len(region.Polygon) != 4 {
 			return ImageResult{}, "VISION_INVALID_RESULT"
