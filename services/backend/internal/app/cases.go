@@ -55,7 +55,7 @@ func (a *App) caseData(r *http.Request, q *dbgen.Queries, cid uuid.UUID, actor *
 		if o.AgencyID != nil && actor.Agency(*o.AgencyID, "") {
 			allowed = true
 		}
-		items = append(items, map[string]any{"id": o.ID, "agencyId": o.AgencyID, "agency": o.AgencyName, "state": o.State, "version": o.Version, "dueAt": timestamp(o.DueAt), "workSummary": o.WorkSummary, "acceptedAt": timestamp(o.AcceptedAt), "completedAt": timestamp(o.CompletedAt), "canVerify": o.AgencyID != nil && actor.Agency(*o.AgencyID, "VERIFIER") && (o.CompletionActorRef == nil || *o.CompletionActorRef != actor.PrincipalID)})
+		items = append(items, map[string]any{"id": o.ID, "agencyId": o.AgencyID, "agency": o.AgencyName, "scope": o.ScopeText, "requiredForRestoration": o.RequiredForRestoration, "state": o.State, "version": o.Version, "dueAt": timestamp(o.DueAt), "workSummary": o.WorkSummary, "acceptedAt": timestamp(o.AcceptedAt), "completedAt": timestamp(o.CompletedAt), "canVerify": o.AgencyID != nil && actor.Agency(*o.AgencyID, "VERIFIER") && (o.CompletionActorRef == nil || *o.CompletionActorRef != actor.PrincipalID)})
 	}
 	if !allowed {
 		return nil, forbidden()
@@ -87,7 +87,7 @@ func (a *App) caseData(r *http.Request, q *dbgen.Queries, cid uuid.UUID, actor *
 		}
 		blocked = !allowed
 	}
-	return map[string]any{"publicationBlocked": blocked, "canPublish": actor.Has("PUBLISHER"), "publication": publication, "id": c.ID, "category": c.CategoryCode, "state": c.State, "urgencyTier": c.UrgencyTier, "version": c.Version, "firstReportedAt": timestamp(c.FirstValidReportAt), "obligations": items, "events": timeline, "receiptId": receipt}, nil
+	return map[string]any{"canProposeTask": actor.Has("COORDINATOR") && c.State != "RESOLVED" && c.State != "WITHDRAWN" && len(obligations) < maxRestorationTasks, "publicationBlocked": blocked, "canPublish": actor.Has("PUBLISHER"), "publication": publication, "id": c.ID, "category": c.CategoryCode, "state": c.State, "urgencyTier": c.UrgencyTier, "version": c.Version, "firstReportedAt": timestamp(c.FirstValidReportAt), "obligations": items, "events": timeline, "receiptId": receipt}, nil
 }
 func (a *App) caseDetail(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
 	cid, e := id(r, "id")
@@ -150,10 +150,11 @@ func (a *App) obligationTransition(r *http.Request, actor *Actor, target string)
 		if e = q.ChangeObligation(r.Context(), dbgen.ChangeObligationParams{ID: oid, State: target, WorkSummary: b.Summary, CompletionActorRef: &actor.PrincipalID}); e != nil {
 			return e
 		}
-		state := "ACTIVE"
-		if target == "COMPLETION_CLAIMED" {
-			state = "VERIFICATION_PENDING"
+		tasks, e := q.CaseObligations(r.Context(), c.ID)
+		if e != nil {
+			return e
 		}
+		state := restorationState(tasks, "")
 		if e = q.ChangeCase(r.Context(), dbgen.ChangeCaseParams{ID: c.ID, State: state}); e != nil {
 			return e
 		}
@@ -217,17 +218,15 @@ func (a *App) verify(w http.ResponseWriter, r *http.Request, actor *Actor) (any,
 		if e = q.ChangeObligation(r.Context(), dbgen.ChangeObligationParams{ID: o.ID, State: state, WorkSummary: o.WorkSummary, CompletionActorRef: o.CompletionActorRef}); e != nil {
 			return e
 		}
-		caseState := "VERIFICATION_PENDING"
+		fallback := ""
 		if b.Result == "NOT_RESTORED" {
-			caseState = "REOPENED"
+			fallback = "REOPENED"
 		}
-		resolved, e := q.CaseCanResolve(r.Context(), cid)
+		tasks, e := q.CaseObligations(r.Context(), cid)
 		if e != nil {
 			return e
 		}
-		if resolved {
-			caseState = "RESOLVED"
-		}
+		caseState := restorationState(tasks, fallback)
 		if e = q.ChangeCase(r.Context(), dbgen.ChangeCaseParams{ID: cid, State: caseState}); e != nil {
 			return e
 		}

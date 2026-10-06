@@ -4404,3 +4404,259 @@ test('road drafts recover observations and manual reporting survives unavailable
       .roadDetails,
   ).toBeNull();
 });
+
+test('required task proposals recover lost acknowledgements and all work needs independent verification', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  const coordinator = await staffPage(browser, 'Kiran Shah');
+  const officer = await staffPage(browser, 'City Works team');
+  const verifier = await staffPage(browser, 'Neha Sen');
+  const csrf = { 'x-jansetu-csrf': '1' };
+  try {
+    const { caseId, report, statement } = await publicProgressFixture(page, coordinator.page);
+    const path = `/api/authority/cases/${caseId}`;
+    let detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    const first = detail.obligations[0].id;
+    const published = await coordinator.page.request.post(`${path}/publications`, {
+      headers: { ...csrf, 'if-match': '"1"' },
+      data: {
+        title: 'Fictional joint restoration',
+        summary: 'Reviewed fictional work is awaiting acceptance.',
+        area: 'Fictional broad area',
+        reviewed: true,
+        publicationVersion: 0,
+        reason: 'Private synthetic publication review',
+      },
+    });
+    expect(published.status()).toBe(200);
+    const { receiptId } = (await published.json()) as Schema['PublicationResult'];
+    await openPublicationReview(coordinator.page, caseId);
+    const proposal = coordinator.page.getByTestId('task-proposal');
+    const scope = 'PRIVATE restore the separate pedestrian crossing surface';
+    await proposal
+      .getByLabel('Agency for this task')
+      .selectOption('30000000-0000-4000-8000-000000000001');
+    await proposal.getByLabel('Required work scope').fill(scope);
+    let loseAck = true;
+    let taskId = '';
+    let proposalId = '';
+    await coordinator.page.route(`**${path}/obligations`, async (route) => {
+      if (!loseAck) return route.continue();
+      loseAck = false;
+      proposalId = (route.request().postDataJSON() as Schema['TaskProposalInput']).clientTaskId;
+      const response = await route.fetch();
+      expect(response.status()).toBe(201);
+      taskId = ((await response.json()) as Schema['TaskProposalResult']).id;
+      await route.abort('failed');
+    });
+    await proposal.getByRole('button', { name: 'Propose required task', exact: true }).click();
+    await expect(proposal.getByRole('alert')).toBeVisible();
+    await expect(proposal.getByLabel('Required work scope')).toHaveValue(scope);
+    const retry = coordinator.page.waitForResponse(
+      (r) => r.url().endsWith(`${path}/obligations`) && r.request().method() === 'POST',
+    );
+    await proposal.getByRole('button', { name: 'Propose required task', exact: true }).click();
+    const retryResponse = await retry;
+    expect(retryResponse.status()).toBe(201);
+    expect(
+      (retryResponse.request().postDataJSON() as Schema['TaskProposalInput']).clientTaskId,
+    ).toBe(proposalId);
+    expect(((await retryResponse.json()) as Schema['TaskProposalResult']).id).toBe(taskId);
+    await expect(coordinator.page.getByTestId(`obligation-${taskId}`)).toContainText(scope);
+    detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    expect(detail.obligations).toHaveLength(2);
+    expect(detail.version).toBe(2);
+    expect(detail.firstReportedAt).toBe(report.receivedAt);
+    await officer.page.reload();
+    await officer.page.getByTestId(`staff-case-${caseId}`).click();
+    const firstCard = officer.page.getByTestId(`obligation-${first}`);
+    const secondCard = officer.page.getByTestId(`obligation-${taskId}`);
+    await firstCard
+      .getByLabel('Work or decision summary')
+      .fill('Fictional first task accepted independently');
+    await expect(secondCard.getByLabel('Work or decision summary')).toHaveValue('');
+    for (const label of ['Accept task', 'Start work', 'Claim completion']) {
+      await firstCard
+        .getByLabel('Work or decision summary')
+        .fill('Fictional first task stage documented independently');
+      await firstCard.getByRole('button', { name: label, exact: true }).click();
+      await expect(firstCard.getByRole('button', { name: label, exact: true })).not.toBeVisible();
+    }
+    await secondCard
+      .getByLabel('Work or decision summary')
+      .fill('Fictional second required task accepted separately');
+    await secondCard.getByRole('button', { name: 'Accept task', exact: true }).click();
+    await expect(secondCard.getByRole('button', { name: 'Start work', exact: true })).toBeVisible();
+    await expect(officer.page.locator('.case-detail .receipt-eyebrow .badge')).toHaveText(
+      'verification pending',
+    );
+    await verifier.page.reload();
+    await verifier.page.getByTestId(`staff-case-${caseId}`).click();
+    const firstReview = verifier.page.getByTestId(`obligation-${first}`);
+    await firstReview
+      .getByLabel('Independent inspection reason')
+      .fill('Independent fictional inspection of the first restored surface');
+    await firstReview.getByRole('button', { name: 'Record verification decision' }).click();
+    await expect(verifier.page.getByTestId('restoration-summary')).toContainText(
+      '1 of 2 required tasks verified',
+    );
+    await expect(verifier.page.locator('.case-detail .receipt-eyebrow .badge')).toHaveText(
+      'active',
+    );
+    expect(
+      (
+        (await (
+          await page.request.get(`/api/my-reports/${report.id}`)
+        ).json()) as Schema['ReportProgress']
+      ).state,
+    ).toBe('ACCEPTED');
+    for (const label of ['Start work', 'Claim completion']) {
+      await secondCard
+        .getByLabel('Work or decision summary')
+        .fill('Fictional second task work performed and documented');
+      await secondCard.getByRole('button', { name: label, exact: true }).click();
+      await expect(secondCard.getByRole('button', { name: label, exact: true })).not.toBeVisible();
+    }
+    await verifier.page.reload();
+    await verifier.page.getByTestId(`staff-case-${caseId}`).click();
+    const secondReview = verifier.page.getByTestId(`obligation-${taskId}`);
+    await secondReview
+      .getByLabel('Independent inspection reason')
+      .fill('Independent fictional inspection of the separate restored crossing');
+    await secondReview.getByRole('button', { name: 'Record verification decision' }).click();
+    await expect(verifier.page.locator('.case-detail .receipt-eyebrow .badge')).toHaveText(
+      'resolved',
+    );
+    await expect(verifier.page.getByTestId('restoration-summary')).toHaveText(
+      '2 of 2 required tasks verified.',
+    );
+    detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    expect(detail.canProposeTask).toBe(false);
+    expect(detail.firstReportedAt).toBe(report.receivedAt);
+    const publicBefore = (await (
+      await page.request.get(`/api/case-receipts/${receiptId}`)
+    ).json()) as Schema['Receipt'];
+    expect(publicBefore.state).toBe('OPEN');
+    expect(publicBefore.responsibilities).toHaveLength(1);
+    expect(JSON.stringify(publicBefore)).not.toContain(scope);
+    const corrected = await coordinator.page.request.post(`${path}/publications`, {
+      headers: { ...csrf, 'if-match': `"${detail.version}"` },
+      data: {
+        title: 'Fictional joint restoration verified',
+        summary: 'Both required tasks received independent fictional verification.',
+        area: 'Fictional broad area',
+        reviewed: true,
+        publicationVersion: 1,
+        reason: 'Private synthetic final publication review',
+      },
+    });
+    expect(corrected.status()).toBe(200);
+    const publicAfter = (await (
+      await page.request.get(`/api/case-receipts/${receiptId}`)
+    ).json()) as Schema['Receipt'];
+    expect(publicAfter.state).toBe('RESOLVED');
+    expect(publicAfter.responsibilities).toHaveLength(2);
+    for (const secret of [scope, statement, caseId, report.id, first, taskId, proposalId])
+      expect(JSON.stringify(publicAfter)).not.toContain(secret);
+    await openPublicationReview(coordinator.page, caseId);
+    await expect(coordinator.page.getByTestId('task-proposal')).not.toBeVisible();
+    await expect(
+      coordinator.page.getByText('This case is closed to new task proposals.'),
+    ).toBeVisible();
+  } finally {
+    await coordinator.context.close();
+    await officer.context.close();
+    await verifier.context.close();
+  }
+});
+
+test('multi-agency proposals preserve stale drafts, agency scope and mobile layout', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  const coordinator = await staffPage(browser, 'Kiran Shah');
+  const officer = await staffPage(browser, 'City Works team');
+  const csrf = { 'x-jansetu-csrf': '1' };
+  try {
+    const { caseId, report } = await publicProgressFixture(page, coordinator.page);
+    const path = `/api/authority/cases/${caseId}`;
+    await openPublicationReview(coordinator.page, caseId);
+    const proposal = coordinator.page.getByTestId('task-proposal');
+    const scope = 'PRIVATE inspect and restore the fictional water service — पानी';
+    await proposal
+      .getByLabel('Agency for this task')
+      .selectOption('30000000-0000-4000-8000-000000000002');
+    await proposal.getByLabel('Required work scope').fill(scope);
+    const competing = await coordinator.page.request.post(`${path}/obligations`, {
+      headers: { ...csrf, 'if-match': '"1"' },
+      data: {
+        clientTaskId: crypto.randomUUID(),
+        agencyId: '30000000-0000-4000-8000-000000000001',
+        scope: 'PRIVATE remaining separate road restoration assessment',
+      },
+    });
+    expect(competing.status()).toBe(201);
+    const stale = coordinator.page.waitForResponse(
+      (r) => r.url().endsWith(`${path}/obligations`) && r.request().method() === 'POST',
+    );
+    await proposal.getByRole('button', { name: 'Propose required task', exact: true }).click();
+    expect((await stale).status()).toBe(412);
+    await expect(proposal.getByRole('alert')).toContainText('Refresh');
+    await proposal.getByRole('button', { name: 'Refresh case', exact: true }).click();
+    await expect(coordinator.page.getByTestId('restoration-summary')).toContainText(
+      '0 of 2 required tasks verified',
+    );
+    await expect(proposal.getByLabel('Required work scope')).toHaveValue(scope);
+    const saved = coordinator.page.waitForResponse(
+      (r) => r.url().endsWith(`${path}/obligations`) && r.request().method() === 'POST',
+    );
+    await proposal.getByRole('button', { name: 'Propose required task', exact: true }).click();
+    const response = await saved;
+    expect(response.status()).toBe(201);
+    const waterId = ((await response.json()) as Schema['TaskProposalResult']).id;
+    const waterCard = coordinator.page.getByTestId(`obligation-${waterId}`);
+    await expect(waterCard).toContainText(scope);
+    await coordinator.page.setViewportSize({ width: 320, height: 780 });
+    await waterCard.scrollIntoViewIfNeeded();
+    await expect
+      .poll(() =>
+        coordinator.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      )
+      .toBe(true);
+    await coordinator.page.screenshot({ path: 'test-results/multi-agency-mobile-light.png' });
+    await coordinator.page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+    await waterCard.scrollIntoViewIfNeeded();
+    await expect
+      .poll(() =>
+        coordinator.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      )
+      .toBe(true);
+    await coordinator.page.screenshot({ path: 'test-results/multi-agency-mobile-dark.png' });
+    await officer.page.reload();
+    await officer.page.getByTestId(`staff-case-${caseId}`).click();
+    const otherAgency = officer.page.getByTestId(`obligation-${waterId}`);
+    await expect(otherAgency).toContainText('Water Services (demo)');
+    await expect(otherAgency).toContainText('Required for restoration');
+    await expect(otherAgency).toContainText('Deadline unavailable');
+    await expect(
+      otherAgency.getByRole('button', { name: 'Accept task', exact: true }),
+    ).not.toBeVisible();
+    await expect(officer.page.getByTestId('task-proposal')).not.toBeVisible();
+    const own = (await (
+      await page.request.get(`/api/my-reports/${report.id}`)
+    ).json()) as Schema['ReportProgress'];
+    expect(own.state).toBe('AWAITING_AGENCY_ACCEPTANCE');
+    expect(own.responsibilities).toHaveLength(3);
+    expect(JSON.stringify(own)).not.toContain(scope);
+  } finally {
+    await coordinator.context.close();
+    await officer.context.close();
+  }
+});

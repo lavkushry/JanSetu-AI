@@ -1118,6 +1118,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/authority/cases/{id}/obligations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Propose distinct required restoration work within an open case
+         * @description Coordinator only. A clientTaskId identifies an immutable proposal for the lifetime of this case. Matching retries return the task's current state and versions without another write, even with the original If-Match. Changed agency or normalized scope for the same ID returns 409. New proposals check current case version, active agency, open case and an eight-task cap. Public progress still requires publication review.
+         */
+        post: operations["post_authority_cases_by_id_obligations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/authority/obligations/{id}/accept": {
         parameters: {
             query?: never;
@@ -2127,6 +2149,24 @@ export interface components {
             firstReportedAt: string;
             version: number;
         };
+        TaskProposalInput: {
+            /**
+             * Format: uuid
+             * @description Stable identifier for retries of this immutable task proposal; scoped to the case.
+             */
+            clientTaskId: string;
+            /** Format: uuid */
+            agencyId: string;
+            /** @description Distinct required work, trimmed by the API; private to authorized staff. Does not infer jurisdiction. */
+            scope: string;
+        };
+        TaskProposalResult: {
+            /** Format: uuid */
+            id: string;
+            state: string;
+            version: number;
+            caseVersion: number;
+        };
         Obligation: {
             id: string;
             agencyId: string | null;
@@ -2134,6 +2174,9 @@ export interface components {
             state: string;
             version: number;
             dueAt: string | null;
+            /** @description Immutable work scope. Empty for legacy tasks assessed before schema 27; never automatically copied to public progress. */
+            scope: string;
+            requiredForRestoration: boolean;
             workSummary: string;
             acceptedAt: string | null;
             completedAt: string | null;
@@ -2142,6 +2185,8 @@ export interface components {
         CaseDetail: {
             /** @description Live publisher-only sharing eligibility flag; false for other staff. Pending or approved owner withdrawal requests prevent new publication. Withdrawal remains available. */
             publicationBlocked: boolean;
+            /** @description Live coordinator capability, false on closed cases or at the eight-task cap. Every proposal rechecks authorization and version. */
+            canProposeTask: boolean;
             canPublish: boolean;
             id: string;
             category: string;
@@ -4440,6 +4485,43 @@ export interface operations {
             403: components["responses"]["Problem"];
             412: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    post_authority_cases_by_id_obligations: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["Version"];
+                "X-JanSetu-CSRF": "1";
+            };
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskProposalInput"];
+            };
+        };
+        responses: {
+            /** @description New or existing proposal with current task and case versions */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskProposalResult"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };

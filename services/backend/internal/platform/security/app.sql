@@ -43,6 +43,7 @@ GRANT SELECT ON social.profile,ops.agency,social.case_receipt,social.case_receip
 GRANT SELECT,INSERT ON ops.report TO js_ops;
 GRANT UPDATE(id) ON ops.report TO js_ops;
 GRANT SELECT,INSERT,UPDATE ON ops.intake_review,ops.case_record,ops.obligation TO js_ops;
+GRANT EXECUTE ON FUNCTION authz.owner_restoration_tasks(uuid) TO js_ops;
 GRANT SELECT,INSERT ON ops.case_event,ops.case_observation TO js_ops;
 GRANT INSERT ON ops.coordinator_assignment,ops.verification_decision TO js_ops;
 GRANT SELECT ON ops.publication_binding TO js_ops;

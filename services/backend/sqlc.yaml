@@ -28,6 +28,7 @@ sql:
       - ../../db/migrations/00024_resident_publication_withdrawal.sql
       - ../../db/migrations/00025_resident_sharing_renewal.sql
       - ../../db/migrations/00026_pothole_analysis.sql
+      - ../../db/migrations/00027_multiple_restoration_tasks.sql
     queries: internal/store/queries.sql
     gen:
       go:

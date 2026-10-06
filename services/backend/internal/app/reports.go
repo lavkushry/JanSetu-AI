@@ -199,24 +199,26 @@ func (a *App) ownProgress(r *http.Request, actor *Actor, reportID uuid.UUID) ([]
 		progress := "PLATFORM_RECEIVED"
 		responsibilities := []any{}
 		if v.CaseID != nil {
-			tasks, e := a.store(r.Context()).Query(r.Context(), "SELECT agency_name,state FROM authz.owner_tasks($1)", v.ID)
+			tasks, e := a.store(r.Context()).Query(r.Context(), "SELECT agency_name,state,required_for_restoration FROM authz.owner_restoration_tasks($1)", v.ID)
 			if e != nil {
 				return nil, e
 			}
-			progress = "AWAITING_AGENCY_ACCEPTANCE"
+			states := []string{}
 			for tasks.Next() {
 				var agency, state string
-				if e = tasks.Scan(&agency, &state); e != nil {
+				var required bool
+				if e = tasks.Scan(&agency, &state, &required); e != nil {
 					tasks.Close()
 					return nil, e
 				}
 				responsibilities = append(responsibilities, map[string]any{"agency": agency, "state": state})
-				if state != "PROPOSED" {
-					progress = state
+				if required {
+					states = append(states, state)
 				}
 			}
 			e = tasks.Err()
 			tasks.Close()
+			progress = ownerTaskProgress(states)
 			if e != nil {
 				return nil, e
 			}

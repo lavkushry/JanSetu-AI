@@ -568,17 +568,6 @@ func (q *Queries) CandidateComment(ctx context.Context, arg CandidateCommentPara
 	return body, err
 }
 
-const caseCanResolve = `-- name: CaseCanResolve :one
-SELECT NOT EXISTS(SELECT 1 FROM ops.obligation WHERE case_id=$1 AND required_for_restoration AND state NOT IN ('VERIFIED','CANCELLED'))
-`
-
-func (q *Queries) CaseCanResolve(ctx context.Context, caseID uuid.UUID) (bool, error) {
-	row := q.db.QueryRow(ctx, caseCanResolve, caseID)
-	var not_exists bool
-	err := row.Scan(&not_exists)
-	return not_exists, err
-}
-
 const caseEvents = `-- name: CaseEvents :many
 SELECT id, case_id, sequence, event_type, actor_ref, actor_role, payload, occurred_at, recorded_at FROM ops.case_event WHERE case_id=$1 ORDER BY sequence
 `
@@ -630,7 +619,7 @@ func (q *Queries) CaseFollowing(ctx context.Context, arg CaseFollowingParams) (b
 }
 
 const caseObligations = `-- name: CaseObligations :many
-SELECT o.id, o.case_id, o.agency_id, o.obligation_type, o.state, o.authority_basis_ref, o.due_at, o.accepted_at, o.completed_at, o.version, o.required_for_restoration, o.parent_obligation_id, o.work_summary, o.completion_actor_ref,a.name AS agency_name FROM ops.obligation o LEFT JOIN ops.agency a ON a.id=o.agency_id WHERE o.case_id=$1 ORDER BY o.id
+SELECT o.id, o.case_id, o.agency_id, o.obligation_type, o.state, o.authority_basis_ref, o.due_at, o.accepted_at, o.completed_at, o.version, o.required_for_restoration, o.parent_obligation_id, o.work_summary, o.completion_actor_ref, o.scope_text, o.client_task_id, o.created_at,a.name AS agency_name FROM ops.obligation o LEFT JOIN ops.agency a ON a.id=o.agency_id WHERE o.case_id=$1 ORDER BY o.created_at,o.id
 `
 
 type CaseObligationsRow struct {
@@ -648,6 +637,9 @@ type CaseObligationsRow struct {
 	ParentObligationID     *uuid.UUID         `json:"parent_obligation_id"`
 	WorkSummary            string             `json:"work_summary"`
 	CompletionActorRef     *uuid.UUID         `json:"completion_actor_ref"`
+	ScopeText              string             `json:"scope_text"`
+	ClientTaskID           *uuid.UUID         `json:"client_task_id"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 	AgencyName             pgtype.Text        `json:"agency_name"`
 }
 
@@ -675,6 +667,9 @@ func (q *Queries) CaseObligations(ctx context.Context, caseID uuid.UUID) ([]Case
 			&i.ParentObligationID,
 			&i.WorkSummary,
 			&i.CompletionActorRef,
+			&i.ScopeText,
+			&i.ClientTaskID,
+			&i.CreatedAt,
 			&i.AgencyName,
 		); err != nil {
 			return nil, err
@@ -1979,7 +1974,7 @@ func (q *Queries) InsertModerationDecision(ctx context.Context, arg InsertModera
 }
 
 const insertObligation = `-- name: InsertObligation :exec
-INSERT INTO ops.obligation(id,case_id,agency_id,obligation_type,state,authority_basis_ref) VALUES ($1,$2,$3,'RESTORATION','PROPOSED','synthetic-local-mandate-v1')
+INSERT INTO ops.obligation(id,case_id,agency_id,obligation_type,state,authority_basis_ref,scope_text) VALUES ($1,$2,$3,'RESTORATION','PROPOSED','synthetic-local-mandate-v1','Restore the reported service issue')
 `
 
 type InsertObligationParams struct {
@@ -2139,6 +2134,30 @@ func (q *Queries) InsertReport(ctx context.Context, arg InsertReportParams) erro
 		arg.PublicationPreference,
 		arg.IntakeMetadata,
 		arg.RequestHash,
+	)
+	return err
+}
+
+const insertScopedObligation = `-- name: InsertScopedObligation :exec
+INSERT INTO ops.obligation(id,case_id,agency_id,obligation_type,state,authority_basis_ref,scope_text,client_task_id)
+VALUES ($1,$2,$3,'RESTORATION','PROPOSED','synthetic-local-mandate-v1',$4,$5)
+`
+
+type InsertScopedObligationParams struct {
+	ID           uuid.UUID  `json:"id"`
+	CaseID       uuid.UUID  `json:"case_id"`
+	AgencyID     *uuid.UUID `json:"agency_id"`
+	ScopeText    string     `json:"scope_text"`
+	ClientTaskID *uuid.UUID `json:"client_task_id"`
+}
+
+func (q *Queries) InsertScopedObligation(ctx context.Context, arg InsertScopedObligationParams) error {
+	_, err := q.db.Exec(ctx, insertScopedObligation,
+		arg.ID,
+		arg.CaseID,
+		arg.AgencyID,
+		arg.ScopeText,
+		arg.ClientTaskID,
 	)
 	return err
 }
@@ -2506,7 +2525,7 @@ func (q *Queries) LockNotificationPreference(ctx context.Context, profileID uuid
 }
 
 const lockObligation = `-- name: LockObligation :one
-SELECT id, case_id, agency_id, obligation_type, state, authority_basis_ref, due_at, accepted_at, completed_at, version, required_for_restoration, parent_obligation_id, work_summary, completion_actor_ref FROM ops.obligation WHERE id=$1 FOR UPDATE
+SELECT id, case_id, agency_id, obligation_type, state, authority_basis_ref, due_at, accepted_at, completed_at, version, required_for_restoration, parent_obligation_id, work_summary, completion_actor_ref, scope_text, client_task_id, created_at FROM ops.obligation WHERE id=$1 FOR UPDATE
 `
 
 func (q *Queries) LockObligation(ctx context.Context, id uuid.UUID) (OpsObligation, error) {
@@ -2527,6 +2546,9 @@ func (q *Queries) LockObligation(ctx context.Context, id uuid.UUID) (OpsObligati
 		&i.ParentObligationID,
 		&i.WorkSummary,
 		&i.CompletionActorRef,
+		&i.ScopeText,
+		&i.ClientTaskID,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -2891,6 +2913,40 @@ func (q *Queries) NotificationPreference(ctx context.Context, viewerID uuid.UUID
 	row := q.db.QueryRow(ctx, notificationPreference, viewerID)
 	var i NotificationPreferenceRow
 	err := row.Scan(&i.InApp, &i.Version)
+	return i, err
+}
+
+const obligationByClientID = `-- name: ObligationByClientID :one
+SELECT id, case_id, agency_id, obligation_type, state, authority_basis_ref, due_at, accepted_at, completed_at, version, required_for_restoration, parent_obligation_id, work_summary, completion_actor_ref, scope_text, client_task_id, created_at FROM ops.obligation WHERE case_id=$1 AND client_task_id=$2
+`
+
+type ObligationByClientIDParams struct {
+	CaseID       uuid.UUID  `json:"case_id"`
+	ClientTaskID *uuid.UUID `json:"client_task_id"`
+}
+
+func (q *Queries) ObligationByClientID(ctx context.Context, arg ObligationByClientIDParams) (OpsObligation, error) {
+	row := q.db.QueryRow(ctx, obligationByClientID, arg.CaseID, arg.ClientTaskID)
+	var i OpsObligation
+	err := row.Scan(
+		&i.ID,
+		&i.CaseID,
+		&i.AgencyID,
+		&i.ObligationType,
+		&i.State,
+		&i.AuthorityBasisRef,
+		&i.DueAt,
+		&i.AcceptedAt,
+		&i.CompletedAt,
+		&i.Version,
+		&i.RequiredForRestoration,
+		&i.ParentObligationID,
+		&i.WorkSummary,
+		&i.CompletionActorRef,
+		&i.ScopeText,
+		&i.ClientTaskID,
+		&i.CreatedAt,
+	)
 	return i, err
 }
 

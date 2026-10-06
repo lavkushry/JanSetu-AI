@@ -90,6 +90,9 @@ type OpsObligation struct {
 	ParentObligationID     *uuid.UUID         `json:"parent_obligation_id"`
 	WorkSummary            string             `json:"work_summary"`
 	CompletionActorRef     *uuid.UUID         `json:"completion_actor_ref"`
+	ScopeText              string             `json:"scope_text"`
+	ClientTaskID           *uuid.UUID         `json:"client_task_id"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 }
 
 type OpsPublicationBinding struct {
