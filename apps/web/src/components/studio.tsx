@@ -7,6 +7,7 @@ import { api, dateLabel, readable, type Schema, type Me } from '@/lib/api';
 import { Badge, Empty, Loading, ErrorState, FormError, useSession } from './ui';
 import { ContentReportQueue } from './content-reports';
 import { AppealQueue } from './appeals';
+import { PublicationWithdrawalQueue } from './public-sharing';
 import { PublicationReview } from './publication-review';
 
 export function Studio() {
@@ -81,11 +82,21 @@ export function Studio() {
             Service intake
           </button>
         )}
+        {publisher && (
+          <button
+            className={active === 'public-sharing' ? 'selected' : ''}
+            onClick={() => setTab('public-sharing')}
+          >
+            Public sharing
+          </button>
+        )}
         <button className={active === 'cases' ? 'selected' : ''} onClick={() => setTab('cases')}>
           Service cases
         </button>
       </div>
-      {active === 'appeals' ? (
+      {active === 'public-sharing' ? (
+        <PublicationWithdrawalQueue />
+      ) : active === 'appeals' ? (
         <AppealQueue />
       ) : active === 'reviews' ? (
         <Reviews />

@@ -12,7 +12,7 @@ Only an active publisher with case access receives the review controls, current 
 
 ## Commands and versions
 
-The executable contract is [OpenAPI 0.17.0](../contracts/openapi/core.yaml).
+The executable contract is [OpenAPI 0.18.0](../contracts/openapi/core.yaml).
 
 | Command                                              | Preconditions                                                                                                                                                                     | Result                                                                                                         |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -55,4 +55,4 @@ Keep the existing volumes and keys. Historical processed events are not replayed
 
 Race-enabled integration tests exercise same-case corrections, no-op and conflicting retries, concurrent publishers, live role/session revocation, forced row policies, private reason isolation, withdrawal across public surfaces and owner progress, delayed events, unsubscribe and fresh republication. Browser journeys cover real OIDC review, agency work after withdrawal, retained follower Activity, stale and lost responses, and 320px light/dark confirmation layouts.
 
-Resident withdrawal requests, automatic redaction/detection, second-person publication policy, emergency remediation, history pagination, production retention, external purge and realtime invalidation remain pending. This milestone does not complete all FR37 acceptance contracts or authorize real/protected intake.
+[Resident withdrawal requests](RESIDENT_PUBLIC_SHARING.md) now pause new publication and allow reviewed withdrawal; approved requests prevent republication. Resident opt-in after approval, automatic redaction/detection, second-person publication policy, emergency remediation, history pagination, production retention, external purge and realtime invalidation remain pending. This milestone does not complete all FR37 acceptance contracts or authorize real/protected intake.

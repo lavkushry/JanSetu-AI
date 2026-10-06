@@ -1123,6 +1123,20 @@ func (q *Queries) ContentReportTarget(ctx context.Context, arg ContentReportTarg
 	return i, err
 }
 
+const decideWithdrawalRequest = `-- name: DecideWithdrawalRequest :exec
+UPDATE ops.publication_withdrawal_request SET state=$2,version=version+1 WHERE id=$1
+`
+
+type DecideWithdrawalRequestParams struct {
+	ID    uuid.UUID `json:"id"`
+	State string    `json:"state"`
+}
+
+func (q *Queries) DecideWithdrawalRequest(ctx context.Context, arg DecideWithdrawalRequestParams) error {
+	_, err := q.db.Exec(ctx, decideWithdrawalRequest, arg.ID, arg.State)
+	return err
+}
+
 const deleteBlock = `-- name: DeleteBlock :exec
 DELETE FROM social.profile_block WHERE blocker_id=$1 AND blocked_id=$2
 `
@@ -2145,6 +2159,71 @@ func (q *Queries) InsertVerification(ctx context.Context, arg InsertVerification
 	return err
 }
 
+const insertWithdrawalCancel = `-- name: InsertWithdrawalCancel :exec
+INSERT INTO ops.publication_withdrawal_cancel(request_id) VALUES($1)
+`
+
+func (q *Queries) InsertWithdrawalCancel(ctx context.Context, requestID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, insertWithdrawalCancel, requestID)
+	return err
+}
+
+const insertWithdrawalDecision = `-- name: InsertWithdrawalDecision :exec
+INSERT INTO ops.publication_withdrawal_decision(id,request_id,result,case_version,publication_version,internal_reason,resident_reason,reviewer_ref) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+`
+
+type InsertWithdrawalDecisionParams struct {
+	ID                 uuid.UUID `json:"id"`
+	RequestID          uuid.UUID `json:"request_id"`
+	Result             string    `json:"result"`
+	CaseVersion        int64     `json:"case_version"`
+	PublicationVersion int64     `json:"publication_version"`
+	InternalReason     string    `json:"internal_reason"`
+	ResidentReason     string    `json:"resident_reason"`
+	ReviewerRef        uuid.UUID `json:"reviewer_ref"`
+}
+
+func (q *Queries) InsertWithdrawalDecision(ctx context.Context, arg InsertWithdrawalDecisionParams) error {
+	_, err := q.db.Exec(ctx, insertWithdrawalDecision,
+		arg.ID,
+		arg.RequestID,
+		arg.Result,
+		arg.CaseVersion,
+		arg.PublicationVersion,
+		arg.InternalReason,
+		arg.ResidentReason,
+		arg.ReviewerRef,
+	)
+	return err
+}
+
+const insertWithdrawalRequest = `-- name: InsertWithdrawalRequest :exec
+INSERT INTO ops.publication_withdrawal_request(id,report_id,case_id,receipt_id,client_request_id,publication_version,reason_code) VALUES($1,$2,$3,$4,$5,$6,$7)
+`
+
+type InsertWithdrawalRequestParams struct {
+	ID                 uuid.UUID `json:"id"`
+	ReportID           uuid.UUID `json:"report_id"`
+	CaseID             uuid.UUID `json:"case_id"`
+	ReceiptID          uuid.UUID `json:"receipt_id"`
+	ClientRequestID    uuid.UUID `json:"client_request_id"`
+	PublicationVersion int64     `json:"publication_version"`
+	ReasonCode         string    `json:"reason_code"`
+}
+
+func (q *Queries) InsertWithdrawalRequest(ctx context.Context, arg InsertWithdrawalRequestParams) error {
+	_, err := q.db.Exec(ctx, insertWithdrawalRequest,
+		arg.ID,
+		arg.ReportID,
+		arg.CaseID,
+		arg.ReceiptID,
+		arg.ClientRequestID,
+		arg.PublicationVersion,
+		arg.ReasonCode,
+	)
+	return err
+}
+
 const intakeQueue = `-- name: IntakeQueue :many
 SELECT r.id,r.statement,r.language_tag,r.publication_preference,r.intake_metadata,r.received_at,ir.version
 FROM ops.report r JOIN ops.intake_review ir ON ir.report_id=r.id WHERE ir.state='PENDING' ORDER BY r.received_at LIMIT 100
@@ -2420,6 +2499,34 @@ func (q *Queries) LockObligation(ctx context.Context, id uuid.UUID) (OpsObligati
 	return i, err
 }
 
+const lockOwnerWithdrawalRequest = `-- name: LockOwnerWithdrawalRequest :one
+SELECT id,report_id,state,version FROM ops.publication_withdrawal_request WHERE id=$1 AND report_id=$2 FOR UPDATE
+`
+
+type LockOwnerWithdrawalRequestParams struct {
+	ID       uuid.UUID `json:"id"`
+	ReportID uuid.UUID `json:"report_id"`
+}
+
+type LockOwnerWithdrawalRequestRow struct {
+	ID       uuid.UUID `json:"id"`
+	ReportID uuid.UUID `json:"report_id"`
+	State    string    `json:"state"`
+	Version  int64     `json:"version"`
+}
+
+func (q *Queries) LockOwnerWithdrawalRequest(ctx context.Context, arg LockOwnerWithdrawalRequestParams) (LockOwnerWithdrawalRequestRow, error) {
+	row := q.db.QueryRow(ctx, lockOwnerWithdrawalRequest, arg.ID, arg.ReportID)
+	var i LockOwnerWithdrawalRequestRow
+	err := row.Scan(
+		&i.ID,
+		&i.ReportID,
+		&i.State,
+		&i.Version,
+	)
+	return i, err
+}
+
 const lockPost = `-- name: LockPost :one
 SELECT id, author_id, community_id, kind, state, source_post_id, receipt_id, current_revision, published_revision, created_at, published_at, updated_at, version FROM social.post WHERE id=$1 FOR UPDATE
 `
@@ -2541,6 +2648,37 @@ func (q *Queries) LockReport(ctx context.Context, id uuid.UUID) (OpsReport, erro
 		&i.RetentionPolicyID,
 		&i.RequestHash,
 		&i.Version,
+	)
+	return i, err
+}
+
+const lockWithdrawalRequest = `-- name: LockWithdrawalRequest :one
+SELECT id,case_id,receipt_id,publication_version,reason_code,state,version,created_at FROM ops.publication_withdrawal_request WHERE id=$1 FOR UPDATE
+`
+
+type LockWithdrawalRequestRow struct {
+	ID                 uuid.UUID          `json:"id"`
+	CaseID             uuid.UUID          `json:"case_id"`
+	ReceiptID          uuid.UUID          `json:"receipt_id"`
+	PublicationVersion int64              `json:"publication_version"`
+	ReasonCode         string             `json:"reason_code"`
+	State              string             `json:"state"`
+	Version            int64              `json:"version"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) LockWithdrawalRequest(ctx context.Context, id uuid.UUID) (LockWithdrawalRequestRow, error) {
+	row := q.db.QueryRow(ctx, lockWithdrawalRequest, id)
+	var i LockWithdrawalRequestRow
+	err := row.Scan(
+		&i.ID,
+		&i.CaseID,
+		&i.ReceiptID,
+		&i.PublicationVersion,
+		&i.ReasonCode,
+		&i.State,
+		&i.Version,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -2794,7 +2932,7 @@ func (q *Queries) OwnContentReportPage(ctx context.Context, arg OwnContentReport
 }
 
 const ownReportProgress = `-- name: OwnReportProgress :many
-SELECT r.id,r.received_at,r.statement,r.language_tag,ir.state AS linkage,ir.case_id,receipt.id AS receipt_id
+SELECT r.id,r.received_at,r.statement,r.language_tag,ir.state AS linkage,ir.case_id,receipt.id AS receipt_id,EXISTS(SELECT FROM ops.publication_withdrawal_request w WHERE w.report_id=r.id) AS has_publication_request
 FROM ops.report r JOIN ops.intake_review ir ON ir.report_id=r.id
 LEFT JOIN ops.publication_binding pb ON pb.case_id=ir.case_id
 LEFT JOIN social.case_receipt receipt ON receipt.id=pb.receipt_id AND receipt.publication_state='PUBLISHED'
@@ -2809,13 +2947,14 @@ type OwnReportProgressParams struct {
 }
 
 type OwnReportProgressRow struct {
-	ID          uuid.UUID          `json:"id"`
-	ReceivedAt  pgtype.Timestamptz `json:"received_at"`
-	Statement   string             `json:"statement"`
-	LanguageTag string             `json:"language_tag"`
-	Linkage     string             `json:"linkage"`
-	CaseID      *uuid.UUID         `json:"case_id"`
-	ReceiptID   *uuid.UUID         `json:"receipt_id"`
+	ID                    uuid.UUID          `json:"id"`
+	ReceivedAt            pgtype.Timestamptz `json:"received_at"`
+	Statement             string             `json:"statement"`
+	LanguageTag           string             `json:"language_tag"`
+	Linkage               string             `json:"linkage"`
+	CaseID                *uuid.UUID         `json:"case_id"`
+	ReceiptID             *uuid.UUID         `json:"receipt_id"`
+	HasPublicationRequest bool               `json:"has_publication_request"`
 }
 
 func (q *Queries) OwnReportProgress(ctx context.Context, arg OwnReportProgressParams) ([]OwnReportProgressRow, error) {
@@ -2835,6 +2974,7 @@ func (q *Queries) OwnReportProgress(ctx context.Context, arg OwnReportProgressPa
 			&i.Linkage,
 			&i.CaseID,
 			&i.ReceiptID,
+			&i.HasPublicationRequest,
 		); err != nil {
 			return nil, err
 		}
@@ -2923,6 +3063,179 @@ func (q *Queries) OwnedContentReport(ctx context.Context, arg OwnedContentReport
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const ownedSharingReport = `-- name: OwnedSharingReport :one
+SELECT r.id,r.publication_preference,i.case_id,b.receipt_id FROM ops.report r
+LEFT JOIN ops.intake_review i ON i.report_id=r.id LEFT JOIN ops.publication_binding b ON b.case_id=i.case_id
+WHERE r.id=$1 AND authz.owns_report(r.id)
+`
+
+type OwnedSharingReportRow struct {
+	ID                    uuid.UUID  `json:"id"`
+	PublicationPreference string     `json:"publication_preference"`
+	CaseID                *uuid.UUID `json:"case_id"`
+	ReceiptID             *uuid.UUID `json:"receipt_id"`
+}
+
+func (q *Queries) OwnedSharingReport(ctx context.Context, id uuid.UUID) (OwnedSharingReportRow, error) {
+	row := q.db.QueryRow(ctx, ownedSharingReport, id)
+	var i OwnedSharingReportRow
+	err := row.Scan(
+		&i.ID,
+		&i.PublicationPreference,
+		&i.CaseID,
+		&i.ReceiptID,
+	)
+	return i, err
+}
+
+const ownerWithdrawalBlocked = `-- name: OwnerWithdrawalBlocked :one
+SELECT EXISTS(SELECT FROM ops.publication_withdrawal_request WHERE report_id=$1 AND state IN ('REQUESTED','APPROVED'))
+`
+
+func (q *Queries) OwnerWithdrawalBlocked(ctx context.Context, reportID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, ownerWithdrawalBlocked, reportID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const ownerWithdrawalByClient = `-- name: OwnerWithdrawalByClient :one
+SELECT id,publication_version,reason_code FROM ops.publication_withdrawal_request WHERE report_id=$1 AND client_request_id=$2
+`
+
+type OwnerWithdrawalByClientParams struct {
+	ReportID        uuid.UUID `json:"report_id"`
+	ClientRequestID uuid.UUID `json:"client_request_id"`
+}
+
+type OwnerWithdrawalByClientRow struct {
+	ID                 uuid.UUID `json:"id"`
+	PublicationVersion int64     `json:"publication_version"`
+	ReasonCode         string    `json:"reason_code"`
+}
+
+func (q *Queries) OwnerWithdrawalByClient(ctx context.Context, arg OwnerWithdrawalByClientParams) (OwnerWithdrawalByClientRow, error) {
+	row := q.db.QueryRow(ctx, ownerWithdrawalByClient, arg.ReportID, arg.ClientRequestID)
+	var i OwnerWithdrawalByClientRow
+	err := row.Scan(&i.ID, &i.PublicationVersion, &i.ReasonCode)
+	return i, err
+}
+
+const ownerWithdrawalBySnapshot = `-- name: OwnerWithdrawalBySnapshot :one
+SELECT id,publication_version,reason_code FROM ops.publication_withdrawal_request WHERE report_id=$1 AND receipt_id=$2 AND publication_version=$3 AND state<>'CANCELLED'
+`
+
+type OwnerWithdrawalBySnapshotParams struct {
+	ReportID           uuid.UUID `json:"report_id"`
+	ReceiptID          uuid.UUID `json:"receipt_id"`
+	PublicationVersion int64     `json:"publication_version"`
+}
+
+type OwnerWithdrawalBySnapshotRow struct {
+	ID                 uuid.UUID `json:"id"`
+	PublicationVersion int64     `json:"publication_version"`
+	ReasonCode         string    `json:"reason_code"`
+}
+
+func (q *Queries) OwnerWithdrawalBySnapshot(ctx context.Context, arg OwnerWithdrawalBySnapshotParams) (OwnerWithdrawalBySnapshotRow, error) {
+	row := q.db.QueryRow(ctx, ownerWithdrawalBySnapshot, arg.ReportID, arg.ReceiptID, arg.PublicationVersion)
+	var i OwnerWithdrawalBySnapshotRow
+	err := row.Scan(&i.ID, &i.PublicationVersion, &i.ReasonCode)
+	return i, err
+}
+
+const ownerWithdrawalReceipt = `-- name: OwnerWithdrawalReceipt :one
+SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at
+FROM ops.publication_withdrawal_request w LEFT JOIN ops.publication_withdrawal_outcome d ON d.request_id=w.id
+WHERE w.id=$1 AND w.report_id=$2
+`
+
+type OwnerWithdrawalReceiptParams struct {
+	ID       uuid.UUID `json:"id"`
+	ReportID uuid.UUID `json:"report_id"`
+}
+
+type OwnerWithdrawalReceiptRow struct {
+	ID                 uuid.UUID          `json:"id"`
+	ClientRequestID    uuid.UUID          `json:"client_request_id"`
+	PublicationVersion int64              `json:"publication_version"`
+	ReasonCode         string             `json:"reason_code"`
+	State              string             `json:"state"`
+	Version            int64              `json:"version"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	Result             pgtype.Text        `json:"result"`
+	ResidentReason     pgtype.Text        `json:"resident_reason"`
+	DecidedAt          pgtype.Timestamptz `json:"decided_at"`
+}
+
+func (q *Queries) OwnerWithdrawalReceipt(ctx context.Context, arg OwnerWithdrawalReceiptParams) (OwnerWithdrawalReceiptRow, error) {
+	row := q.db.QueryRow(ctx, ownerWithdrawalReceipt, arg.ID, arg.ReportID)
+	var i OwnerWithdrawalReceiptRow
+	err := row.Scan(
+		&i.ID,
+		&i.ClientRequestID,
+		&i.PublicationVersion,
+		&i.ReasonCode,
+		&i.State,
+		&i.Version,
+		&i.CreatedAt,
+		&i.Result,
+		&i.ResidentReason,
+		&i.DecidedAt,
+	)
+	return i, err
+}
+
+const ownerWithdrawalRequests = `-- name: OwnerWithdrawalRequests :many
+SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at
+FROM ops.publication_withdrawal_request w LEFT JOIN ops.publication_withdrawal_outcome d ON d.request_id=w.id
+WHERE w.report_id=$1 ORDER BY w.created_at DESC,w.id DESC LIMIT 20
+`
+
+type OwnerWithdrawalRequestsRow struct {
+	ID                 uuid.UUID          `json:"id"`
+	ClientRequestID    uuid.UUID          `json:"client_request_id"`
+	PublicationVersion int64              `json:"publication_version"`
+	ReasonCode         string             `json:"reason_code"`
+	State              string             `json:"state"`
+	Version            int64              `json:"version"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	Result             pgtype.Text        `json:"result"`
+	ResidentReason     pgtype.Text        `json:"resident_reason"`
+	DecidedAt          pgtype.Timestamptz `json:"decided_at"`
+}
+
+func (q *Queries) OwnerWithdrawalRequests(ctx context.Context, reportID uuid.UUID) ([]OwnerWithdrawalRequestsRow, error) {
+	rows, err := q.db.Query(ctx, ownerWithdrawalRequests, reportID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OwnerWithdrawalRequestsRow{}
+	for rows.Next() {
+		var i OwnerWithdrawalRequestsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ClientRequestID,
+			&i.PublicationVersion,
+			&i.ReasonCode,
+			&i.State,
+			&i.Version,
+			&i.CreatedAt,
+			&i.Result,
+			&i.ResidentReason,
+			&i.DecidedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const platformRoles = `-- name: PlatformRoles :many
@@ -3086,14 +3399,14 @@ func (q *Queries) PublicProfile(ctx context.Context, arg PublicProfileParams) (P
 }
 
 const publicationAllowed = `-- name: PublicationAllowed :one
-SELECT NOT EXISTS(SELECT 1 FROM ops.case_observation o JOIN ops.report r ON r.id=o.report_id WHERE o.case_id=$1 AND r.publication_preference='PRIVATE')
+SELECT EXISTS(SELECT FROM ops.publication_sharing_eligibility WHERE case_id=$1 AND allowed)
 `
 
 func (q *Queries) PublicationAllowed(ctx context.Context, caseID uuid.UUID) (bool, error) {
 	row := q.db.QueryRow(ctx, publicationAllowed, caseID)
-	var not_exists bool
-	err := row.Scan(&not_exists)
-	return not_exists, err
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const publicationBinding = `-- name: PublicationBinding :one
@@ -3906,4 +4219,78 @@ UPDATE social.case_receipt SET publication_state='WITHDRAWN',publication_version
 func (q *Queries) WithdrawReceipt(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, withdrawReceipt, id)
 	return err
+}
+
+const withdrawalQueue = `-- name: WithdrawalQueue :many
+SELECT id, case_id, receipt_id, publication_version, reason_code, state, version, created_at, case_version, publication_state, current_publication_version, title, safe_summary, area_label, result, internal_reason, resident_reason, decided_at FROM ops.publication_withdrawal_review WHERE state=$1::text
+ORDER BY CASE WHEN state='REQUESTED' THEN created_at END ASC,created_at DESC,id DESC LIMIT 100
+`
+
+func (q *Queries) WithdrawalQueue(ctx context.Context, state string) ([]OpsPublicationWithdrawalReview, error) {
+	rows, err := q.db.Query(ctx, withdrawalQueue, state)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OpsPublicationWithdrawalReview{}
+	for rows.Next() {
+		var i OpsPublicationWithdrawalReview
+		if err := rows.Scan(
+			&i.ID,
+			&i.CaseID,
+			&i.ReceiptID,
+			&i.PublicationVersion,
+			&i.ReasonCode,
+			&i.State,
+			&i.Version,
+			&i.CreatedAt,
+			&i.CaseVersion,
+			&i.PublicationState,
+			&i.CurrentPublicationVersion,
+			&i.Title,
+			&i.SafeSummary,
+			&i.AreaLabel,
+			&i.Result,
+			&i.InternalReason,
+			&i.ResidentReason,
+			&i.DecidedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const withdrawalReview = `-- name: WithdrawalReview :one
+SELECT id, case_id, receipt_id, publication_version, reason_code, state, version, created_at, case_version, publication_state, current_publication_version, title, safe_summary, area_label, result, internal_reason, resident_reason, decided_at FROM ops.publication_withdrawal_review WHERE id=$1
+`
+
+func (q *Queries) WithdrawalReview(ctx context.Context, id uuid.UUID) (OpsPublicationWithdrawalReview, error) {
+	row := q.db.QueryRow(ctx, withdrawalReview, id)
+	var i OpsPublicationWithdrawalReview
+	err := row.Scan(
+		&i.ID,
+		&i.CaseID,
+		&i.ReceiptID,
+		&i.PublicationVersion,
+		&i.ReasonCode,
+		&i.State,
+		&i.Version,
+		&i.CreatedAt,
+		&i.CaseVersion,
+		&i.PublicationState,
+		&i.CurrentPublicationVersion,
+		&i.Title,
+		&i.SafeSummary,
+		&i.AreaLabel,
+		&i.Result,
+		&i.InternalReason,
+		&i.ResidentReason,
+		&i.DecidedAt,
+	)
+	return i, err
 }

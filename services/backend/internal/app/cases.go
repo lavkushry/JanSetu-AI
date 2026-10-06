@@ -79,7 +79,15 @@ func (a *App) caseData(r *http.Request, q *dbgen.Queries, cid uuid.UUID, actor *
 	if e != nil {
 		return nil, e
 	}
-	return map[string]any{"canPublish": actor.Has("PUBLISHER"), "publication": publication, "id": c.ID, "category": c.CategoryCode, "state": c.State, "urgencyTier": c.UrgencyTier, "version": c.Version, "firstReportedAt": timestamp(c.FirstValidReportAt), "obligations": items, "events": timeline, "receiptId": receipt}, nil
+	blocked := false
+	if actor.Has("PUBLISHER") {
+		allowed, err := q.PublicationAllowed(r.Context(), cid)
+		if err != nil {
+			return nil, err
+		}
+		blocked = !allowed
+	}
+	return map[string]any{"publicationBlocked": blocked, "canPublish": actor.Has("PUBLISHER"), "publication": publication, "id": c.ID, "category": c.CategoryCode, "state": c.State, "urgencyTier": c.UrgencyTier, "version": c.Version, "firstReportedAt": timestamp(c.FirstValidReportAt), "obligations": items, "events": timeline, "receiptId": receipt}, nil
 }
 func (a *App) caseDetail(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
 	cid, e := id(r, "id")

@@ -82,7 +82,9 @@ export function PublicationReview({ caseDetail: c }: { caseDetail: Schema['CaseD
       );
     },
     onError: (error) => {
-      if (error instanceof APIError && [401, 403, 404].includes(error.status))
+      if (error instanceof APIError && error.code === 'PUBLICATION_PRIVATE')
+        void qc.invalidateQueries({ queryKey: ['staff-case', c.id] });
+      else if (error instanceof APIError && [401, 403, 404].includes(error.status))
         void qc.resetQueries({ queryKey: ['staff-case', c.id] });
     },
   });
@@ -142,6 +144,12 @@ export function PublicationReview({ caseDetail: c }: { caseDetail: Schema['CaseD
         <p className="form-error" role="alert">
           The case or public progress changed. Refresh the review, compare the current preview with
           your draft, and confirm it again. Your draft is kept.
+        </p>
+      )}
+      {c.publicationBlocked && (
+        <p role="status">
+          Public sharing is paused by a private preference or withdrawal request. Private case work
+          continues.
         </p>
       )}
       <form
@@ -222,7 +230,10 @@ export function PublicationReview({ caseDetail: c }: { caseDetail: Schema['CaseD
           I reviewed this public preview for identifying details.
         </label>
         <div className="form-actions">
-          <button className="primary" disabled={busy || stale || conflict || !reviewed}>
+          <button
+            className="primary"
+            disabled={busy || stale || conflict || !reviewed || c.publicationBlocked}
+          >
             {publication?.state === 'WITHDRAWN'
               ? 'Republish reviewed progress'
               : publication

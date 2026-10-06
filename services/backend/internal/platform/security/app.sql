@@ -83,3 +83,15 @@ GRANT SELECT,INSERT,UPDATE ON infra.media_derivative TO js_media_worker;
 GRANT SELECT,INSERT ON ops.report_media TO js_ops;
 GRANT EXECUTE ON FUNCTION authz.media_read(uuid),authz.media_owner(uuid),authz.analysis_owner(uuid),authz.owns_alias(uuid),authz.media_attached(uuid) TO js_media;
 GRANT EXECUTE ON FUNCTION authz.media_job_live(uuid),authz.media_retained(uuid) TO js_media_worker;
+
+-- Resident public-sharing requests use owner RLS and minimal publisher projections.
+GRANT SELECT ON ops.publication_withdrawal_request,ops.publication_withdrawal_outcome TO js_ops;
+GRANT INSERT(id,report_id,case_id,receipt_id,client_request_id,publication_version,reason_code) ON ops.publication_withdrawal_request TO js_ops;
+GRANT EXECUTE ON FUNCTION authz.withdrawal_request_allowed(uuid,uuid,uuid,bigint) TO js_ops;
+GRANT SELECT(id,case_id,receipt_id,publication_version,reason_code,state,version,created_at) ON ops.publication_withdrawal_request TO js_publication;
+GRANT UPDATE(state,version) ON ops.publication_withdrawal_request TO js_publication;
+GRANT INSERT(id,request_id,result,case_version,publication_version,internal_reason,resident_reason,reviewer_ref) ON ops.publication_withdrawal_decision TO js_publication;
+GRANT SELECT ON ops.publication_withdrawal_review TO js_publication;
+GRANT UPDATE(state,version) ON ops.publication_withdrawal_request TO js_ops;
+GRANT INSERT(request_id) ON ops.publication_withdrawal_cancel TO js_ops;
+GRANT SELECT ON ops.publication_sharing_eligibility TO js_ops,js_publication;

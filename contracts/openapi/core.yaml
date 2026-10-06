@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.17.0
+  version: 0.18.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -2330,6 +2330,248 @@ paths:
                 tasks:
                   type: array
                   items: *id003
+  /my-reports/{id}/public-sharing:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      operationId: get_owned_public_sharing
+      description: Report owner only, using a verified vault alias claim. Returns the
+        current public preview and newest twenty private requests. No case IDs, requester/reviewer
+        identities, internal reasons or withdrawn preview are returned.
+      responses:
+        '200':
+          description: Private sharing review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerPublicSharing'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /my-reports/{id}/publication-withdrawal-requests:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      operationId: request_owned_public_withdrawal
+      description: Owner-only fixed-category request against the current publication
+        revision. Pauses new publication while reviewed; does not immediately hide existing
+        public progress or alter private case work. Stable clientRequestId and command
+        key deduplicate lost responses; retries hydrate current outcomes.
+      responses:
+        '201':
+          description: Private sharing review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationWithdrawalRequest'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+      parameters:
+        - $ref: '#/components/parameters/CSRF'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicationWithdrawalRequestInput'
+  /my-reports/{id}/publication-withdrawal-requests/{requestId}/cancellations:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+      - name: requestId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: cancel_owned_public_withdrawal
+      description: Owner-only cancellation. If-Match binds request version. Pending
+        cancellation records an immutable marker and advances only request version.
+        Repeating a current cancelled version is a no-op. Publisher-decided requests
+        cannot be cancelled.
+      responses:
+        '200':
+          description: Private sharing review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationWithdrawalRequest'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+      parameters:
+        - $ref: '#/components/parameters/CSRF'
+        - $ref: '#/components/parameters/Version'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicationWithdrawalCancellation'
+  /authority/publication-withdrawal-requests:
+    get:
+      operationId: get_public_withdrawal_queue
+      description: Live publisher-only queue. Up to one hundred oldest pending or newest
+        final requests. Minimal safe preview and private review fields; excludes report
+        IDs, aliases, principal identities and original statements.
+      responses:
+        '200':
+          description: Private sharing review
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    maxItems: 100
+                    items:
+                      $ref: '#/components/schemas/PublicationWithdrawalReview'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      parameters:
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum:
+              - REQUESTED
+              - APPROVED
+              - DECLINED
+              - CANCELLED
+            default: REQUESTED
+  /authority/publication-withdrawal-requests/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      operationId: get_public_withdrawal_review
+      description: Live publisher-only current request, public preview and minimal review
+        outcome.
+      responses:
+        '200':
+          description: Private sharing review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationWithdrawalReview'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /authority/publication-withdrawal-requests/{id}/decisions:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      operationId: review_public_withdrawal_request
+      description: If-Match binds request version; caseVersion and publicationVersion
+        bind current case and public preview. Approval atomically withdraws public progress,
+        records separate internal/resident reasons, and prevents republication while
+        preserving private work and original case age. Decline records a resident-visible
+        reason and permits later fresh publication review. Stale request/case returns
+        412; stale publication returns 409; cancelled/final requests cannot acquire
+        another decision.
+      responses:
+        '200':
+          description: Private sharing review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationWithdrawalReview'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+      parameters:
+        - $ref: '#/components/parameters/CSRF'
+        - $ref: '#/components/parameters/Version'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicationWithdrawalDecisionInput'
 components:
   parameters:
     CSRF:
@@ -3615,7 +3857,10 @@ components:
         - receiptId
         - responsibilities
         - mediaIds
+        - hasPublicationRequest
       properties:
+        hasPublicationRequest:
+          type: boolean
         id:
           type: string
         statement:
@@ -3787,7 +4032,11 @@ components:
         - receiptId
         - publication
         - canPublish
+        - publicationBlocked
       properties:
+        publicationBlocked:
+          description: Live publisher-only sharing eligibility flag; false for other staff. Pending or approved owner withdrawal requests prevent new publication. Withdrawal remains available.
+          type: boolean
         canPublish:
           type: boolean
         id:
@@ -4738,3 +4987,259 @@ components:
         expiresAt:
           type: string
           format: date-time
+    PublicationWithdrawalReason:
+      type: string
+      enum:
+        - PRIVACY
+        - LOCATION
+        - SHARING_PREFERENCE
+    PublicationWithdrawalRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - publicationVersion
+        - reasonCode
+        - state
+        - version
+        - createdAt
+        - outcome
+      properties:
+        id:
+          type: string
+          format: uuid
+        publicationVersion:
+          type: integer
+          minimum: 1
+        reasonCode:
+          $ref: '#/components/schemas/PublicationWithdrawalReason'
+        state:
+          type: string
+          enum:
+            - REQUESTED
+            - APPROVED
+            - DECLINED
+            - CANCELLED
+        version:
+          type: integer
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+        outcome:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required:
+                - result
+                - reason
+                - decidedAt
+              properties:
+                result:
+                  type: string
+                  enum:
+                    - APPROVED
+                    - DECLINED
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 1000
+                decidedAt:
+                  type: string
+                  format: date-time
+            - type: 'null'
+    OwnerPublicSharing:
+      type: object
+      additionalProperties: false
+      required:
+        - publication
+        - blocked
+        - requests
+      properties:
+        publication:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required:
+                - receiptId
+                - title
+                - summary
+                - area
+                - version
+              properties:
+                receiptId:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+                summary:
+                  type: string
+                area:
+                  type: string
+                version:
+                  type: integer
+                  minimum: 1
+            - type: 'null'
+        blocked:
+          type: boolean
+        requests:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/PublicationWithdrawalRequest'
+    PublicationWithdrawalRequestInput:
+      type: object
+      additionalProperties: false
+      required:
+        - clientRequestId
+        - publicationVersion
+        - reasonCode
+        - confirmed
+      properties:
+        clientRequestId:
+          type: string
+          format: uuid
+        publicationVersion:
+          type: integer
+          minimum: 1
+        reasonCode:
+          $ref: '#/components/schemas/PublicationWithdrawalReason'
+        confirmed:
+          const: true
+    PublicationWithdrawalCancellation:
+      type: object
+      additionalProperties: false
+      required:
+        - confirmed
+      properties:
+        confirmed:
+          const: true
+    PublicationWithdrawalReview:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - caseId
+        - version
+        - state
+        - reasonCode
+        - createdAt
+        - requestedPublicationVersion
+        - caseVersion
+        - publication
+        - outcome
+      properties:
+        id:
+          type: string
+          format: uuid
+        caseId:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          minimum: 1
+        state:
+          type: string
+          enum:
+            - REQUESTED
+            - APPROVED
+            - DECLINED
+            - CANCELLED
+        reasonCode:
+          $ref: '#/components/schemas/PublicationWithdrawalReason'
+        createdAt:
+          type: string
+          format: date-time
+        requestedPublicationVersion:
+          type: integer
+          minimum: 1
+        caseVersion:
+          type: integer
+          minimum: 1
+        publication:
+          type: object
+          additionalProperties: false
+          required:
+            - receiptId
+            - title
+            - summary
+            - area
+            - version
+            - state
+          properties:
+            receiptId:
+              type: string
+              format: uuid
+            title:
+              type: string
+            summary:
+              type: string
+            area:
+              type: string
+            version:
+              type: integer
+              minimum: 1
+            state:
+              type: string
+              enum:
+                - PUBLISHED
+                - WITHDRAWN
+        outcome:
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required:
+                - result
+                - reason
+                - decidedAt
+                - internalReason
+              properties:
+                result:
+                  type: string
+                  enum:
+                    - APPROVED
+                    - DECLINED
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 1000
+                decidedAt:
+                  type: string
+                  format: date-time
+                internalReason:
+                  type: string
+                  minLength: 5
+                  maxLength: 1000
+            - type: 'null'
+    PublicationWithdrawalDecisionInput:
+      type: object
+      additionalProperties: false
+      required:
+        - result
+        - caseVersion
+        - publicationVersion
+        - internalReason
+        - residentReason
+        - reviewed
+      properties:
+        result:
+          type: string
+          enum:
+            - APPROVED
+            - DECLINED
+        caseVersion:
+          type: integer
+          minimum: 1
+        publicationVersion:
+          type: integer
+          minimum: 1
+        internalReason:
+          type: string
+          minLength: 5
+          maxLength: 1000
+        residentReason:
+          type: string
+          minLength: 5
+          maxLength: 1000
+        reviewed:
+          const: true

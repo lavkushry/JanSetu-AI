@@ -65,7 +65,7 @@ func (a *App) publishReceipt(w http.ResponseWriter, r *http.Request, actor *Acto
 			return e
 		}
 		if !allowed {
-			return failure(403, "PUBLICATION_PRIVATE", "This report requested private progress only")
+			return failure(403, "PUBLICATION_PRIVATE", "Private sharing preferences or withdrawal requests currently prevent publication")
 		}
 		rid := uuid.New()
 		publicationVersion := int64(0)
@@ -198,27 +198,40 @@ func (a *App) withdrawReceipt(w http.ResponseWriter, r *http.Request, actor *Act
 			result = publicationResult(current.ID, c.Version, current.PublicationVersion, "WITHDRAWN")
 			return nil
 		}
-		next := current.PublicationVersion + 1
-		decision := uuid.New()
-		if err = q.InsertPublicationDecision(r.Context(), dbgen.InsertPublicationDecisionParams{
-			ID: decision, CaseID: cid, CaseVersion: c.Version, Action: "WITHDRAW", ReviewerRef: actor.PrincipalID,
-			PublicationVersion: pgtype.Int8{Int64: next, Valid: true}, InternalReason: pgtype.Text{String: b.Reason, Valid: true},
-		}); err != nil {
-			return err
-		}
-		if err = q.WithdrawReceipt(r.Context(), current.ID); err != nil {
-			return err
-		}
-		if err = q.SavePublicationBinding(r.Context(), dbgen.SavePublicationBindingParams{CaseID: cid, ReceiptID: current.ID, ApprovedCaseVersion: c.Version, ReviewerRef: actor.PrincipalID, DecisionRef: decision.String()}); err != nil {
-			return err
-		}
-		if err = addEvent(r.Context(), q, "CASE", cid, c.Version, "SafeReceiptWithdrawn", map[string]any{"receiptId": current.ID, "publicationVersion": next}); err != nil {
+		next, err := withdrawReviewedReceipt(r, q, c, current, actor.PrincipalID, b.Reason)
+		if err != nil {
 			return err
 		}
 		result = publicationResult(current.ID, c.Version, next, "WITHDRAWN")
 		return nil
 	})
 	return result, 200, err
+}
+
+// withdrawReviewedReceipt is shared by direct withdrawal and resident-request
+// approval so visibility, version, history and safe event commit together.
+func withdrawReviewedReceipt(r *http.Request, q *dbgen.Queries, c dbgen.OpsCaseRecord, current dbgen.SocialCaseReceipt, reviewer uuid.UUID, reason string) (int64, error) {
+	if current.PublicationState == "WITHDRAWN" {
+		return current.PublicationVersion, nil
+	}
+	next := current.PublicationVersion + 1
+	decision := uuid.New()
+	if err := q.InsertPublicationDecision(r.Context(), dbgen.InsertPublicationDecisionParams{
+		ID: decision, CaseID: c.ID, CaseVersion: c.Version, Action: "WITHDRAW", ReviewerRef: reviewer,
+		PublicationVersion: pgtype.Int8{Int64: next, Valid: true}, InternalReason: pgtype.Text{String: reason, Valid: true},
+	}); err != nil {
+		return 0, err
+	}
+	if err := q.WithdrawReceipt(r.Context(), current.ID); err != nil {
+		return 0, err
+	}
+	if err := q.SavePublicationBinding(r.Context(), dbgen.SavePublicationBindingParams{CaseID: c.ID, ReceiptID: current.ID, ApprovedCaseVersion: c.Version, ReviewerRef: reviewer, DecisionRef: decision.String()}); err != nil {
+		return 0, err
+	}
+	if err := addEvent(r.Context(), q, "CASE", c.ID, c.Version, "SafeReceiptWithdrawn", map[string]any{"receiptId": current.ID, "publicationVersion": next}); err != nil {
+		return 0, err
+	}
+	return next, nil
 }
 
 // publicationReview exposes safe review fields and minimal immutable decisions

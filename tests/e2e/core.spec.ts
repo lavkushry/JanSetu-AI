@@ -3305,3 +3305,339 @@ test('report removal alerts separate reporter and author records and honor notif
   await author.context.close();
   await mod.context.close();
 });
+
+async function publishedSharingFixture(owner: Page, publisher: Page) {
+  const fixture = await publicProgressFixture(owner, publisher);
+  const title = `Resident sharing crossing ${Date.now()} ${crypto.randomUUID()}`;
+  const fields = {
+    title,
+    summary: 'A fictional restoration task awaits agency work.',
+    area: 'Synthetic broad area',
+    reason: 'PRIVATE INITIAL SHARING REVIEW',
+    reviewed: true,
+    publicationVersion: 0,
+  };
+  const response = await publisher.request.post(
+    `/api/authority/cases/${fixture.caseId}/publications`,
+    {
+      headers: { 'x-jansetu-csrf': '1', 'if-match': '"1"' },
+      data: fields,
+    },
+  );
+  expect(response.status()).toBe(200);
+  const publication = (await response.json()) as Schema['PublicationResult'];
+  return { ...fixture, fields, publication };
+}
+async function openResidentSharing(owner: Page, statement: string) {
+  await owner.goto('/my-reports');
+  const report = owner.locator('.my-report').filter({ hasText: statement });
+  await report.getByRole('button', { name: 'Manage public sharing', exact: true }).click();
+  await expect(owner.getByTestId('resident-public-preview')).toBeVisible();
+}
+async function openSharingReview(publisher: Page, requestId: string) {
+  await publisher.goto('/studio');
+  await publisher.getByRole('button', { name: 'Public sharing', exact: true }).click();
+  await publisher.getByTestId(`withdrawal-review-${requestId}`).click();
+  await expect(publisher.getByTestId('publisher-withdrawal-review')).toBeVisible();
+}
+
+test('resident sharing cancellation and reviewed approval preserve agency work', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  const officer = await staffPage(browser, 'City Works team');
+  try {
+    const { caseId, report, statement, publication } = await publishedSharingFixture(
+      page,
+      staff.page,
+    );
+    await page.setViewportSize({ width: 320, height: 820 });
+    await openResidentSharing(page, statement);
+    const sharing = page.getByTestId('resident-public-sharing');
+    await sharing.getByRole('button', { name: 'Request withdrawal', exact: true }).click();
+    await expect(sharing.getByRole('button', { name: 'Submit withdrawal request' })).toBeDisabled();
+    await sharing.getByLabel('Reason for withdrawal').selectOption('LOCATION');
+    await sharing
+      .getByLabel('I reviewed this public progress and want to request withdrawal.')
+      .check();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({ path: 'test-results/resident-sharing-mobile-light.png' });
+    const requested = page.waitForResponse(
+      (r) =>
+        r.url().endsWith('/publication-withdrawal-requests') && r.request().method() === 'POST',
+    );
+    await sharing.getByRole('button', { name: 'Submit withdrawal request' }).click();
+    const response = await requested;
+    expect(response.status()).toBe(201);
+    const first = (await response.json()) as Schema['PublicationWithdrawalRequest'];
+    const firstCard = sharing.getByTestId(`owned-withdrawal-${first.id}`);
+    await expect(firstCard).toContainText('requested');
+    await firstCard.getByRole('button', { name: 'Cancel request' }).click();
+    await expect(page.getByRole('dialog', { name: 'Cancel withdrawal request?' })).toBeVisible();
+    await sharing.getByRole('button', { name: 'Keep request' }).click();
+    await expect(firstCard).toContainText('requested');
+    await firstCard.getByRole('button', { name: 'Cancel request' }).click();
+    await sharing.getByLabel('I want to cancel this pending request.').check();
+    await sharing.getByRole('button', { name: 'Confirm cancellation' }).click();
+    await expect(firstCard).toContainText('cancelled');
+    expect((await page.request.get(`/api/case-receipts/${publication.receiptId}`)).status()).toBe(
+      200,
+    );
+    await page.getByRole('button', { name: 'Close dialog' }).click();
+    await page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+    await page
+      .locator('.my-report')
+      .filter({ hasText: statement })
+      .getByRole('button', { name: 'Manage public sharing' })
+      .click();
+    await sharing.getByRole('button', { name: 'Request withdrawal', exact: true }).click();
+    await sharing
+      .getByLabel('I reviewed this public progress and want to request withdrawal.')
+      .check();
+    await page.screenshot({ path: 'test-results/resident-sharing-mobile-dark.png' });
+    const requestAgain = page.waitForResponse(
+      (r) =>
+        r.url().endsWith('/publication-withdrawal-requests') && r.request().method() === 'POST',
+    );
+    await sharing.getByRole('button', { name: 'Submit withdrawal request' }).click();
+    const secondResponse = await requestAgain;
+    expect(secondResponse.status()).toBe(201);
+    const second = (await secondResponse.json()) as Schema['PublicationWithdrawalRequest'];
+    expect(second.id).not.toBe(first.id);
+    await expect(sharing.getByTestId(`owned-withdrawal-${second.id}`)).toContainText('requested');
+    await openPublicationReview(staff.page, caseId);
+    await expect(staff.page.getByTestId('publication-review')).toContainText(
+      'Public sharing is paused',
+    );
+    await expect(
+      staff.page.getByRole('button', { name: 'Save reviewed correction' }),
+    ).toBeDisabled();
+    await openSharingReview(staff.page, second.id);
+    const review = staff.page.getByTestId('publisher-withdrawal-review');
+    await review
+      .getByRole('textbox', { name: 'Private withdrawal review reason', exact: true })
+      .fill('PRIVATE OWNER SHARING INVESTIGATION');
+    await review
+      .getByRole('textbox', { name: 'Reason shared with the resident', exact: true })
+      .fill('The reviewed public preview was withdrawn at your request.');
+    await review
+      .getByLabel('I reviewed the current public preview and this sharing decision.')
+      .check();
+    // Agency acceptance changes only the private case while publication is paused.
+    const caseResponse = await officer.page.request.get(`/api/authority/cases/${caseId}`);
+    expect(caseResponse.status()).toBe(200);
+    const caseDetail = (await caseResponse.json()) as Schema['CaseDetail'];
+    const obligation = caseDetail.obligations[0];
+    expect(
+      (
+        await officer.page.request.post(`/api/authority/obligations/${obligation.id}/accept`, {
+          headers: { 'x-jansetu-csrf': '1', 'if-match': `"${obligation.version}"` },
+          data: { summary: 'Private work accepted during resident sharing review' },
+        })
+      ).status(),
+    ).toBe(200);
+    const stale = staff.page.waitForResponse(
+      (r) => r.url().endsWith('/decisions') && r.request().method() === 'POST',
+    );
+    await review.getByRole('button', { name: 'Record sharing decision' }).click();
+    expect((await stale).status()).toBe(412);
+    await expect(review).toContainText('Your reason drafts are kept.');
+    await review.getByRole('button', { name: 'Refresh withdrawal review' }).click();
+    await expect(review.getByTestId('withdrawal-current-preview')).toContainText('Case revision 2');
+    await expect(
+      review.getByRole('textbox', { name: 'Private withdrawal review reason', exact: true }),
+    ).toHaveValue('PRIVATE OWNER SHARING INVESTIGATION');
+    await expect(
+      review.getByLabel('I reviewed the current public preview and this sharing decision.'),
+    ).not.toBeChecked();
+    await staff.page.setViewportSize({ width: 320, height: 820 });
+    await review
+      .getByLabel('I reviewed the current public preview and this sharing decision.')
+      .check();
+    expect(
+      await staff.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    ).toBe(true);
+    await staff.page.screenshot({ path: 'test-results/publisher-sharing-mobile-light.png' });
+    await review.getByRole('button', { name: 'Record sharing decision' }).click();
+    await expect(review).toContainText('Recorded outcome');
+    await expect(review).toContainText('PRIVATE OWNER SHARING INVESTIGATION');
+    await sharing.getByRole('button', { name: 'Refresh sharing review' }).click();
+    const approved = sharing.getByTestId(`owned-withdrawal-${second.id}`);
+    await expect(approved).toContainText('approved');
+    await expect(approved).toContainText(
+      'The reviewed public preview was withdrawn at your request.',
+    );
+    await expect(sharing).not.toContainText('PRIVATE OWNER SHARING INVESTIGATION');
+    await expect(sharing.getByRole('link', { name: 'Open public progress' })).toHaveCount(0);
+    expect((await page.request.get(`/api/case-receipts/${publication.receiptId}`)).status()).toBe(
+      404,
+    );
+    await page.getByRole('button', { name: 'Close dialog' }).click();
+    await page.reload();
+    const privateReport = page.locator('.my-report').filter({ hasText: statement });
+    await expect(
+      privateReport.getByRole('button', { name: 'Manage public sharing' }),
+    ).toBeVisible();
+    await expect(
+      privateReport.getByRole('link', { name: /View reviewed public progress/ }),
+    ).toHaveCount(0);
+    const after = (await (
+      await officer.page.request.get(`/api/authority/cases/${caseId}`)
+    ).json()) as Schema['CaseDetail'];
+    expect(after.version).toBe(2);
+    expect(after.firstReportedAt).toBe(report.receivedAt);
+    expect(after.obligations[0].state).toBe('ACCEPTED');
+    await openPublicationReview(staff.page, caseId);
+    await expect(
+      staff.page.getByRole('button', { name: 'Republish reviewed progress' }),
+    ).toBeDisabled();
+    await expect(
+      officer.page.getByRole('button', { name: 'Public sharing', exact: true }),
+    ).toHaveCount(0);
+  } finally {
+    await staff.context.close();
+    await officer.context.close();
+  }
+});
+
+test('resident sharing stale drafts and lost responses recover without duplicate outcomes', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  try {
+    const { caseId, report, statement, fields, publication } = await publishedSharingFixture(
+      page,
+      staff.page,
+    );
+    await openResidentSharing(page, statement);
+    const sharing = page.getByTestId('resident-public-sharing');
+    await sharing.getByRole('button', { name: 'Request withdrawal', exact: true }).click();
+    await sharing.getByLabel('Reason for withdrawal').selectOption('SHARING_PREFERENCE');
+    await sharing
+      .getByLabel('I reviewed this public progress and want to request withdrawal.')
+      .check();
+    expect(
+      (
+        await staff.page.request.post(`/api/authority/cases/${caseId}/publications`, {
+          headers: { 'x-jansetu-csrf': '1', 'if-match': '"1"' },
+          data: { ...fields, title: 'Fresh revised sharing preview', publicationVersion: 1 },
+        })
+      ).status(),
+    ).toBe(200);
+    const stale = page.waitForResponse(
+      (r) =>
+        r.url().endsWith('/publication-withdrawal-requests') && r.request().method() === 'POST',
+    );
+    await sharing.getByRole('button', { name: 'Submit withdrawal request' }).click();
+    expect((await stale).status()).toBe(409);
+    await expect(sharing.getByLabel('Reason for withdrawal')).toHaveValue('SHARING_PREFERENCE');
+    await expect(sharing.getByRole('button', { name: 'Submit withdrawal request' })).toBeDisabled();
+    await sharing.getByRole('button', { name: 'Refresh sharing review' }).click();
+    await expect(sharing.getByTestId('resident-public-preview')).toContainText('REVISION 2');
+    await expect(sharing.getByLabel('Reason for withdrawal')).toHaveValue('SHARING_PREFERENCE');
+    await expect(
+      sharing.getByLabel('I reviewed this public progress and want to request withdrawal.'),
+    ).not.toBeChecked();
+    await sharing
+      .getByLabel('I reviewed this public progress and want to request withdrawal.')
+      .check();
+    let committed: Schema['PublicationWithdrawalRequest'] | undefined;
+    let command: Schema['PublicationWithdrawalRequestInput'] | undefined;
+    let key: string | undefined;
+    const createRoute = `**/api/my-reports/${report.id}/publication-withdrawal-requests`;
+    await page.route(createRoute, async (route) => {
+      command = route.request().postDataJSON() as Schema['PublicationWithdrawalRequestInput'];
+      key = route.request().headers()['idempotency-key'];
+      const response = await route.fetch();
+      expect(response.status()).toBe(201);
+      committed = (await response.json()) as Schema['PublicationWithdrawalRequest'];
+      await route.abort('failed');
+    });
+    await sharing.getByRole('button', { name: 'Submit withdrawal request' }).click();
+    await expect.poll(() => committed?.state).toBe('REQUESTED');
+    await expect(sharing.locator('.form-error')).toContainText('fetch');
+    await page.unroute(createRoute);
+    if (!committed || !command || !key) throw new Error('Missing committed sharing request');
+    const saved = committed;
+    const retry = await page.request.post(
+      `/api/my-reports/${report.id}/publication-withdrawal-requests`,
+      {
+        headers: { 'x-jansetu-csrf': '1', 'idempotency-key': key },
+        data: command,
+      },
+    );
+    expect(retry.status()).toBe(201);
+    expect(((await retry.json()) as Schema['PublicationWithdrawalRequest']).id).toBe(saved.id);
+    await sharing.getByRole('button', { name: 'Refresh sharing review' }).click();
+    await expect(sharing.getByTestId(`owned-withdrawal-${saved.id}`)).toContainText('requested');
+    await expect(sharing.getByRole('button', { name: 'Submit withdrawal request' })).toHaveCount(0);
+    const ownerState = (await (
+      await page.request.get(`/api/my-reports/${report.id}/public-sharing`)
+    ).json()) as Schema['OwnerPublicSharing'];
+    expect(ownerState.requests).toHaveLength(1);
+    await openSharingReview(staff.page, saved.id);
+    const review = staff.page.getByTestId('publisher-withdrawal-review');
+    await review.getByRole('combobox', { name: /^Sharing decision/ }).selectOption('DECLINED');
+    await review
+      .getByRole('textbox', { name: 'Private withdrawal review reason', exact: true })
+      .fill('PRIVATE INDEPENDENT SHARING ASSESSMENT');
+    await review
+      .getByRole('textbox', { name: 'Reason shared with the resident', exact: true })
+      .fill('The broad public preview remains available after review.');
+    await review
+      .getByLabel('I reviewed the current public preview and this sharing decision.')
+      .check();
+    await staff.page.setViewportSize({ width: 320, height: 820 });
+    await staff.page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+    expect(
+      await staff.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    ).toBe(true);
+    await staff.page.screenshot({ path: 'test-results/publisher-sharing-mobile-dark.png' });
+    const decisionRoute = `**/api/authority/publication-withdrawal-requests/${saved.id}/decisions`;
+    let decisionCommitted = false;
+    await staff.page.route(decisionRoute, async (route) => {
+      const response = await route.fetch();
+      expect(response.status()).toBe(200);
+      decisionCommitted = true;
+      await route.abort('failed');
+    });
+    await review.getByRole('button', { name: 'Record sharing decision' }).click();
+    await expect.poll(() => decisionCommitted).toBe(true);
+    await expect(review.locator('.form-error')).toContainText('fetch');
+    await staff.page.unroute(decisionRoute);
+    await review.getByRole('button', { name: 'Refresh withdrawal review' }).click();
+    await expect(review).toContainText('Recorded outcome');
+    await expect(review.getByRole('button', { name: 'Record sharing decision' })).toHaveCount(0);
+    await sharing.getByRole('button', { name: 'Refresh sharing review' }).click();
+    await expect(sharing.getByTestId(`owned-withdrawal-${saved.id}`)).toContainText('declined');
+    await expect(sharing).toContainText('The broad public preview remains available after review.');
+    await expect(sharing).not.toContainText('PRIVATE INDEPENDENT SHARING ASSESSMENT');
+    expect((await page.request.get(`/api/case-receipts/${publication.receiptId}`)).status()).toBe(
+      200,
+    );
+    expect(
+      (
+        await staff.page.request.post(`/api/authority/cases/${caseId}/publications`, {
+          headers: { 'x-jansetu-csrf': '1', 'if-match': '"1"' },
+          data: {
+            ...fields,
+            title: 'Reviewed correction after declined sharing request',
+            publicationVersion: 2,
+          },
+        })
+      ).status(),
+    ).toBe(200);
+  } finally {
+    await staff.context.close();
+  }
+});

@@ -292,7 +292,7 @@ INSERT INTO social.case_follow(profile_id,receipt_id) VALUES ($1,$2) ON CONFLICT
 DELETE FROM social.case_follow WHERE profile_id=$1 AND receipt_id=$2;
 
 -- name: OwnReportProgress :many
-SELECT r.id,r.received_at,r.statement,r.language_tag,ir.state AS linkage,ir.case_id,receipt.id AS receipt_id
+SELECT r.id,r.received_at,r.statement,r.language_tag,ir.state AS linkage,ir.case_id,receipt.id AS receipt_id,EXISTS(SELECT FROM ops.publication_withdrawal_request w WHERE w.report_id=r.id) AS has_publication_request
 FROM ops.report r JOIN ops.intake_review ir ON ir.report_id=r.id
 LEFT JOIN ops.publication_binding pb ON pb.case_id=ir.case_id
 LEFT JOIN social.case_receipt receipt ON receipt.id=pb.receipt_id AND receipt.publication_state='PUBLISHED'
@@ -361,7 +361,7 @@ SELECT * FROM ops.publication_history WHERE case_id=$1 ORDER BY decided_at DESC,
 -- name: LockPublicationReceipt :one
 SELECT * FROM social.case_receipt WHERE id=$1 FOR UPDATE;
 -- name: PublicationAllowed :one
-SELECT NOT EXISTS(SELECT 1 FROM ops.case_observation o JOIN ops.report r ON r.id=o.report_id WHERE o.case_id=$1 AND r.publication_preference='PRIVATE');
+SELECT EXISTS(SELECT FROM ops.publication_sharing_eligibility WHERE case_id=$1 AND allowed);
 -- name: SavePublicationBinding :exec
 INSERT INTO ops.publication_binding(case_id,receipt_id,approved_case_version,reviewer_ref,decision_ref,approved_at) VALUES ($1,$2,$3,$4,$5,now())
 ON CONFLICT(case_id) DO UPDATE SET approved_case_version=EXCLUDED.approved_case_version,reviewer_ref=EXCLUDED.reviewer_ref,decision_ref=EXCLUDED.decision_ref,approved_at=now();
@@ -600,3 +600,39 @@ CASE WHEN kind='APPEAL_OUTCOME' THEN source_id ELSE NULL::uuid END,
 CASE WHEN kind='CONTENT_REPORT_OUTCOME' THEN source_id ELSE NULL::uuid END,'SENT',sqlc.arg(event_time)
 FROM social.activity_review_source WHERE kind=sqlc.arg(source_kind)::text AND source_id=sqlc.arg(source_id)::uuid AND source_version=sqlc.arg(source_version)::bigint
 ON CONFLICT DO NOTHING;
+
+-- name: OwnedSharingReport :one
+SELECT r.id,r.publication_preference,i.case_id,b.receipt_id FROM ops.report r
+LEFT JOIN ops.intake_review i ON i.report_id=r.id LEFT JOIN ops.publication_binding b ON b.case_id=i.case_id
+WHERE r.id=$1 AND authz.owns_report(r.id);
+-- name: OwnerWithdrawalRequests :many
+SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at
+FROM ops.publication_withdrawal_request w LEFT JOIN ops.publication_withdrawal_outcome d ON d.request_id=w.id
+WHERE w.report_id=$1 ORDER BY w.created_at DESC,w.id DESC LIMIT 20;
+-- name: OwnerWithdrawalByClient :one
+SELECT id,publication_version,reason_code FROM ops.publication_withdrawal_request WHERE report_id=$1 AND client_request_id=$2;
+-- name: OwnerWithdrawalBySnapshot :one
+SELECT id,publication_version,reason_code FROM ops.publication_withdrawal_request WHERE report_id=$1 AND receipt_id=$2 AND publication_version=$3 AND state<>'CANCELLED';
+-- name: OwnerWithdrawalBlocked :one
+SELECT EXISTS(SELECT FROM ops.publication_withdrawal_request WHERE report_id=$1 AND state IN ('REQUESTED','APPROVED'));
+-- name: InsertWithdrawalRequest :exec
+INSERT INTO ops.publication_withdrawal_request(id,report_id,case_id,receipt_id,client_request_id,publication_version,reason_code) VALUES($1,$2,$3,$4,$5,$6,$7);
+-- name: WithdrawalReview :one
+SELECT * FROM ops.publication_withdrawal_review WHERE id=$1;
+-- name: WithdrawalQueue :many
+SELECT * FROM ops.publication_withdrawal_review WHERE state=sqlc.arg(state)::text
+ORDER BY CASE WHEN state='REQUESTED' THEN created_at END ASC,created_at DESC,id DESC LIMIT 100;
+-- name: LockWithdrawalRequest :one
+SELECT id,case_id,receipt_id,publication_version,reason_code,state,version,created_at FROM ops.publication_withdrawal_request WHERE id=$1 FOR UPDATE;
+-- name: InsertWithdrawalDecision :exec
+INSERT INTO ops.publication_withdrawal_decision(id,request_id,result,case_version,publication_version,internal_reason,resident_reason,reviewer_ref) VALUES($1,$2,$3,$4,$5,$6,$7,$8);
+-- name: DecideWithdrawalRequest :exec
+UPDATE ops.publication_withdrawal_request SET state=$2,version=version+1 WHERE id=$1;
+-- name: LockOwnerWithdrawalRequest :one
+SELECT id,report_id,state,version FROM ops.publication_withdrawal_request WHERE id=$1 AND report_id=$2 FOR UPDATE;
+-- name: InsertWithdrawalCancel :exec
+INSERT INTO ops.publication_withdrawal_cancel(request_id) VALUES($1);
+-- name: OwnerWithdrawalReceipt :one
+SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at
+FROM ops.publication_withdrawal_request w LEFT JOIN ops.publication_withdrawal_outcome d ON d.request_id=w.id
+WHERE w.id=$1 AND w.report_id=$2;
