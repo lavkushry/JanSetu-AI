@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.21.0
+  version: 0.22.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -1785,6 +1785,50 @@ paths:
             schema:
               $ref: '#/components/schemas/TriageInput'
       operationId: post_authority_reports_by_id_triage
+  /authority/cases/{id}/obligations:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Propose distinct required restoration work within an open case
+      description: Coordinator only. A clientTaskId identifies an immutable proposal for the lifetime of this case. Matching retries return the task's current state and versions without another write, even with the original If-Match. Changed agency or normalized scope for the same ID returns 409. New proposals check current case version, active agency, open case and an eight-task cap. Public progress still requires publication review.
+      operationId: post_authority_cases_by_id_obligations
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskProposalInput'
+      responses:
+        '201':
+          description: New or existing proposal with current task and case versions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskProposalResult'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
   /authority/obligations/{id}/accept:
     parameters:
       - $ref: '#/components/parameters/ID'
@@ -4203,6 +4247,36 @@ components:
           type: string
         version:
           type: integer
+    TaskProposalInput:
+      type: object
+      additionalProperties: false
+      required: [clientTaskId, agencyId, scope]
+      properties:
+        clientTaskId:
+          type: string
+          format: uuid
+          description: Stable identifier for retries of this immutable task proposal; scoped to the case.
+        agencyId:
+          type: string
+          format: uuid
+        scope:
+          type: string
+          minLength: 10
+          maxLength: 1000
+          description: Distinct required work, trimmed by the API; private to authorized staff. Does not infer jurisdiction.
+    TaskProposalResult:
+      type: object
+      required: [id, state, version, caseVersion]
+      properties:
+        id:
+          type: string
+          format: uuid
+        state:
+          type: string
+        version:
+          type: integer
+        caseVersion:
+          type: integer
     Obligation:
       type: object
       required:
@@ -4213,6 +4287,8 @@ components:
         - version
         - dueAt
         - workSummary
+        - scope
+        - requiredForRestoration
         - acceptedAt
         - completedAt
         - canVerify
@@ -4233,6 +4309,11 @@ components:
           type:
             - string
             - 'null'
+        scope:
+          type: string
+          description: Immutable work scope. Empty for legacy tasks assessed before schema 27; never automatically copied to public progress.
+        requiredForRestoration:
+          type: boolean
         workSummary:
           type: string
         acceptedAt:
@@ -4259,11 +4340,15 @@ components:
         - receiptId
         - publication
         - canPublish
+        - canProposeTask
         - publicationBlocked
       properties:
         publicationBlocked:
           description: Live publisher-only sharing eligibility flag; false for other staff. Pending or approved owner withdrawal requests prevent new publication. Withdrawal remains available.
           type: boolean
+        canProposeTask:
+          type: boolean
+          description: Live coordinator capability, false on closed cases or at the eight-task cap. Every proposal rechecks authorization and version.
         canPublish:
           type: boolean
         id:

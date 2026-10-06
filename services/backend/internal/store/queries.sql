@@ -322,7 +322,12 @@ INSERT INTO ops.case_record(id,category_code,state,first_valid_report_at,urgency
 -- name: InsertObservation :exec
 INSERT INTO ops.case_observation(case_id,report_id,relation) VALUES ($1,$2,'INITIAL');
 -- name: InsertObligation :exec
-INSERT INTO ops.obligation(id,case_id,agency_id,obligation_type,state,authority_basis_ref) VALUES ($1,$2,$3,'RESTORATION','PROPOSED','synthetic-local-mandate-v1');
+INSERT INTO ops.obligation(id,case_id,agency_id,obligation_type,state,authority_basis_ref,scope_text) VALUES ($1,$2,$3,'RESTORATION','PROPOSED','synthetic-local-mandate-v1','Restore the reported service issue');
+-- name: InsertScopedObligation :exec
+INSERT INTO ops.obligation(id,case_id,agency_id,obligation_type,state,authority_basis_ref,scope_text,client_task_id)
+VALUES ($1,$2,$3,'RESTORATION','PROPOSED','synthetic-local-mandate-v1',$4,$5);
+-- name: ObligationByClientID :one
+SELECT * FROM ops.obligation WHERE case_id=$1 AND client_task_id=$2;
 -- name: AssignCoordinator :exec
 INSERT INTO ops.coordinator_assignment(case_id,principal_id,roster_version,assigned_at) VALUES ($1,$2,'local-roster-v1',now());
 -- name: Cases :many
@@ -333,7 +338,7 @@ ORDER BY c.urgency_tier DESC,c.first_valid_report_at LIMIT 100;
 -- name: LockCase :one
 SELECT * FROM ops.case_record WHERE id=$1 FOR UPDATE;
 -- name: CaseObligations :many
-SELECT o.*,a.name AS agency_name FROM ops.obligation o LEFT JOIN ops.agency a ON a.id=o.agency_id WHERE o.case_id=$1 ORDER BY o.id;
+SELECT o.*,a.name AS agency_name FROM ops.obligation o LEFT JOIN ops.agency a ON a.id=o.agency_id WHERE o.case_id=$1 ORDER BY o.created_at,o.id;
 -- name: LockObligation :one
 SELECT * FROM ops.obligation WHERE id=$1 FOR UPDATE;
 -- name: ChangeObligation :exec
@@ -348,8 +353,6 @@ INSERT INTO ops.case_event(id,case_id,sequence,event_type,actor_ref,actor_role,p
 VALUES ($1,$2,COALESCE((SELECT max(sequence)+1 FROM ops.case_event WHERE case_id=$2),1),$3,$4,$5,$6,now());
 -- name: CaseEvents :many
 SELECT * FROM ops.case_event WHERE case_id=$1 ORDER BY sequence;
--- name: CaseCanResolve :one
-SELECT NOT EXISTS(SELECT 1 FROM ops.obligation WHERE case_id=$1 AND required_for_restoration AND state NOT IN ('VERIFIED','CANCELLED'));
 -- name: InsertVerification :exec
 INSERT INTO ops.verification_decision(id,case_id,obligation_id,reviewer_ref,result,reason,decided_at) VALUES ($1,$2,$3,$4,$5,$6,now());
 -- name: PublicationBinding :one

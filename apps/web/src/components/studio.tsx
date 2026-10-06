@@ -10,6 +10,7 @@ import { ContentReportQueue } from './content-reports';
 import { AppealQueue } from './appeals';
 import { PublicationWithdrawalQueue } from './public-sharing';
 import { PublicationReview } from './publication-review';
+import { ObligationCard, TaskProposal } from './case-tasks';
 
 export function Studio() {
   const { me, signIn } = useSession();
@@ -365,34 +366,15 @@ function CaseQueue({ me }: { me: Me }) {
   );
 }
 function CaseWorkspace({ id, me }: { id: string; me: Me }) {
-  const qc = useQueryClient();
-  const { notify } = useSession();
   const q = useQuery({
     queryKey: ['staff-case', id],
     queryFn: () => api<Schema['CaseDetail']>(`authority/cases/${id}`),
   });
-  const [summary, setSummary] = useState('');
-  const [result, setResult] = useState('VERIFIED');
-  const action = useMutation({
-    mutationFn: (command: { path: string; body: unknown; version: number }) =>
-      api<Schema['Command']>(command.path, {
-        method: 'POST',
-        body: command.body,
-        version: command.version,
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries();
-      notify('Decision saved. Public progress requires a separate publication review.');
-      setSummary('');
-    },
-  });
   if (q.isPending) return <Loading />;
   if (q.error) return <ErrorState error={q.error} retry={() => q.refetch()} />;
   const c = q.data;
-  const isAgent = (agency: string | null) =>
-    me.agencies.some(
-      (a) => a.agency_id === agency && ['AGENCY_AGENT', 'AGENCY_LEAD'].includes(a.role),
-    );
+  const required = c.obligations.filter((o) => o.requiredForRestoration);
+  const verified = required.filter((o) => o.state === 'VERIFIED').length;
   return (
     <section className="case-detail">
       <div className="staff-card">
@@ -404,99 +386,23 @@ function CaseWorkspace({ id, me }: { id: string; me: Me }) {
         <small>
           First report {dateLabel(c.firstReportedAt)} · Urgency {c.urgencyTier}
         </small>
+        <p className="review-note" data-testid="restoration-summary">
+          {verified} of {required.length} required tasks verified.
+          {verified < required.length &&
+            ' The case stays open until every required task is independently verified.'}
+        </p>
         {c.obligations.map((o) => (
-          <div className="obligation" key={o.id}>
-            <strong>{o.agency}</strong>
-            <Badge state={o.state} />
-            <p>{o.workSummary || 'The proposed task has not yet been accepted.'}</p>
-            <small>{o.dueAt ? `Due ${dateLabel(o.dueAt)}` : 'Deadline unavailable'}</small>
-            {isAgent(o.agencyId) && ['PROPOSED', 'ACCEPTED', 'IN_PROGRESS'].includes(o.state) && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const route =
-                    o.state === 'PROPOSED'
-                      ? 'accept'
-                      : o.state === 'ACCEPTED'
-                        ? 'start'
-                        : 'completion-claims';
-                  action.mutate({
-                    path: `authority/obligations/${o.id}/${route}`,
-                    version: o.version,
-                    body: { summary },
-                  });
-                }}
-              >
-                <label>
-                  Work or decision summary
-                  <textarea
-                    required
-                    minLength={5}
-                    maxLength={2000}
-                    rows={3}
-                    value={summary}
-                    onChange={(e) => setSummary(e.target.value)}
-                    placeholder="Record the agency’s decision or work performed"
-                  />
-                </label>
-                <div className="form-actions">
-                  <button className="primary" disabled={action.isPending}>
-                    {o.state === 'PROPOSED'
-                      ? 'Accept task'
-                      : o.state === 'ACCEPTED'
-                        ? 'Start work'
-                        : 'Claim completion'}
-                  </button>
-                </div>
-              </form>
-            )}
-            {o.state === 'COMPLETION_CLAIMED' && (
-              <p className="review-note">Completion is a claim until independently verified.</p>
-            )}
-            {o.canVerify && o.state === 'COMPLETION_CLAIMED' && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  action.mutate({
-                    path: `authority/cases/${id}/verification-decisions`,
-                    version: c.version,
-                    body: { obligationId: o.id, result, reason: summary },
-                  });
-                }}
-              >
-                <label>
-                  Inspection result
-                  <select value={result} onChange={(e) => setResult(e.target.value)}>
-                    <option value="VERIFIED">Restoration verified</option>
-                    <option value="NOT_RESTORED">Service not restored</option>
-                    <option value="INSUFFICIENT">Insufficient evidence</option>
-                  </select>
-                </label>
-                <label>
-                  Independent inspection reason
-                  <textarea
-                    required
-                    minLength={10}
-                    maxLength={2000}
-                    rows={3}
-                    value={summary}
-                    onChange={(e) => setSummary(e.target.value)}
-                  />
-                </label>
-                <small>
-                  Local demonstration: this records a fictional inspection without evidence uploads.
-                </small>
-                <div className="form-actions">
-                  <button className="primary" disabled={action.isPending}>
-                    Record verification decision
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
+          <ObligationCard key={o.id} obligation={o} caseDetail={c} me={me} />
         ))}
-        <FormError error={action.error} />
       </div>
+      {c.canProposeTask && <TaskProposal caseDetail={c} />}
+      {me.roles.includes('COORDINATOR') && !c.canProposeTask && (
+        <p className="review-note">
+          {['RESOLVED', 'WITHDRAWN'].includes(c.state)
+            ? 'This case is closed to new task proposals.'
+            : 'The case has reached the eight-task limit.'}
+        </p>
+      )}
       {c.canPublish && <PublicationReview caseDetail={c} />}
       <div className="staff-card">
         <h3>Decision history</h3>
