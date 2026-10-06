@@ -682,6 +682,38 @@ func (q *Queries) CaseObligations(ctx context.Context, caseID uuid.UUID) ([]Case
 	return items, nil
 }
 
+const caseTaskPrerequisites = `-- name: CaseTaskPrerequisites :many
+SELECT p.task_id,p.prerequisite_task_id,o.state FROM ops.task_prerequisite p
+JOIN ops.obligation o ON o.case_id=p.case_id AND o.id=p.prerequisite_task_id
+WHERE p.case_id=$1 ORDER BY p.task_id,p.prerequisite_task_id
+`
+
+type CaseTaskPrerequisitesRow struct {
+	TaskID             uuid.UUID `json:"task_id"`
+	PrerequisiteTaskID uuid.UUID `json:"prerequisite_task_id"`
+	State              string    `json:"state"`
+}
+
+func (q *Queries) CaseTaskPrerequisites(ctx context.Context, caseID uuid.UUID) ([]CaseTaskPrerequisitesRow, error) {
+	rows, err := q.db.Query(ctx, caseTaskPrerequisites, caseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CaseTaskPrerequisitesRow{}
+	for rows.Next() {
+		var i CaseTaskPrerequisitesRow
+		if err := rows.Scan(&i.TaskID, &i.PrerequisiteTaskID, &i.State); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const cases = `-- name: Cases :many
 SELECT c.id, c.category_code, c.state, c.first_valid_report_at, c.operational_location, c.accuracy_m, c.urgency_tier, c.urgency_review_ref, c.version, c.created_at, c.updated_at,COALESCE((SELECT title FROM social.case_receipt r JOIN ops.publication_binding b ON b.receipt_id=r.id WHERE b.case_id=c.id),'Service issue awaiting publication') AS title,
  (SELECT min(o.agency_id::text) FROM ops.obligation o WHERE o.case_id=c.id) AS agency_id
@@ -2182,6 +2214,21 @@ func (q *Queries) InsertSharingRenewal(ctx context.Context, arg InsertSharingRen
 		arg.ClientRequestID,
 		arg.PublicationVersion,
 	)
+	return err
+}
+
+const insertTaskPrerequisite = `-- name: InsertTaskPrerequisite :exec
+INSERT INTO ops.task_prerequisite(case_id,task_id,prerequisite_task_id) VALUES($1,$2,$3)
+`
+
+type InsertTaskPrerequisiteParams struct {
+	CaseID             uuid.UUID `json:"case_id"`
+	TaskID             uuid.UUID `json:"task_id"`
+	PrerequisiteTaskID uuid.UUID `json:"prerequisite_task_id"`
+}
+
+func (q *Queries) InsertTaskPrerequisite(ctx context.Context, arg InsertTaskPrerequisiteParams) error {
+	_, err := q.db.Exec(ctx, insertTaskPrerequisite, arg.CaseID, arg.TaskID, arg.PrerequisiteTaskID)
 	return err
 }
 

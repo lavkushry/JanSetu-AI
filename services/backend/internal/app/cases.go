@@ -50,12 +50,17 @@ func (a *App) caseData(r *http.Request, q *dbgen.Queries, cid uuid.UUID, actor *
 		return nil, e
 	}
 	allowed := staffAll(actor)
+	prerequisites, e := q.CaseTaskPrerequisites(r.Context(), cid)
+	if e != nil {
+		return nil, e
+	}
 	items := []any{}
 	for _, o := range obligations {
+		prerequisite := prerequisitesFor(prerequisites, o.ID)
 		if o.AgencyID != nil && actor.Agency(*o.AgencyID, "") {
 			allowed = true
 		}
-		items = append(items, map[string]any{"id": o.ID, "agencyId": o.AgencyID, "agency": o.AgencyName, "scope": o.ScopeText, "requiredForRestoration": o.RequiredForRestoration, "state": o.State, "version": o.Version, "dueAt": timestamp(o.DueAt), "workSummary": o.WorkSummary, "acceptedAt": timestamp(o.AcceptedAt), "completedAt": timestamp(o.CompletedAt), "canVerify": o.AgencyID != nil && actor.Agency(*o.AgencyID, "VERIFIER") && (o.CompletionActorRef == nil || *o.CompletionActorRef != actor.PrincipalID)})
+		items = append(items, map[string]any{"id": o.ID, "agencyId": o.AgencyID, "agency": o.AgencyName, "scope": o.ScopeText, "requiredForRestoration": o.RequiredForRestoration, "prerequisiteTaskIds": prerequisite.IDs, "blockedByTaskIds": prerequisite.BlockedIDs, "state": o.State, "version": o.Version, "dueAt": timestamp(o.DueAt), "workSummary": o.WorkSummary, "acceptedAt": timestamp(o.AcceptedAt), "completedAt": timestamp(o.CompletedAt), "canVerify": o.AgencyID != nil && actor.Agency(*o.AgencyID, "VERIFIER") && (o.CompletionActorRef == nil || *o.CompletionActorRef != actor.PrincipalID)})
 	}
 	if !allowed {
 		return nil, forbidden()
@@ -147,6 +152,11 @@ func (a *App) obligationTransition(r *http.Request, actor *Actor, target string)
 		if !valid {
 			return failure(409, "INVALID_TRANSITION", "Refresh the current task state")
 		}
+		if target != "ACCEPTED" {
+			if e = requirePrerequisiteVerification(r, q, c.ID, oid); e != nil {
+				return e
+			}
+		}
 		if e = q.ChangeObligation(r.Context(), dbgen.ChangeObligationParams{ID: oid, State: target, WorkSummary: b.Summary, CompletionActorRef: &actor.PrincipalID}); e != nil {
 			return e
 		}
@@ -204,6 +214,9 @@ func (a *App) verify(w http.ResponseWriter, r *http.Request, actor *Actor) (any,
 		}
 		if o.State != "COMPLETION_CLAIMED" || c.State != "VERIFICATION_PENDING" {
 			return failure(409, "INVALID_TRANSITION", "Only completion claims can be verified")
+		}
+		if e = requirePrerequisiteVerification(r, q, cid, o.ID); e != nil {
+			return e
 		}
 		if e = q.InsertVerification(r.Context(), dbgen.InsertVerificationParams{ID: uuid.New(), CaseID: cid, ObligationID: o.ID, ReviewerRef: actor.PrincipalID, Result: b.Result, Reason: b.Reason}); e != nil {
 			return e

@@ -4445,6 +4445,8 @@ test('required task proposals recover lost acknowledgements and all work needs i
       .getByLabel('Agency for this task')
       .selectOption('30000000-0000-4000-8000-000000000001');
     await proposal.getByLabel('Required work scope').fill(scope);
+    const prerequisite = proposal.getByRole('checkbox', { name: /Task 1 ·/ });
+    await prerequisite.check();
     let loseAck = true;
     let taskId = '';
     let proposalId = '';
@@ -4460,6 +4462,7 @@ test('required task proposals recover lost acknowledgements and all work needs i
     await proposal.getByRole('button', { name: 'Propose required task', exact: true }).click();
     await expect(proposal.getByRole('alert')).toBeVisible();
     await expect(proposal.getByLabel('Required work scope')).toHaveValue(scope);
+    await expect(prerequisite).toBeChecked();
     const retry = coordinator.page.waitForResponse(
       (r) => r.url().endsWith(`${path}/obligations`) && r.request().method() === 'POST',
     );
@@ -4495,6 +4498,23 @@ test('required task proposals recover lost acknowledgements and all work needs i
       .fill('Fictional second required task accepted separately');
     await secondCard.getByRole('button', { name: 'Accept task', exact: true }).click();
     await expect(secondCard.getByRole('button', { name: 'Start work', exact: true })).toBeVisible();
+    await expect(
+      secondCard.getByRole('button', { name: 'Start work', exact: true }),
+    ).toBeDisabled();
+    await expect(secondCard.getByTestId('task-sequence')).toContainText(
+      'Work blocked: prerequisite verification pending.',
+    );
+    const blockedStart = await officer.page.request.post(
+      `/api/authority/obligations/${taskId}/start`,
+      {
+        headers: { ...csrf, 'if-match': '"2"' },
+        data: { summary: 'Attempted work before independent prerequisite verification' },
+      },
+    );
+    expect(blockedStart.status()).toBe(409);
+    expect(((await blockedStart.json()) as Schema['Problem']).code).toBe(
+      'TASK_PREREQUISITES_PENDING',
+    );
     await expect(officer.page.locator('.case-detail .receipt-eyebrow .badge')).toHaveText(
       'verification pending',
     );
@@ -4518,6 +4538,12 @@ test('required task proposals recover lost acknowledgements and all work needs i
         ).json()) as Schema['ReportProgress']
       ).state,
     ).toBe('ACCEPTED');
+    await officer.page.reload();
+    await officer.page.getByTestId(`staff-case-${caseId}`).click();
+    await expect(secondCard.getByRole('button', { name: 'Start work', exact: true })).toBeEnabled();
+    await expect(secondCard.getByTestId('task-sequence')).toContainText(
+      'Prerequisites independently verified. Work can proceed.',
+    );
     for (const label of ['Start work', 'Claim completion']) {
       await secondCard
         .getByLabel('Work or decision summary')
@@ -4598,6 +4624,8 @@ test('multi-agency proposals preserve stale drafts, agency scope and mobile layo
       .getByLabel('Agency for this task')
       .selectOption('30000000-0000-4000-8000-000000000002');
     await proposal.getByLabel('Required work scope').fill(scope);
+    const prerequisite = proposal.getByRole('checkbox', { name: /Task 1 ·/ });
+    await prerequisite.check();
     const competing = await coordinator.page.request.post(`${path}/obligations`, {
       headers: { ...csrf, 'if-match': '"1"' },
       data: {
@@ -4618,6 +4646,7 @@ test('multi-agency proposals preserve stale drafts, agency scope and mobile layo
       '0 of 2 required tasks verified',
     );
     await expect(proposal.getByLabel('Required work scope')).toHaveValue(scope);
+    await expect(prerequisite).toBeChecked();
     const saved = coordinator.page.waitForResponse(
       (r) => r.url().endsWith(`${path}/obligations`) && r.request().method() === 'POST',
     );
@@ -4649,6 +4678,9 @@ test('multi-agency proposals preserve stale drafts, agency scope and mobile layo
     await expect(otherAgency).toContainText('Water Services (demo)');
     await expect(otherAgency).toContainText('Required for restoration');
     await expect(otherAgency).toContainText('Deadline unavailable');
+    await expect(otherAgency.getByTestId('task-sequence')).toContainText(
+      'Work blocked: prerequisite verification pending.',
+    );
     await expect(
       otherAgency.getByRole('button', { name: 'Accept task', exact: true }),
     ).not.toBeVisible();
@@ -4662,5 +4694,118 @@ test('multi-agency proposals preserve stale drafts, agency scope and mobile layo
   } finally {
     await coordinator.context.close();
     await officer.context.close();
+  }
+});
+
+test('dependent work waits for every prerequisite and insufficient evidence keeps it blocked', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  const coordinator = await staffPage(browser, 'Kiran Shah');
+  const officer = await staffPage(browser, 'City Works team');
+  const verifier = await staffPage(browser, 'Neha Sen');
+  const csrf = { 'x-jansetu-csrf': '1' };
+  try {
+    const { caseId, report } = await publicProgressFixture(page, coordinator.page);
+    const path = `/api/authority/cases/${caseId}`;
+    let detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    const first = detail.obligations[0].id;
+    const independent = await coordinator.page.request.post(`${path}/obligations`, {
+      headers: { ...csrf, 'if-match': '"1"' },
+      data: {
+        clientTaskId: crypto.randomUUID(),
+        agencyId: '30000000-0000-4000-8000-000000000001',
+        scope: 'PRIVATE additional prerequisite surface inspection',
+      },
+    });
+    expect(independent.status()).toBe(201);
+    const second = ((await independent.json()) as Schema['TaskProposalResult']).id;
+    await openPublicationReview(coordinator.page, caseId);
+    const proposal = coordinator.page.getByTestId('task-proposal');
+    await proposal
+      .getByLabel('Agency for this task')
+      .selectOption('30000000-0000-4000-8000-000000000001');
+    await proposal
+      .getByLabel('Required work scope')
+      .fill('PRIVATE finish restoration after both independent inspections');
+    await proposal.getByRole('checkbox', { name: /Task 1 ·/ }).check();
+    await proposal.getByRole('checkbox', { name: /Task 2 ·/ }).check();
+    const saving = coordinator.page.waitForResponse(
+      (r) => r.url().endsWith(`${path}/obligations`) && r.request().method() === 'POST',
+    );
+    await proposal.getByRole('button', { name: 'Propose required task', exact: true }).click();
+    const saved = await saving;
+    expect(saved.status()).toBe(201);
+    const third = ((await saved.json()) as Schema['TaskProposalResult']).id;
+    await expect(proposal.getByRole('checkbox', { name: /Task 1 ·/ })).not.toBeChecked();
+    await officer.page.reload();
+    await officer.page.getByTestId(`staff-case-${caseId}`).click();
+    const dependent = officer.page.getByTestId(`obligation-${third}`);
+    await dependent
+      .getByLabel('Work or decision summary')
+      .fill('Fictional acceptance while prerequisite work is pending');
+    await dependent.getByRole('button', { name: 'Accept task', exact: true }).click();
+    await expect(dependent.getByRole('button', { name: 'Start work', exact: true })).toBeDisabled();
+    const perform = async (id: string, labels: string[]) => {
+      const card = officer.page.getByTestId(`obligation-${id}`);
+      for (const label of labels) {
+        await card
+          .getByLabel('Work or decision summary')
+          .fill('Fictional prerequisite stage performed and documented');
+        await card.getByRole('button', { name: label, exact: true }).click();
+        await expect(card.getByRole('button', { name: label, exact: true })).not.toBeVisible();
+      }
+    };
+    const inspect = async (id: string, result: string) => {
+      await verifier.page.reload();
+      await verifier.page.getByTestId(`staff-case-${caseId}`).click();
+      const card = verifier.page.getByTestId(`obligation-${id}`);
+      await card.getByLabel('Inspection result').selectOption(result);
+      await card
+        .getByLabel('Independent inspection reason')
+        .fill('Independent fictional prerequisite inspection with documented result');
+      const response = verifier.page.waitForResponse(
+        (r) =>
+          r.url().endsWith(`${path}/verification-decisions`) && r.request().method() === 'POST',
+      );
+      await card.getByRole('button', { name: 'Record verification decision' }).click();
+      expect((await response).status()).toBe(200);
+      await officer.page.reload();
+      await officer.page.getByTestId(`staff-case-${caseId}`).click();
+    };
+    await perform(first, ['Accept task', 'Start work', 'Claim completion']);
+    await inspect(first, 'INSUFFICIENT');
+    await expect(dependent.getByRole('button', { name: 'Start work', exact: true })).toBeDisabled();
+    await expect(
+      dependent
+        .getByTestId('task-sequence')
+        .getByText('Awaiting independent verification', { exact: true }),
+    ).toHaveCount(2);
+    await inspect(first, 'VERIFIED');
+    await expect(dependent.getByRole('button', { name: 'Start work', exact: true })).toBeDisabled();
+    await expect(
+      dependent
+        .getByTestId('task-sequence')
+        .getByText('Awaiting independent verification', { exact: true }),
+    ).toHaveCount(1);
+    await perform(second, ['Accept task', 'Start work', 'Claim completion']);
+    await expect(dependent.getByRole('button', { name: 'Start work', exact: true })).toBeDisabled();
+    await inspect(second, 'VERIFIED');
+    await expect(dependent.getByRole('button', { name: 'Start work', exact: true })).toBeEnabled();
+    await perform(third, ['Start work']);
+    detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    const finalTask = detail.obligations.find((o) => o.id === third);
+    expect(finalTask?.prerequisiteTaskIds.slice().sort()).toEqual([first, second].sort());
+    expect(finalTask?.blockedByTaskIds).toEqual([]);
+    expect(finalTask?.state).toBe('IN_PROGRESS');
+    expect(detail.state).toBe('ACTIVE');
+    expect(detail.firstReportedAt).toBe(report.receivedAt);
+  } finally {
+    await coordinator.context.close();
+    await officer.context.close();
+    await verifier.context.close();
   }
 });

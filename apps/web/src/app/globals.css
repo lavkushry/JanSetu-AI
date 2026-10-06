@@ -1912,6 +1912,49 @@ textarea {
   padding: 0;
   min-width: 0;
 }
+.task-proposal .task-prerequisites {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 12px 0;
+}
+.task-prerequisites legend {
+  font-weight: 650;
+}
+.task-prerequisites label {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.task-prerequisites input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  margin: 3px 0 0;
+}
+.task-prerequisites span,
+.task-sequence li {
+  overflow-wrap: anywhere;
+}
+.task-prerequisites small,
+.task-sequence small {
+  display: block;
+}
+.task-sequence {
+  padding: 12px;
+  border-left: 3px solid var(--blue);
+  margin: 12px 0;
+}
+.task-sequence p {
+  font-weight: 600;
+}
+.task-sequence ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+.task-sequence li + li {
+  margin-top: 8px;
+}
 .obligation > strong {
   font-size: 12px;
   display: block;

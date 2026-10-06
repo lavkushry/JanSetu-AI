@@ -19,10 +19,11 @@ type restorationDetail struct {
 	Version                int64
 	CanProposeTask         bool
 	Obligations            []struct {
-		ID, AgencyID                      uuid.UUID
-		State, Scope                      string
-		Version                           int64
-		RequiredForRestoration, CanVerify bool
+		ID, AgencyID                          uuid.UUID
+		State, Scope                          string
+		Version                               int64
+		RequiredForRestoration, CanVerify     bool
+		PrerequisiteTaskIDs, BlockedByTaskIDs []uuid.UUID
 	}
 }
 type proposalResult struct {

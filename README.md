@@ -34,6 +34,7 @@ The first pilot is a city/district. The full product ships in phases. Indian-lan
 - [Earlier consolidated blueprint](JanSetu_AI_Detailed_Blueprint.md): preserved design snapshot, superseded by the specification suite.
 - [Earlier experience plan](docs/PRODUCT_EXPERIENCE_PLAN.md): preserved input, superseded by the UI and traceability documents.
 - [Multiple restoration tasks](docs/MULTI_AGENCY_RESTORATION.md): distinct agency work, retry-safe proposals and verification of every required task.
+- [Task prerequisites](docs/TASK_PREREQUISITES.md): sequenced agency work with independent verification gates and private readiness indicators.
 - [Private road reporting](docs/POTHOLE_REPORTING.md): resident pothole observations, camera/video frames, source-backed contact guidance and private complaint drafts.
 - [Private pothole recognition](docs/PRIVATE_POTHOLE_RECOGNITION.md): optional CPU-local CNN candidates, artifact provenance and reproducible smoke observations.
 - [Pothole reference research](docs/POTHOLE_REFERENCE_RESEARCH.md): detection, routing, data integrity and reuse findings.

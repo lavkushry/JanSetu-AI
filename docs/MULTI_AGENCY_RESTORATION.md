@@ -111,8 +111,11 @@ stale proposals, mixed agency permissions and 320px light/dark layout.
 This is a local slice of FR-20 and required-work portions of AC-53/54, not completion
 of those canonical contracts. The local fixture has a City Works agent/verifier;
 backend tests provision temporary Water Services grants in isolated databases.
-Controlled staff provisioning remains pending. Dependencies, partial acceptance,
+The [prerequisite milestone](TASK_PREREQUISITES.md) now enforces immutable task
+sequencing at proposal time. Controlled staff provisioning, dependency changes,
+partial acceptance,
 splitting, reassignment, disputes, adjudication, signed SLA clocks, escalation,
 reopening verified closure and real agency delivery remain pending. Scopes do not
-enforce sequencing. Inspection records fictional decisions without physical
+infer sequencing; explicit prerequisites enforce it. Inspection records fictional
+decisions without physical
 verification evidence; evidence-backed field verification remains a production gate.

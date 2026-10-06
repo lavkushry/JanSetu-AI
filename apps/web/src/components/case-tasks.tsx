@@ -14,16 +14,18 @@ export function TaskProposal({ caseDetail: c }: { caseDetail: Schema['CaseDetail
   });
   const [agency, setAgency] = useState('');
   const [scope, setScope] = useState('');
+  const [prerequisiteTaskIds, setPrerequisiteTaskIds] = useState<string[]>([]);
   const [clientTaskId, setClientTaskId] = useState(() => crypto.randomUUID());
   const action = useMutation({
     mutationFn: () =>
       api<Schema['TaskProposalResult']>(`authority/cases/${c.id}/obligations`, {
         method: 'POST',
         version: c.version,
-        body: { clientTaskId, agencyId: agency, scope },
+        body: { clientTaskId, agencyId: agency, scope, prerequisiteTaskIds },
       }),
     onSuccess: () => {
       setScope('');
+      setPrerequisiteTaskIds([]);
       setClientTaskId(crypto.randomUUID());
       qc.invalidateQueries();
       notify('Required task proposed. Agency acceptance is still pending.');
@@ -68,6 +70,41 @@ export function TaskProposal({ caseDetail: c }: { caseDetail: Schema['CaseDetail
               placeholder="Describe this task’s distinct restoration work"
             />
           </label>
+          <fieldset className="task-prerequisites">
+            <legend>Verify before starting this work</legend>
+            <p>
+              Choose any prerequisite tasks. Leave all unchecked for work that can proceed
+              independently.
+            </p>
+            {c.obligations.map((task, index) =>
+              task.requiredForRestoration && task.state !== 'CANCELLED' ? (
+                <label key={task.id}>
+                  <input
+                    type="checkbox"
+                    checked={prerequisiteTaskIds.includes(task.id)}
+                    onChange={(e) =>
+                      setPrerequisiteTaskIds((ids) =>
+                        e.target.checked ? [...ids, task.id] : ids.filter((id) => id !== task.id),
+                      )
+                    }
+                  />
+                  <span>
+                    Task {index + 1} · {task.agency} ·{' '}
+                    {task.scope || 'Restoration task assessed at intake'}
+                    <small>
+                      {task.state === 'VERIFIED'
+                        ? 'Independently verified'
+                        : 'Verification pending'}
+                    </small>
+                  </span>
+                </label>
+              ) : null,
+            )}
+            <small>
+              Prerequisites are fixed with this proposal. Acceptance is allowed while verification
+              is pending.
+            </small>
+          </fieldset>
           <small>
             This proposal stays within the staff workspace. It preserves the original report time;
             public progress needs a separate publication review. Deadline policy is unavailable.
@@ -119,6 +156,7 @@ export function ObligationCard({
     (a) => a.agency_id === o.agencyId && ['AGENCY_AGENT', 'AGENCY_LEAD'].includes(a.role),
   );
   const open = c.state !== 'RESOLVED' && c.state !== 'WITHDRAWN';
+  const workBlocked = o.blockedByTaskIds.length > 0;
   return (
     <div className="obligation" data-testid={`obligation-${o.id}`}>
       <strong>{o.agency}</strong>
@@ -129,6 +167,35 @@ export function ObligationCard({
         {o.dueAt ? `Due ${dateLabel(o.dueAt)}` : 'Deadline unavailable'}
       </small>
       <p>{o.workSummary || 'The proposed task has not yet been accepted.'}</p>
+      {o.prerequisiteTaskIds.length > 0 && (
+        <div className="task-sequence" data-testid="task-sequence">
+          <p>
+            {workBlocked
+              ? 'Work blocked: prerequisite verification pending.'
+              : 'Prerequisites independently verified. Work can proceed.'}
+          </p>
+          <ul>
+            {c.obligations.map((task, index) =>
+              o.prerequisiteTaskIds.includes(task.id) ? (
+                <li key={task.id}>
+                  Task {index + 1} · {task.agency} ·{' '}
+                  {task.scope || 'Restoration task assessed at intake'}
+                  <small>
+                    {o.blockedByTaskIds.includes(task.id)
+                      ? 'Awaiting independent verification'
+                      : 'Independently verified'}
+                  </small>
+                </li>
+              ) : null,
+            )}
+          </ul>
+          {workBlocked && (
+            <small>
+              Agency acceptance is available. Start work after every prerequisite is verified.
+            </small>
+          )}
+        </div>
+      )}
       {open && isAgent && ['PROPOSED', 'ACCEPTED', 'IN_PROGRESS'].includes(o.state) && (
         <form
           onSubmit={(e) => {
@@ -159,7 +226,10 @@ export function ObligationCard({
             />
           </label>
           <div className="form-actions">
-            <button className="primary" disabled={action.isPending}>
+            <button
+              className="primary"
+              disabled={action.isPending || (o.state !== 'PROPOSED' && workBlocked)}
+            >
               {o.state === 'PROPOSED'
                 ? 'Accept task'
                 : o.state === 'ACCEPTED'
