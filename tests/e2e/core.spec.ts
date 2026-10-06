@@ -4075,7 +4075,26 @@ test('recorded road footage stays local until an explicitly reviewed frame is at
   await dialog.getByRole('button', { name: 'Attach reviewed frame' }).scrollIntoViewIfNeeded();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/road-frame-mobile-dark.png' });
-  await dialog.getByRole('button', { name: 'Attach reviewed frame' }).click();
+  // A committed allocation may arrive late. Advancing before its response can
+  // submit an empty attachment list or leave review waiting on an unmounted card.
+  let releaseAllocation = () => {};
+  const allocationGate = new Promise<void>((resolve) => {
+    releaseAllocation = resolve;
+  });
+  let allocationCommitted = false;
+  await page.route('**/api/media/uploads', async (route) => {
+    const response = await route.fetch();
+    allocationCommitted = true;
+    await allocationGate;
+    await route.fulfill({ response });
+  });
+  try {
+    await dialog.getByRole('button', { name: 'Attach reviewed frame' }).click();
+    await expect.poll(() => allocationCommitted).toBe(true);
+    await expect(dialog.getByRole('button', { name: 'Review report', exact: true })).toBeDisabled();
+  } finally {
+    releaseAllocation();
+  }
   await expect(video).toHaveCount(0);
   await expect(
     dialog.getByRole('img', { name: 'Private report photo 1', exact: true }),
@@ -4122,13 +4141,11 @@ test('road drafts recover observations and manual reporting survives unavailable
   await dialog.getByLabel('Location or landmark').fill('Fictional restored road crossing');
   const marker = `Fictional manual road fallback ${Date.now()}`;
   await dialog.getByLabel('Describe the issue').fill(marker);
-  await dialog
-    .getByLabel('Choose recorded road video')
-    .setInputFiles({
-      name: 'invalid-road.webm',
-      mimeType: 'video/webm',
-      buffer: Buffer.from('not a video'),
-    });
+  await dialog.getByLabel('Choose recorded road video').setInputFiles({
+    name: 'invalid-road.webm',
+    mimeType: 'video/webm',
+    buffer: Buffer.from('not a video'),
+  });
   await expect(dialog).toContainText('This video format could not be read');
   await expect(dialog.getByRole('button', { name: 'Review report', exact: true })).toBeEnabled();
   await dialog.getByLabel('Save this private draft on this device').check();

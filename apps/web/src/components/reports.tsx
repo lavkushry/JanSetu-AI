@@ -17,6 +17,7 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
   const [mediaIds, setMediaIds] = useState<string[]>([]);
   const [analysisIds, setAnalysisIds] = useState<Record<string, string>>({});
   const [photoStates, setPhotoStates] = useState<Record<string, string>>({});
+  const [photosBusy, setPhotosBusy] = useState(false);
   const [photoCorrections, setPhotoCorrections] = useState<
     Record<string, Schema['OCRCorrection'][]>
   >({});
@@ -25,7 +26,7 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
       setPhotoStates((v) => (v[id] === state ? v : { ...v, [id]: state })),
     [],
   );
-  const photosReady = mediaIds.every((id) => photoStates[id] === 'APPROVED');
+  const photosReady = !photosBusy && mediaIds.every((id) => photoStates[id] === 'APPROVED');
   const ocrCorrections = mediaIds.flatMap((id) => photoCorrections[id] || []);
   const [statement, setStatement] = useState('');
   const [category, setCategory] = useState<Schema['ReportInput']['category']>('FOOTPATH');
@@ -214,6 +215,7 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
               />
             </label>
             <ReportPhotos
+              onBusy={setPhotosBusy}
               roadMode={category === 'ROAD'}
               ids={mediaIds}
               setIds={setMediaIds}

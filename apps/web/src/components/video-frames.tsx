@@ -165,8 +165,11 @@ export function VideoFrames({
                 );
                 return;
               }
-              setReady(true);
+              setReady(v.readyState >= 2);
             }}
+            onLoadedData={() => setReady(true)}
+            onSeeking={() => setReady(false)}
+            onSeeked={(e) => setReady(e.currentTarget.readyState >= 2)}
           />
           <div className="photo-capture-actions">
             <button

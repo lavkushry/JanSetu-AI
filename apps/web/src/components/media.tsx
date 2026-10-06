@@ -38,7 +38,9 @@ export function ReportPhotos({
   analysisIds,
   onAnalysisId,
   roadMode = false,
+  onBusy,
 }: {
+  onBusy: (busy: boolean) => void;
   roadMode?: boolean;
   analysisIds: Record<string, string>;
   onAnalysisId: (id: string, job: string) => void;
@@ -52,7 +54,11 @@ export function ReportPhotos({
   const input = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
   const files = useRef(new Map<string, File>());
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusyLocal] = useState(false);
+  function setBusy(value: boolean) {
+    setBusyLocal(value);
+    onBusy(value);
+  }
   const [error, setError] = useState<Error | null>(null);
   const [failures, setFailures] = useState<Record<string, Error>>({});
   const [pending, setPending] = useState<PendingPhoto[]>([]);
