@@ -4048,7 +4048,7 @@ test('private pothole opt-in finds actual candidates and empty scenes without ch
 }) => {
   test.setTimeout(150_000);
   await page.goto('/');
-  await signIn(page, 'Ananya Rao');
+  await signIn(page, 'Rohan Mehta');
   await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
   const dialog = page.getByRole('dialog', { name: 'Report a service issue' });
   const statement = `Fictional manually reviewed road ${Date.now()}`;
@@ -4126,7 +4126,7 @@ test('private pothole opt-in finds actual candidates and empty scenes without ch
   try {
     const foreign = await other.newPage();
     await foreign.goto('/');
-    await signIn(foreign, 'Rohan Mehta');
+    await signIn(foreign, 'Ananya Rao');
     expect((await foreign.request.get(`/api/analyses/${analysis.id}`)).status()).toBe(404);
     expect((await foreign.request.get(`/api/media/${analysis.mediaId}`)).status()).toBe(404);
   } finally {
@@ -4165,7 +4165,7 @@ test('pothole capability outage and category changes preserve opt-out and manual
     await route.fulfill({ response, json: body });
   });
   await page.goto('/');
-  await signIn(page, 'Ananya Rao');
+  await signIn(page, 'Rohan Mehta');
   await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
   const dialog = page.getByRole('dialog', { name: 'Report a service issue' });
   await dialog.getByLabel('Service category').selectOption('ROAD');
@@ -4199,7 +4199,7 @@ test('pothole failure review retries only the selected task and preserves comple
 }) => {
   test.setTimeout(100_000);
   await page.goto('/');
-  await signIn(page, 'Ananya Rao');
+  await signIn(page, 'Rohan Mehta');
   await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
   const dialog = page.getByRole('dialog', { name: 'Report a service issue' });
   const marker = 'Fictional unchanged observations while recognition fails';
