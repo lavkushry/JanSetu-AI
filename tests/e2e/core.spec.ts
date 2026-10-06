@@ -1832,11 +1832,15 @@ test('person and community mutes preserve explicit access and can be managed fro
     ).status(),
   ).toBe(200);
   await page.goto(`/posts/${post.id}`);
+  // Full navigations reload the session independently of public content.
+  await expect(page.locator('.account-control strong')).not.toHaveText('Explore JanSetu');
   await page.getByRole('button', { name: 'Bookmark post' }).click();
   await page.goto(`/profiles/${writer.profile.id}`);
   await expect(
     page.getByRole('heading', { name: writer.profile.displayName, exact: true }),
   ).toBeVisible();
+  await expect(page.locator('.account-control strong')).not.toHaveText('Explore JanSetu');
+  await expect(page.getByRole('button', { name: /^(Unfollow|Follow) person$/ })).toBeVisible();
   const follow = page.getByRole('button', { name: 'Follow person', exact: true });
   if (await follow.isVisible()) await follow.click();
   await expect(page.getByRole('button', { name: 'Unfollow person', exact: true })).toBeVisible();
