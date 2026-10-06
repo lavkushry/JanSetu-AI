@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -15,9 +16,10 @@ const maxRestorationTasks = 8
 // ClientTaskID identifies an immutable proposal for the lifetime of its case.
 // A retry may carry the original case version, even after other work advances.
 type taskProposal struct {
-	ClientTaskID uuid.UUID `json:"clientTaskId"`
-	AgencyID     uuid.UUID `json:"agencyId"`
-	Scope        string    `json:"scope"`
+	ClientTaskID        uuid.UUID   `json:"clientTaskId"`
+	AgencyID            uuid.UUID   `json:"agencyId"`
+	Scope               string      `json:"scope"`
+	PrerequisiteTaskIDs []uuid.UUID `json:"prerequisiteTaskIds,omitempty"`
 }
 
 func (a *App) proposeObligation(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
@@ -37,6 +39,15 @@ func (a *App) proposeObligation(w http.ResponseWriter, r *http.Request, actor *A
 	if b.ClientTaskID == uuid.Nil || b.AgencyID == uuid.Nil || !textValid(b.Scope, 10, 1000) {
 		return nil, 0, invalid("Choose an agency and describe the distinct work required")
 	}
+	if len(b.PrerequisiteTaskIDs) >= maxRestorationTasks {
+		return nil, 0, invalid("Choose up to seven distinct prerequisite tasks")
+	}
+	slices.SortFunc(b.PrerequisiteTaskIDs, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
+	for i, pid := range b.PrerequisiteTaskIDs {
+		if pid == uuid.Nil || i > 0 && pid == b.PrerequisiteTaskIDs[i-1] {
+			return nil, 0, invalid("Choose distinct existing prerequisite tasks")
+		}
+	}
 	var result any
 	err = a.transaction(r.Context(), actor, func(q *dbgen.Queries) error {
 		if !actor.Has("COORDINATOR") {
@@ -46,9 +57,13 @@ func (a *App) proposeObligation(w http.ResponseWriter, r *http.Request, actor *A
 		if err != nil {
 			return err
 		}
+		prerequisites, err := q.CaseTaskPrerequisites(r.Context(), cid)
+		if err != nil {
+			return err
+		}
 		existing, err := q.ObligationByClientID(r.Context(), dbgen.ObligationByClientIDParams{CaseID: cid, ClientTaskID: &b.ClientTaskID})
 		if err == nil {
-			if existing.AgencyID == nil || *existing.AgencyID != b.AgencyID || existing.ScopeText != b.Scope {
+			if existing.AgencyID == nil || *existing.AgencyID != b.AgencyID || existing.ScopeText != b.Scope || !slices.Equal(prerequisitesFor(prerequisites, existing.ID).IDs, b.PrerequisiteTaskIDs) {
 				return failure(409, "TASK_PROPOSAL_CONFLICT", "This task proposal was already saved with different content. Refresh the case")
 			}
 			result = taskResult(existing.ID, existing.State, existing.Version, c.Version)
@@ -86,15 +101,31 @@ func (a *App) proposeObligation(w http.ResponseWriter, r *http.Request, actor *A
 				return failure(409, "TASK_SCOPE_EXISTS", "This agency already has a task with that work scope. Review the existing task")
 			}
 		}
+		for _, pid := range b.PrerequisiteTaskIDs {
+			eligible := false
+			for _, task := range tasks {
+				if task.ID == pid && task.RequiredForRestoration && task.ObligationType == "RESTORATION" && task.State != "CANCELLED" {
+					eligible = true
+				}
+			}
+			if !eligible {
+				return invalid("Choose existing required restoration tasks in this case as prerequisites")
+			}
+		}
 		oid := uuid.New()
 		if err = q.InsertScopedObligation(r.Context(), dbgen.InsertScopedObligationParams{ID: oid, CaseID: cid, AgencyID: &b.AgencyID, ScopeText: b.Scope, ClientTaskID: &b.ClientTaskID}); err != nil {
 			return err
+		}
+		for _, pid := range b.PrerequisiteTaskIDs {
+			if err = q.InsertTaskPrerequisite(r.Context(), dbgen.InsertTaskPrerequisiteParams{CaseID: cid, TaskID: oid, PrerequisiteTaskID: pid}); err != nil {
+				return err
+			}
 		}
 		// An additional proposal must not hide an outstanding completion claim.
 		if err = q.ChangeCase(r.Context(), dbgen.ChangeCaseParams{ID: cid, State: c.State}); err != nil {
 			return err
 		}
-		if err = caseEvent(r, q, actor, cid, "TASK_PROPOSED", "COORDINATOR", map[string]any{"obligationId": oid, "agencyId": b.AgencyID, "summary": b.Scope}); err != nil {
+		if err = caseEvent(r, q, actor, cid, "TASK_PROPOSED", "COORDINATOR", map[string]any{"obligationId": oid, "agencyId": b.AgencyID, "summary": b.Scope, "prerequisiteTaskIds": b.PrerequisiteTaskIDs}); err != nil {
 			return err
 		}
 		result = taskResult(oid, "PROPOSED", 1, c.Version+1)
@@ -102,6 +133,35 @@ func (a *App) proposeObligation(w http.ResponseWriter, r *http.Request, actor *A
 		return addEvent(r.Context(), q, "CASE", cid, c.Version+1, "ObligationChanged", map[string]any{})
 	})
 	return result, 201, err
+}
+
+type taskPrerequisiteStatus struct {
+	IDs, BlockedIDs []uuid.UUID
+}
+
+// Readiness follows live independent verification, not acceptance or a claim.
+func prerequisitesFor(rows []dbgen.CaseTaskPrerequisitesRow, oid uuid.UUID) taskPrerequisiteStatus {
+	status := taskPrerequisiteStatus{IDs: []uuid.UUID{}, BlockedIDs: []uuid.UUID{}}
+	for _, row := range rows {
+		if row.TaskID == oid {
+			status.IDs = append(status.IDs, row.PrerequisiteTaskID)
+			if row.State != "VERIFIED" {
+				status.BlockedIDs = append(status.BlockedIDs, row.PrerequisiteTaskID)
+			}
+		}
+	}
+	return status
+}
+
+func requirePrerequisiteVerification(r *http.Request, q *dbgen.Queries, cid, oid uuid.UUID) error {
+	rows, err := q.CaseTaskPrerequisites(r.Context(), cid)
+	if err != nil {
+		return err
+	}
+	if len(prerequisitesFor(rows, oid).BlockedIDs) > 0 {
+		return failure(409, "TASK_PREREQUISITES_PENDING", "Every prerequisite needs independent verification before this work can proceed. Refresh the case")
+	}
+	return nil
 }
 
 func taskResult(oid uuid.UUID, state string, version, caseVersion int64) any {

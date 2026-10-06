@@ -328,6 +328,12 @@ INSERT INTO ops.obligation(id,case_id,agency_id,obligation_type,state,authority_
 VALUES ($1,$2,$3,'RESTORATION','PROPOSED','synthetic-local-mandate-v1',$4,$5);
 -- name: ObligationByClientID :one
 SELECT * FROM ops.obligation WHERE case_id=$1 AND client_task_id=$2;
+-- name: InsertTaskPrerequisite :exec
+INSERT INTO ops.task_prerequisite(case_id,task_id,prerequisite_task_id) VALUES($1,$2,$3);
+-- name: CaseTaskPrerequisites :many
+SELECT p.task_id,p.prerequisite_task_id,o.state FROM ops.task_prerequisite p
+JOIN ops.obligation o ON o.case_id=p.case_id AND o.id=p.prerequisite_task_id
+WHERE p.case_id=$1 ORDER BY p.task_id,p.prerequisite_task_id;
 -- name: AssignCoordinator :exec
 INSERT INTO ops.coordinator_assignment(case_id,principal_id,roster_version,assigned_at) VALUES ($1,$2,'local-roster-v1',now());
 -- name: Cases :many

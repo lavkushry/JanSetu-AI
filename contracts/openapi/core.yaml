@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.22.0
+  version: 0.23.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -1790,7 +1790,7 @@ paths:
       - $ref: '#/components/parameters/ID'
     post:
       summary: Propose distinct required restoration work within an open case
-      description: Coordinator only. A clientTaskId identifies an immutable proposal for the lifetime of this case. Matching retries return the task's current state and versions without another write, even with the original If-Match. Changed agency or normalized scope for the same ID returns 409. New proposals check current case version, active agency, open case and an eight-task cap. Public progress still requires publication review.
+      description: Coordinator only. A clientTaskId identifies an immutable proposal for the lifetime of this case. Matching retries return the task's current state and versions without another write, even with the original If-Match. Changed agency, normalized scope or prerequisite set for the same ID returns 409. Optional prerequisites must be distinct existing required restoration tasks in the same case; cancelled work is ineligible. The new task can be accepted immediately but starting work, claiming completion and verification require all prerequisites independently VERIFIED. Prerequisites cannot be edited. New proposals check current case version, active agency, open case and an eight-task cap. Public progress still requires publication review.
       operationId: post_authority_cases_by_id_obligations
       parameters:
         - $ref: '#/components/parameters/Version'
@@ -1863,9 +1863,12 @@ paths:
     parameters:
       - $ref: '#/components/parameters/ID'
     post:
+      description: Agency work can start only after every immutable prerequisite is independently VERIFIED. Pending prerequisites return 409 TASK_PREREQUISITES_PENDING; failed attempts change no state or history.
       responses:
         '200':
           $ref: '#/components/responses/Command'
+        '409':
+          $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
         '422':
@@ -1893,9 +1896,12 @@ paths:
     parameters:
       - $ref: '#/components/parameters/ID'
     post:
+      description: Completion remains a claim. All prerequisites must still be independently VERIFIED; pending prerequisites return 409 TASK_PREREQUISITES_PENDING.
       responses:
         '200':
           $ref: '#/components/responses/Command'
+        '409':
+          $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
         '422':
@@ -1923,9 +1929,12 @@ paths:
     parameters:
       - $ref: '#/components/parameters/ID'
     post:
+      description: Requires an independent verifier and current case version. All task prerequisites must be VERIFIED; pending prerequisites return 409 TASK_PREREQUISITES_PENDING. The case resolves only after all required work is independently verified.
       responses:
         '200':
           $ref: '#/components/responses/Command'
+        '409':
+          $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
         '422':
@@ -4264,6 +4273,14 @@ components:
           minLength: 10
           maxLength: 1000
           description: Distinct required work, trimmed by the API; private to authorized staff. Does not infer jurisdiction.
+        prerequisiteTaskIds:
+          type: array
+          maxItems: 7
+          uniqueItems: true
+          description: Immutable unordered set of existing required restoration tasks in this case. All must be independently verified before work starts. Omission means no prerequisites. IDs stay private to authorized staff.
+          items:
+            type: string
+            format: uuid
     TaskProposalResult:
       type: object
       required: [id, state, version, caseVersion]
@@ -4292,6 +4309,8 @@ components:
         - acceptedAt
         - completedAt
         - canVerify
+        - prerequisiteTaskIds
+        - blockedByTaskIds
       properties:
         id:
           type: string
@@ -4326,6 +4345,18 @@ components:
             - 'null'
         canVerify:
           type: boolean
+        prerequisiteTaskIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Private immutable prerequisite IDs in deterministic order; empty on legacy tasks.
+        blockedByTaskIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Prerequisite IDs whose current state is not VERIFIED. Agency acceptance remains available; start, completion and verification are gated server-side.
     CaseDetail:
       type: object
       required:

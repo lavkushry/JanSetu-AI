@@ -1131,7 +1131,7 @@ export interface paths {
         put?: never;
         /**
          * Propose distinct required restoration work within an open case
-         * @description Coordinator only. A clientTaskId identifies an immutable proposal for the lifetime of this case. Matching retries return the task's current state and versions without another write, even with the original If-Match. Changed agency or normalized scope for the same ID returns 409. New proposals check current case version, active agency, open case and an eight-task cap. Public progress still requires publication review.
+         * @description Coordinator only. A clientTaskId identifies an immutable proposal for the lifetime of this case. Matching retries return the task's current state and versions without another write, even with the original If-Match. Changed agency, normalized scope or prerequisite set for the same ID returns 409. Optional prerequisites must be distinct existing required restoration tasks in the same case; cancelled work is ineligible. The new task can be accepted immediately but starting work, claiming completion and verification require all prerequisites independently VERIFIED. Prerequisites cannot be edited. New proposals check current case version, active agency, open case and an eight-task cap. Public progress still requires publication review.
          */
         post: operations["post_authority_cases_by_id_obligations"];
         delete?: never;
@@ -1169,6 +1169,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Agency work can start only after every immutable prerequisite is independently VERIFIED. Pending prerequisites return 409 TASK_PREREQUISITES_PENDING; failed attempts change no state or history. */
         post: operations["post_authority_obligations_by_id_start"];
         delete?: never;
         options?: never;
@@ -1187,6 +1188,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Completion remains a claim. All prerequisites must still be independently VERIFIED; pending prerequisites return 409 TASK_PREREQUISITES_PENDING. */
         post: operations["post_authority_obligations_by_id_completion_claims"];
         delete?: never;
         options?: never;
@@ -1205,6 +1207,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Requires an independent verifier and current case version. All task prerequisites must be VERIFIED; pending prerequisites return 409 TASK_PREREQUISITES_PENDING. The case resolves only after all required work is independently verified. */
         post: operations["post_authority_cases_by_id_verification_decisions"];
         delete?: never;
         options?: never;
@@ -2159,6 +2162,8 @@ export interface components {
             agencyId: string;
             /** @description Distinct required work, trimmed by the API; private to authorized staff. Does not infer jurisdiction. */
             scope: string;
+            /** @description Immutable unordered set of existing required restoration tasks in this case. All must be independently verified before work starts. Omission means no prerequisites. IDs stay private to authorized staff. */
+            prerequisiteTaskIds?: string[];
         };
         TaskProposalResult: {
             /** Format: uuid */
@@ -2181,6 +2186,10 @@ export interface components {
             acceptedAt: string | null;
             completedAt: string | null;
             canVerify: boolean;
+            /** @description Private immutable prerequisite IDs in deterministic order; empty on legacy tasks. */
+            prerequisiteTaskIds: string[];
+            /** @description Prerequisite IDs whose current state is not VERIFIED. Agency acceptance remains available; start, completion and verification are gated server-side. */
+            blockedByTaskIds: string[];
         };
         CaseDetail: {
             /** @description Live publisher-only sharing eligibility flag; false for other staff. Pending or approved owner withdrawal requests prevent new publication. Withdrawal remains available. */
@@ -4570,6 +4579,7 @@ export interface operations {
         responses: {
             200: components["responses"]["Command"];
             403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
             412: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
@@ -4595,6 +4605,7 @@ export interface operations {
         responses: {
             200: components["responses"]["Command"];
             403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
             412: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
@@ -4620,6 +4631,7 @@ export interface operations {
         responses: {
             200: components["responses"]["Command"];
             403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
             412: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
