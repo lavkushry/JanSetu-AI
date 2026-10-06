@@ -1493,6 +1493,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/my-reports/{id}/publication-withdrawal-requests/{requestId}/sharing-renewals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Verified owner only. If-Match binds the approved withdrawal request version; publicationVersion binds the current withdrawn receipt. Explicitly allows future sanitized publisher review without changing the original report or immediately publishing anything. Only the latest approved withdrawal for that report can gain a new permission. Stable clientRequestId and command key preserve retries; the response hydrates the current owner record. A later approved withdrawal requires fresh permission. A different client ID conflicts while permission is active. Original PRIVATE preferences and other source vetoes remain effective. */
+        post: operations["renew_owned_public_sharing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/my-reports/{id}/publication-withdrawal-requests/{requestId}/sharing-renewals/{renewalId}/cancellations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+                requestId: string;
+                renewalId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Verified owner only. If-Match binds the renewal version; publicationVersion binds current withdrawn progress. Cancels only an active permission for the latest approved withdrawal while the receipt stays withdrawn; republication requires a new withdrawal request. Advances only renewal version and retains provenance. A retry at the current cancelled version is a no-op and cannot cancel a newer renewal. Returns the current owner record. */
+        post: operations["cancel_owned_sharing_renewal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2404,6 +2445,7 @@ export interface components {
                 /** Format: date-time */
                 decidedAt: string;
             } | null;
+            sharingReview: components["schemas"]["PublicationSharingReview"] | null;
         };
         OwnerPublicSharing: {
             publication: {
@@ -2416,6 +2458,7 @@ export interface components {
             } | null;
             blocked: boolean;
             requests: components["schemas"]["PublicationWithdrawalRequest"][];
+            permissionRequest: components["schemas"]["PublicationWithdrawalRequest"] | null;
         };
         PublicationWithdrawalRequestInput: {
             /** Format: uuid */
@@ -2470,6 +2513,35 @@ export interface components {
             residentReason: string;
             /** @constant */
             reviewed: true;
+        };
+        PublicationSharingRenewal: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            state: "ACTIVE" | "CANCELLED";
+            version: number;
+            publicationVersion: number;
+            /** Format: date-time */
+            createdAt: string;
+            cancelledAt: string | null;
+        };
+        PublicationSharingReview: {
+            publicationVersion: number;
+            canRenew: boolean;
+            canUndo: boolean;
+            renewal: components["schemas"]["PublicationSharingRenewal"] | null;
+        };
+        PublicationSharingRenewalInput: {
+            /** Format: uuid */
+            clientRequestId: string;
+            publicationVersion: number;
+            /** @constant */
+            confirmed: true;
+        };
+        PublicationSharingRenewalCancellation: {
+            publicationVersion: number;
+            /** @constant */
+            confirmed: true;
         };
     };
     responses: {
@@ -5010,6 +5082,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PublicationWithdrawalReview"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    renew_owned_public_sharing: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-JanSetu-CSRF": components["parameters"]["CSRF"];
+                "If-Match": components["parameters"]["Version"];
+                "Idempotency-Key": components["parameters"]["Idempotency"];
+            };
+            path: {
+                id: components["parameters"]["ID"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationSharingRenewalInput"];
+            };
+        };
+        responses: {
+            /** @description Current private owner withdrawal record and sharing permission */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationWithdrawalRequest"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    cancel_owned_sharing_renewal: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-JanSetu-CSRF": components["parameters"]["CSRF"];
+                "If-Match": components["parameters"]["Version"];
+            };
+            path: {
+                id: components["parameters"]["ID"];
+                requestId: string;
+                renewalId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationSharingRenewalCancellation"];
+            };
+        };
+        responses: {
+            /** @description Current private owner withdrawal record and sharing permission */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationWithdrawalRequest"];
                 };
             };
             400: components["responses"]["Problem"];

@@ -2858,8 +2858,13 @@ test('reply authors receive private approvals separately from conversation alert
     await page.goto(`/posts/${post.id}`);
     const body = `Private reply approval candidate ${Date.now()}`;
     await page.getByLabel('Add to the conversation').fill(body);
+    const submitted = page.waitForResponse(
+      (r) => r.url().endsWith(`/posts/${post.id}/comments`) && r.request().method() === 'POST',
+    );
     await page.getByRole('button', { name: 'Submit comment', exact: true }).click();
-    await expect(page.getByText(body, { exact: true })).toBeVisible();
+    expect((await submitted).status()).toBe(201);
+    await expect(page.getByLabel('Add to the conversation')).toHaveValue('');
+    await expect(page.locator('.comment').getByText(body, { exact: true })).toBeVisible();
     const comments = (await (
       await page.request.get(`/api/posts/${post.id}/comments`)
     ).json()) as Schema['CommentPage'];
@@ -3340,6 +3345,308 @@ async function openSharingReview(publisher: Page, requestId: string) {
   await publisher.getByTestId(`withdrawal-review-${requestId}`).click();
   await expect(publisher.getByTestId('publisher-withdrawal-review')).toBeVisible();
 }
+
+async function approvedRenewalFixture(owner: Page, publisher: Page) {
+  const fixture = await publishedSharingFixture(owner, publisher);
+  const response = await owner.request.post(
+    `/api/my-reports/${fixture.report.id}/publication-withdrawal-requests`,
+    {
+      headers: { 'x-jansetu-csrf': '1', 'idempotency-key': crypto.randomUUID() },
+      data: {
+        clientRequestId: crypto.randomUUID(),
+        publicationVersion: 1,
+        reasonCode: 'PRIVACY',
+        confirmed: true,
+      },
+    },
+  );
+  expect(response.status()).toBe(201);
+  const request = (await response.json()) as Schema['PublicationWithdrawalRequest'];
+  const approved = await publisher.request.post(
+    `/api/authority/publication-withdrawal-requests/${request.id}/decisions`,
+    {
+      headers: { 'x-jansetu-csrf': '1', 'if-match': '"1"' },
+      data: {
+        result: 'APPROVED',
+        caseVersion: 1,
+        publicationVersion: 1,
+        internalReason: 'PRIVATE RENEWAL INVESTIGATION',
+        residentReason: 'Public progress withdrawn at your request.',
+        reviewed: true,
+      },
+    },
+  );
+  expect(approved.status()).toBe(200);
+  await owner.goto('/my-reports');
+  await owner
+    .locator('.my-report')
+    .filter({ hasText: fixture.statement })
+    .getByRole('button', { name: 'Manage public sharing', exact: true })
+    .click();
+  await expect(owner.getByTestId('resident-sharing-permission')).toBeVisible();
+  return { ...fixture, request };
+}
+
+test('resident permission renewal stays hidden until fresh review and each withdrawal needs fresh consent', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  try {
+    const { caseId, report, statement, request, publication } = await approvedRenewalFixture(
+      page,
+      staff.page,
+    );
+    const sharing = page.getByTestId('resident-public-sharing');
+    const permission = sharing.getByTestId('resident-sharing-permission');
+    const form = sharing.getByTestId('sharing-permission-confirmation');
+    const allow = 'Allow future publisher review';
+    const confirm = 'Confirm future publisher review';
+    await permission.getByRole('button', { name: allow, exact: true }).click();
+    await expect(form.getByRole('button', { name: confirm })).toBeDisabled();
+    await expect(form).toContainText(
+      'Progress stays hidden until a fresh publisher review succeeds.',
+    );
+    await form.getByRole('button', { name: 'Keep current permission' }).click();
+    await expect(permission.getByRole('button', { name: allow, exact: true })).toBeVisible();
+    await page.setViewportSize({ width: 320, height: 820 });
+    await permission.getByRole('button', { name: allow, exact: true }).click();
+    await form
+      .getByLabel('I allow future sanitized public updates after publisher review.')
+      .check();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({ path: 'test-results/resident-renewal-mobile-light.png' });
+    await form.getByRole('button', { name: 'Keep current permission' }).click();
+    await page.getByRole('button', { name: 'Close dialog' }).click();
+    await page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+    await page
+      .locator('.my-report')
+      .filter({ hasText: statement })
+      .getByRole('button', { name: 'Manage public sharing' })
+      .click();
+    await permission.getByRole('button', { name: allow, exact: true }).click();
+    await expect(
+      form.getByLabel('I allow future sanitized public updates after publisher review.'),
+    ).not.toBeChecked();
+    await form
+      .getByLabel('I allow future sanitized public updates after publisher review.')
+      .check();
+    await page.screenshot({ path: 'test-results/resident-renewal-mobile-dark.png' });
+    await form.getByRole('button', { name: confirm }).click();
+    await expect(permission).toContainText('You have allowed future publisher review.');
+    await expect(sharing.getByTestId('resident-public-preview')).toHaveCount(0);
+    expect((await page.request.get(`/api/case-receipts/${publication.receiptId}`)).status()).toBe(
+      404,
+    );
+    await expect(sharing).not.toContainText('PRIVATE RENEWAL INVESTIGATION');
+    await expect(sharing).not.toContainText(caseId);
+    await permission.getByRole('button', { name: 'Undo sharing permission', exact: true }).click();
+    await expect(form.getByRole('button', { name: 'Confirm undo permission' })).toBeDisabled();
+    await form.getByRole('button', { name: 'Keep current permission' }).click();
+    await permission.getByRole('button', { name: 'Undo sharing permission', exact: true }).click();
+    await form.getByLabel('I want to undo this sharing permission.').check();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({ path: 'test-results/resident-renewal-undo-mobile-dark.png' });
+    await form.getByRole('button', { name: 'Confirm undo permission' }).click();
+    await expect(permission).toContainText('Permission undone');
+    await expect(permission.getByRole('button', { name: allow, exact: true })).toBeVisible();
+    const blocked = await staff.page.request.post(`/api/authority/cases/${caseId}/publications`, {
+      headers: { 'x-jansetu-csrf': '1', 'if-match': '"1"' },
+      data: {
+        title: 'Permission undone',
+        summary: 'Fictional safe summary',
+        area: 'Broad fictional area',
+        reason: 'Private fresh review',
+        publicationVersion: 2,
+        reviewed: true,
+      },
+    });
+    expect(blocked.status()).toBe(403);
+    await permission.getByRole('button', { name: allow, exact: true }).click();
+    await form
+      .getByLabel('I allow future sanitized public updates after publisher review.')
+      .check();
+    await form.getByRole('button', { name: confirm }).click();
+    await expect(permission.getByRole('button', { name: 'Undo sharing permission' })).toBeVisible();
+    await openPublicationReview(staff.page, caseId);
+    const review = staff.page.getByTestId('publication-review');
+    await expect(
+      review.getByLabel('I reviewed this public preview for identifying details.'),
+    ).not.toBeChecked();
+    await review
+      .getByLabel('Public title', { exact: true })
+      .fill('Fresh reviewed progress after resident opt-in');
+    await review
+      .getByRole('textbox', { name: 'Private publication reason', exact: true })
+      .fill('PRIVATE FRESH RESIDENT OPT-IN REVIEW');
+    await review.getByLabel('I reviewed this public preview for identifying details.').check();
+    const fresh = await savePublicProgress(staff.page, 'Republish reviewed progress');
+    expect(fresh.receiptId).toBe(publication.receiptId);
+    expect(fresh.publicationVersion).toBe(3);
+    expect(fresh.version).toBe(1);
+    await sharing.getByRole('button', { name: 'Refresh sharing review' }).click();
+    await expect(sharing.getByTestId('resident-public-preview')).toContainText('REVISION 3');
+    await expect(permission.getByRole('button', { name: 'Undo sharing permission' })).toHaveCount(
+      0,
+    );
+    await sharing.getByRole('button', { name: 'Request withdrawal', exact: true }).click();
+    await sharing
+      .getByLabel('I reviewed this public progress and want to request withdrawal.')
+      .check();
+    const requested = page.waitForResponse(
+      (r) =>
+        r.url().endsWith('/publication-withdrawal-requests') && r.request().method() === 'POST',
+    );
+    await sharing.getByRole('button', { name: 'Submit withdrawal request' }).click();
+    const response = await requested;
+    expect(response.status()).toBe(201);
+    const next = (await response.json()) as Schema['PublicationWithdrawalRequest'];
+    expect(next.id).not.toBe(request.id);
+    const approved = await staff.page.request.post(
+      `/api/authority/publication-withdrawal-requests/${next.id}/decisions`,
+      {
+        headers: { 'x-jansetu-csrf': '1', 'if-match': '"1"' },
+        data: {
+          result: 'APPROVED',
+          caseVersion: 1,
+          publicationVersion: 3,
+          internalReason: 'Private second review',
+          residentReason: 'Second withdrawal approved.',
+          reviewed: true,
+        },
+      },
+    );
+    expect(approved.status()).toBe(200);
+    await sharing.getByRole('button', { name: 'Refresh sharing review' }).click();
+    await expect(permission.getByRole('button', { name: allow, exact: true })).toBeVisible();
+    await expect(permission).not.toContainText('You have allowed future publisher review.');
+    await expect(sharing.getByTestId(`owned-withdrawal-${request.id}`)).toContainText('approved');
+    const current = (await (
+      await page.request.get(`/api/my-reports/${report.id}/public-sharing`)
+    ).json()) as Schema['OwnerPublicSharing'];
+    expect(current.permissionRequest?.id).toBe(next.id);
+    expect(current.permissionRequest?.sharingReview?.renewal).toBeNull();
+    expect(current.publication).toBeNull();
+  } finally {
+    await staff.context.close();
+  }
+});
+
+test('resident permission lost acknowledgements and stale undo recover current controls', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  const staff = await staffPage(browser, 'Kiran Shah');
+  try {
+    const { caseId, report, request, fields, publication } = await approvedRenewalFixture(
+      page,
+      staff.page,
+    );
+    const sharing = page.getByTestId('resident-public-sharing');
+    const permission = sharing.getByTestId('resident-sharing-permission');
+    const form = sharing.getByTestId('sharing-permission-confirmation');
+    const root = `**/api/my-reports/${report.id}/publication-withdrawal-requests/${request.id}/sharing-renewals`;
+    let first: Schema['PublicationWithdrawalRequest'] | undefined;
+    let body: Schema['PublicationSharingRenewalInput'] | undefined;
+    let key: string | undefined;
+    await page.route(root, async (route) => {
+      const input = route.request().postDataJSON() as Schema['PublicationSharingRenewalInput'];
+      const commandKey = route.request().headers()['idempotency-key'];
+      const response = await route.fetch();
+      expect(response.status()).toBe(201);
+      const record = (await response.json()) as Schema['PublicationWithdrawalRequest'];
+      if (!first) {
+        first = record;
+        body = input;
+        key = commandKey;
+        await route.abort('failed');
+      } else {
+        expect(input).toEqual(body);
+        expect(commandKey).toBe(key);
+        expect(record.sharingReview?.renewal?.id).toBe(first.sharingReview?.renewal?.id);
+        await route.fulfill({ response });
+      }
+    });
+    await permission.getByRole('button', { name: 'Allow future publisher review' }).click();
+    await form
+      .getByLabel('I allow future sanitized public updates after publisher review.')
+      .check();
+    await form.getByRole('button', { name: 'Confirm future publisher review' }).click();
+    await expect(form.locator('.form-error')).toContainText(/fetch/i);
+    await form.getByRole('button', { name: 'Confirm future publisher review' }).click();
+    await expect(permission.getByRole('button', { name: 'Undo sharing permission' })).toBeVisible();
+    await page.unroute(root);
+    expect((await page.request.get(`/api/case-receipts/${publication.receiptId}`)).status()).toBe(
+      404,
+    );
+    const renewal = first?.sharingReview?.renewal;
+    expect(renewal).toBeTruthy();
+    const undoRoute = `${root}/${renewal!.id}/cancellations`;
+    await page.route(undoRoute, async (route) => {
+      const response = await route.fetch();
+      expect(response.status()).toBe(200);
+      await route.abort('failed');
+    });
+    await permission.getByRole('button', { name: 'Undo sharing permission' }).click();
+    await form.getByLabel('I want to undo this sharing permission.').check();
+    await form.getByRole('button', { name: 'Confirm undo permission' }).click();
+    await expect(form.locator('.form-error')).toContainText(/fetch/i);
+    await form.getByRole('button', { name: 'Refresh sharing review' }).click();
+    await expect(form).toHaveCount(0);
+    await expect(permission).toContainText('Permission undone');
+    await page.unroute(undoRoute);
+    await permission.getByRole('button', { name: 'Allow future publisher review' }).click();
+    await form
+      .getByLabel('I allow future sanitized public updates after publisher review.')
+      .check();
+    await form.getByRole('button', { name: 'Confirm future publisher review' }).click();
+    await expect(permission.getByRole('button', { name: 'Undo sharing permission' })).toBeVisible();
+    await permission.getByRole('button', { name: 'Undo sharing permission' }).click();
+    await form.getByLabel('I want to undo this sharing permission.').check();
+    const published = await staff.page.request.post(`/api/authority/cases/${caseId}/publications`, {
+      headers: { 'x-jansetu-csrf': '1', 'if-match': '"1"' },
+      data: {
+        ...fields,
+        title: 'Current reviewed publication after opt-in',
+        publicationVersion: 2,
+      },
+    });
+    expect(published.status()).toBe(200);
+    const stale = page.waitForResponse(
+      (r) => r.url().endsWith('/cancellations') && r.request().method() === 'POST',
+    );
+    await form.getByRole('button', { name: 'Confirm undo permission' }).click();
+    expect((await stale).status()).toBe(409);
+    await expect(form).toContainText('Refresh the sharing review and confirm your choice again.');
+    await expect(form.getByRole('button', { name: 'Confirm undo permission' })).toBeDisabled();
+    await form.getByRole('button', { name: 'Refresh sharing review' }).click();
+    await expect(form).toHaveCount(0);
+    await expect(sharing.getByTestId('resident-public-preview')).toContainText('REVISION 3');
+    await expect(
+      sharing.getByRole('button', { name: 'Request withdrawal', exact: true }),
+    ).toBeVisible();
+    await expect(permission.getByRole('button', { name: 'Undo sharing permission' })).toHaveCount(
+      0,
+    );
+    const current = (await (
+      await page.request.get(`/api/my-reports/${report.id}/public-sharing`)
+    ).json()) as Schema['OwnerPublicSharing'];
+    expect(current.permissionRequest?.sharingReview?.renewal?.state).toBe('ACTIVE');
+    expect(current.permissionRequest?.sharingReview?.renewal?.id).not.toBe(renewal!.id);
+  } finally {
+    await staff.context.close();
+  }
+});
 
 test('resident sharing cancellation and reviewed approval preserve agency work', async ({
   page,

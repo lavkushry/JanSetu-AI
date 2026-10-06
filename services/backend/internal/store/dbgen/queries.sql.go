@@ -543,6 +543,15 @@ func (q *Queries) BlockedPeoplePage(ctx context.Context, arg BlockedPeoplePagePa
 	return items, nil
 }
 
+const cancelSharingRenewal = `-- name: CancelSharingRenewal :exec
+UPDATE ops.publication_sharing_renewal SET state='CANCELLED',version=version+1 WHERE id=$1
+`
+
+func (q *Queries) CancelSharingRenewal(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, cancelSharingRenewal, id)
+	return err
+}
+
 const candidateComment = `-- name: CandidateComment :one
 SELECT body FROM social.comment_revision WHERE comment_id=$1 AND version=$2
 `
@@ -2134,6 +2143,29 @@ func (q *Queries) InsertReport(ctx context.Context, arg InsertReportParams) erro
 	return err
 }
 
+const insertSharingRenewal = `-- name: InsertSharingRenewal :exec
+INSERT INTO ops.publication_sharing_renewal(id,request_id,report_id,client_request_id,publication_version) VALUES($1,$2,$3,$4,$5)
+`
+
+type InsertSharingRenewalParams struct {
+	ID                 uuid.UUID `json:"id"`
+	RequestID          uuid.UUID `json:"request_id"`
+	ReportID           uuid.UUID `json:"report_id"`
+	ClientRequestID    uuid.UUID `json:"client_request_id"`
+	PublicationVersion int64     `json:"publication_version"`
+}
+
+func (q *Queries) InsertSharingRenewal(ctx context.Context, arg InsertSharingRenewalParams) error {
+	_, err := q.db.Exec(ctx, insertSharingRenewal,
+		arg.ID,
+		arg.RequestID,
+		arg.ReportID,
+		arg.ClientRequestID,
+		arg.PublicationVersion,
+	)
+	return err
+}
+
 const insertVerification = `-- name: InsertVerification :exec
 INSERT INTO ops.verification_decision(id,case_id,obligation_id,reviewer_ref,result,reason,decided_at) VALUES ($1,$2,$3,$4,$5,$6,now())
 `
@@ -2495,6 +2527,35 @@ func (q *Queries) LockObligation(ctx context.Context, id uuid.UUID) (OpsObligati
 		&i.ParentObligationID,
 		&i.WorkSummary,
 		&i.CompletionActorRef,
+	)
+	return i, err
+}
+
+const lockOwnerSharingRenewal = `-- name: LockOwnerSharingRenewal :one
+SELECT id,request_id,state,version FROM ops.publication_sharing_renewal WHERE id=$1 AND request_id=$2 AND report_id=$3 FOR UPDATE
+`
+
+type LockOwnerSharingRenewalParams struct {
+	ID        uuid.UUID `json:"id"`
+	RequestID uuid.UUID `json:"request_id"`
+	ReportID  uuid.UUID `json:"report_id"`
+}
+
+type LockOwnerSharingRenewalRow struct {
+	ID        uuid.UUID `json:"id"`
+	RequestID uuid.UUID `json:"request_id"`
+	State     string    `json:"state"`
+	Version   int64     `json:"version"`
+}
+
+func (q *Queries) LockOwnerSharingRenewal(ctx context.Context, arg LockOwnerSharingRenewalParams) (LockOwnerSharingRenewalRow, error) {
+	row := q.db.QueryRow(ctx, lockOwnerSharingRenewal, arg.ID, arg.RequestID, arg.ReportID)
+	var i LockOwnerSharingRenewalRow
+	err := row.Scan(
+		&i.ID,
+		&i.RequestID,
+		&i.State,
+		&i.Version,
 	)
 	return i, err
 }
@@ -3090,8 +3151,133 @@ func (q *Queries) OwnedSharingReport(ctx context.Context, id uuid.UUID) (OwnedSh
 	return i, err
 }
 
+const ownerActiveSharingRenewal = `-- name: OwnerActiveSharingRenewal :one
+SELECT id,publication_version FROM ops.publication_sharing_renewal WHERE request_id=$1 AND state='ACTIVE'
+`
+
+type OwnerActiveSharingRenewalRow struct {
+	ID                 uuid.UUID `json:"id"`
+	PublicationVersion int64     `json:"publication_version"`
+}
+
+func (q *Queries) OwnerActiveSharingRenewal(ctx context.Context, requestID uuid.UUID) (OwnerActiveSharingRenewalRow, error) {
+	row := q.db.QueryRow(ctx, ownerActiveSharingRenewal, requestID)
+	var i OwnerActiveSharingRenewalRow
+	err := row.Scan(&i.ID, &i.PublicationVersion)
+	return i, err
+}
+
+const ownerCurrentSharingRequest = `-- name: OwnerCurrentSharingRequest :one
+SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at,
+o.publication_version AS sharing_publication_version,COALESCE(o.can_renew,false)::boolean AS can_renew,COALESCE(o.can_undo,false)::boolean AS can_undo,
+o.renewal_id,o.renewal_state,o.renewal_version,o.renewal_publication_version,o.renewed_at,o.renewal_cancelled_at
+FROM ops.publication_withdrawal_request w LEFT JOIN ops.publication_withdrawal_outcome d ON d.request_id=w.id
+LEFT JOIN ops.publication_sharing_renewal_review o ON o.request_id=w.id
+WHERE w.report_id=$1 AND w.state='APPROVED' ORDER BY w.created_at DESC,w.id DESC LIMIT 1
+`
+
+type OwnerCurrentSharingRequestRow struct {
+	ID                        uuid.UUID          `json:"id"`
+	ClientRequestID           uuid.UUID          `json:"client_request_id"`
+	PublicationVersion        int64              `json:"publication_version"`
+	ReasonCode                string             `json:"reason_code"`
+	State                     string             `json:"state"`
+	Version                   int64              `json:"version"`
+	CreatedAt                 pgtype.Timestamptz `json:"created_at"`
+	Result                    pgtype.Text        `json:"result"`
+	ResidentReason            pgtype.Text        `json:"resident_reason"`
+	DecidedAt                 pgtype.Timestamptz `json:"decided_at"`
+	SharingPublicationVersion pgtype.Int8        `json:"sharing_publication_version"`
+	CanRenew                  bool               `json:"can_renew"`
+	CanUndo                   bool               `json:"can_undo"`
+	RenewalID                 *uuid.UUID         `json:"renewal_id"`
+	RenewalState              pgtype.Text        `json:"renewal_state"`
+	RenewalVersion            pgtype.Int8        `json:"renewal_version"`
+	RenewalPublicationVersion pgtype.Int8        `json:"renewal_publication_version"`
+	RenewedAt                 pgtype.Timestamptz `json:"renewed_at"`
+	RenewalCancelledAt        pgtype.Timestamptz `json:"renewal_cancelled_at"`
+}
+
+func (q *Queries) OwnerCurrentSharingRequest(ctx context.Context, reportID uuid.UUID) (OwnerCurrentSharingRequestRow, error) {
+	row := q.db.QueryRow(ctx, ownerCurrentSharingRequest, reportID)
+	var i OwnerCurrentSharingRequestRow
+	err := row.Scan(
+		&i.ID,
+		&i.ClientRequestID,
+		&i.PublicationVersion,
+		&i.ReasonCode,
+		&i.State,
+		&i.Version,
+		&i.CreatedAt,
+		&i.Result,
+		&i.ResidentReason,
+		&i.DecidedAt,
+		&i.SharingPublicationVersion,
+		&i.CanRenew,
+		&i.CanUndo,
+		&i.RenewalID,
+		&i.RenewalState,
+		&i.RenewalVersion,
+		&i.RenewalPublicationVersion,
+		&i.RenewedAt,
+		&i.RenewalCancelledAt,
+	)
+	return i, err
+}
+
+const ownerSharingRenewalByClient = `-- name: OwnerSharingRenewalByClient :one
+SELECT id,request_id,publication_version FROM ops.publication_sharing_renewal WHERE report_id=$1 AND client_request_id=$2
+`
+
+type OwnerSharingRenewalByClientParams struct {
+	ReportID        uuid.UUID `json:"report_id"`
+	ClientRequestID uuid.UUID `json:"client_request_id"`
+}
+
+type OwnerSharingRenewalByClientRow struct {
+	ID                 uuid.UUID `json:"id"`
+	RequestID          uuid.UUID `json:"request_id"`
+	PublicationVersion int64     `json:"publication_version"`
+}
+
+func (q *Queries) OwnerSharingRenewalByClient(ctx context.Context, arg OwnerSharingRenewalByClientParams) (OwnerSharingRenewalByClientRow, error) {
+	row := q.db.QueryRow(ctx, ownerSharingRenewalByClient, arg.ReportID, arg.ClientRequestID)
+	var i OwnerSharingRenewalByClientRow
+	err := row.Scan(&i.ID, &i.RequestID, &i.PublicationVersion)
+	return i, err
+}
+
+const ownerSharingRenewalReview = `-- name: OwnerSharingRenewalReview :one
+SELECT request_id,publication_version,COALESCE(can_renew,false)::boolean AS can_renew,COALESCE(can_undo,false)::boolean AS can_undo
+FROM ops.publication_sharing_renewal_review WHERE request_id=$1 AND report_id=$2
+`
+
+type OwnerSharingRenewalReviewParams struct {
+	RequestID uuid.UUID `json:"request_id"`
+	ReportID  uuid.UUID `json:"report_id"`
+}
+
+type OwnerSharingRenewalReviewRow struct {
+	RequestID          uuid.UUID `json:"request_id"`
+	PublicationVersion int64     `json:"publication_version"`
+	CanRenew           bool      `json:"can_renew"`
+	CanUndo            bool      `json:"can_undo"`
+}
+
+func (q *Queries) OwnerSharingRenewalReview(ctx context.Context, arg OwnerSharingRenewalReviewParams) (OwnerSharingRenewalReviewRow, error) {
+	row := q.db.QueryRow(ctx, ownerSharingRenewalReview, arg.RequestID, arg.ReportID)
+	var i OwnerSharingRenewalReviewRow
+	err := row.Scan(
+		&i.RequestID,
+		&i.PublicationVersion,
+		&i.CanRenew,
+		&i.CanUndo,
+	)
+	return i, err
+}
+
 const ownerWithdrawalBlocked = `-- name: OwnerWithdrawalBlocked :one
-SELECT EXISTS(SELECT FROM ops.publication_withdrawal_request WHERE report_id=$1 AND state IN ('REQUESTED','APPROVED'))
+SELECT EXISTS(SELECT FROM ops.publication_withdrawal_request w WHERE w.report_id=$1 AND (w.state='REQUESTED' OR (w.state='APPROVED' AND NOT EXISTS(SELECT FROM ops.publication_withdrawal_request newer WHERE newer.report_id=w.report_id AND newer.case_id=w.case_id AND newer.state='APPROVED' AND ROW(newer.created_at,newer.id)>ROW(w.created_at,w.id)) AND NOT EXISTS(SELECT FROM ops.publication_sharing_renewal n WHERE n.request_id=w.id AND n.state='ACTIVE'))))
 `
 
 func (q *Queries) OwnerWithdrawalBlocked(ctx context.Context, reportID uuid.UUID) (bool, error) {
@@ -3147,8 +3333,11 @@ func (q *Queries) OwnerWithdrawalBySnapshot(ctx context.Context, arg OwnerWithdr
 }
 
 const ownerWithdrawalReceipt = `-- name: OwnerWithdrawalReceipt :one
-SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at
+SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at,
+o.publication_version AS sharing_publication_version,COALESCE(o.can_renew,false)::boolean AS can_renew,COALESCE(o.can_undo,false)::boolean AS can_undo,
+o.renewal_id,o.renewal_state,o.renewal_version,o.renewal_publication_version,o.renewed_at,o.renewal_cancelled_at
 FROM ops.publication_withdrawal_request w LEFT JOIN ops.publication_withdrawal_outcome d ON d.request_id=w.id
+LEFT JOIN ops.publication_sharing_renewal_review o ON o.request_id=w.id
 WHERE w.id=$1 AND w.report_id=$2
 `
 
@@ -3158,16 +3347,25 @@ type OwnerWithdrawalReceiptParams struct {
 }
 
 type OwnerWithdrawalReceiptRow struct {
-	ID                 uuid.UUID          `json:"id"`
-	ClientRequestID    uuid.UUID          `json:"client_request_id"`
-	PublicationVersion int64              `json:"publication_version"`
-	ReasonCode         string             `json:"reason_code"`
-	State              string             `json:"state"`
-	Version            int64              `json:"version"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	Result             pgtype.Text        `json:"result"`
-	ResidentReason     pgtype.Text        `json:"resident_reason"`
-	DecidedAt          pgtype.Timestamptz `json:"decided_at"`
+	ID                        uuid.UUID          `json:"id"`
+	ClientRequestID           uuid.UUID          `json:"client_request_id"`
+	PublicationVersion        int64              `json:"publication_version"`
+	ReasonCode                string             `json:"reason_code"`
+	State                     string             `json:"state"`
+	Version                   int64              `json:"version"`
+	CreatedAt                 pgtype.Timestamptz `json:"created_at"`
+	Result                    pgtype.Text        `json:"result"`
+	ResidentReason            pgtype.Text        `json:"resident_reason"`
+	DecidedAt                 pgtype.Timestamptz `json:"decided_at"`
+	SharingPublicationVersion pgtype.Int8        `json:"sharing_publication_version"`
+	CanRenew                  bool               `json:"can_renew"`
+	CanUndo                   bool               `json:"can_undo"`
+	RenewalID                 *uuid.UUID         `json:"renewal_id"`
+	RenewalState              pgtype.Text        `json:"renewal_state"`
+	RenewalVersion            pgtype.Int8        `json:"renewal_version"`
+	RenewalPublicationVersion pgtype.Int8        `json:"renewal_publication_version"`
+	RenewedAt                 pgtype.Timestamptz `json:"renewed_at"`
+	RenewalCancelledAt        pgtype.Timestamptz `json:"renewal_cancelled_at"`
 }
 
 func (q *Queries) OwnerWithdrawalReceipt(ctx context.Context, arg OwnerWithdrawalReceiptParams) (OwnerWithdrawalReceiptRow, error) {
@@ -3184,27 +3382,48 @@ func (q *Queries) OwnerWithdrawalReceipt(ctx context.Context, arg OwnerWithdrawa
 		&i.Result,
 		&i.ResidentReason,
 		&i.DecidedAt,
+		&i.SharingPublicationVersion,
+		&i.CanRenew,
+		&i.CanUndo,
+		&i.RenewalID,
+		&i.RenewalState,
+		&i.RenewalVersion,
+		&i.RenewalPublicationVersion,
+		&i.RenewedAt,
+		&i.RenewalCancelledAt,
 	)
 	return i, err
 }
 
 const ownerWithdrawalRequests = `-- name: OwnerWithdrawalRequests :many
-SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at
+SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at,
+o.publication_version AS sharing_publication_version,COALESCE(o.can_renew,false)::boolean AS can_renew,COALESCE(o.can_undo,false)::boolean AS can_undo,
+o.renewal_id,o.renewal_state,o.renewal_version,o.renewal_publication_version,o.renewed_at,o.renewal_cancelled_at
 FROM ops.publication_withdrawal_request w LEFT JOIN ops.publication_withdrawal_outcome d ON d.request_id=w.id
+LEFT JOIN ops.publication_sharing_renewal_review o ON o.request_id=w.id
 WHERE w.report_id=$1 ORDER BY w.created_at DESC,w.id DESC LIMIT 20
 `
 
 type OwnerWithdrawalRequestsRow struct {
-	ID                 uuid.UUID          `json:"id"`
-	ClientRequestID    uuid.UUID          `json:"client_request_id"`
-	PublicationVersion int64              `json:"publication_version"`
-	ReasonCode         string             `json:"reason_code"`
-	State              string             `json:"state"`
-	Version            int64              `json:"version"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	Result             pgtype.Text        `json:"result"`
-	ResidentReason     pgtype.Text        `json:"resident_reason"`
-	DecidedAt          pgtype.Timestamptz `json:"decided_at"`
+	ID                        uuid.UUID          `json:"id"`
+	ClientRequestID           uuid.UUID          `json:"client_request_id"`
+	PublicationVersion        int64              `json:"publication_version"`
+	ReasonCode                string             `json:"reason_code"`
+	State                     string             `json:"state"`
+	Version                   int64              `json:"version"`
+	CreatedAt                 pgtype.Timestamptz `json:"created_at"`
+	Result                    pgtype.Text        `json:"result"`
+	ResidentReason            pgtype.Text        `json:"resident_reason"`
+	DecidedAt                 pgtype.Timestamptz `json:"decided_at"`
+	SharingPublicationVersion pgtype.Int8        `json:"sharing_publication_version"`
+	CanRenew                  bool               `json:"can_renew"`
+	CanUndo                   bool               `json:"can_undo"`
+	RenewalID                 *uuid.UUID         `json:"renewal_id"`
+	RenewalState              pgtype.Text        `json:"renewal_state"`
+	RenewalVersion            pgtype.Int8        `json:"renewal_version"`
+	RenewalPublicationVersion pgtype.Int8        `json:"renewal_publication_version"`
+	RenewedAt                 pgtype.Timestamptz `json:"renewed_at"`
+	RenewalCancelledAt        pgtype.Timestamptz `json:"renewal_cancelled_at"`
 }
 
 func (q *Queries) OwnerWithdrawalRequests(ctx context.Context, reportID uuid.UUID) ([]OwnerWithdrawalRequestsRow, error) {
@@ -3227,6 +3446,15 @@ func (q *Queries) OwnerWithdrawalRequests(ctx context.Context, reportID uuid.UUI
 			&i.Result,
 			&i.ResidentReason,
 			&i.DecidedAt,
+			&i.SharingPublicationVersion,
+			&i.CanRenew,
+			&i.CanUndo,
+			&i.RenewalID,
+			&i.RenewalState,
+			&i.RenewalVersion,
+			&i.RenewalPublicationVersion,
+			&i.RenewedAt,
+			&i.RenewalCancelledAt,
 		); err != nil {
 			return nil, err
 		}

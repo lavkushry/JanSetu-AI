@@ -26,6 +26,7 @@ sql:
       - ../../db/migrations/00022_publication_approval_activity.sql
       - ../../db/migrations/00023_public_progress_lifecycle.sql
       - ../../db/migrations/00024_resident_publication_withdrawal.sql
+      - ../../db/migrations/00025_resident_sharing_renewal.sql
     queries: internal/store/queries.sql
     gen:
       go:

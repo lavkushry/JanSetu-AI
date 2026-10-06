@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.18.0
+  version: 0.19.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -2572,6 +2572,118 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PublicationWithdrawalDecisionInput'
+  /my-reports/{id}/publication-withdrawal-requests/{requestId}/sharing-renewals:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+      - name: requestId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: renew_owned_public_sharing
+      description: Verified owner only. If-Match binds the approved withdrawal request
+        version; publicationVersion binds the current withdrawn receipt. Explicitly
+        allows future sanitized publisher review without changing the original report
+        or immediately publishing anything. Only the latest approved withdrawal for
+        that report can gain a new permission. Stable clientRequestId and command key
+        preserve retries; the response hydrates the current owner record. A later approved
+        withdrawal requires fresh permission. A different client ID conflicts while
+        permission is active. Original PRIVATE preferences and other source vetoes
+        remain effective.
+      parameters:
+        - $ref: '#/components/parameters/CSRF'
+        - $ref: '#/components/parameters/Version'
+        - $ref: '#/components/parameters/Idempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicationSharingRenewalInput'
+      responses:
+        '201':
+          description: Current private owner withdrawal record and sharing permission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationWithdrawalRequest'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /my-reports/{id}/publication-withdrawal-requests/{requestId}/sharing-renewals/{renewalId}/cancellations:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+      - name: requestId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: renewalId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: cancel_owned_sharing_renewal
+      description: Verified owner only. If-Match binds the renewal version; publicationVersion
+        binds current withdrawn progress. Cancels only an active permission for the
+        latest approved withdrawal while the receipt stays withdrawn; republication
+        requires a new withdrawal request. Advances only renewal version and retains
+        provenance. A retry at the current cancelled version is a no-op and cannot cancel
+        a newer renewal. Returns the current owner record.
+      parameters:
+        - $ref: '#/components/parameters/CSRF'
+        - $ref: '#/components/parameters/Version'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicationSharingRenewalCancellation'
+      responses:
+        '200':
+          description: Current private owner withdrawal record and sharing permission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationWithdrawalRequest'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
 components:
   parameters:
     CSRF:
@@ -5004,6 +5116,7 @@ components:
         - version
         - createdAt
         - outcome
+        - sharingReview
       properties:
         id:
           type: string
@@ -5048,6 +5161,10 @@ components:
                   type: string
                   format: date-time
             - type: 'null'
+        sharingReview:
+          oneOf:
+            - $ref: '#/components/schemas/PublicationSharingReview'
+            - type: 'null'
     OwnerPublicSharing:
       type: object
       additionalProperties: false
@@ -5055,6 +5172,7 @@ components:
         - publication
         - blocked
         - requests
+        - permissionRequest
       properties:
         publication:
           oneOf:
@@ -5087,6 +5205,10 @@ components:
           maxItems: 20
           items:
             $ref: '#/components/schemas/PublicationWithdrawalRequest'
+        permissionRequest:
+          oneOf:
+            - $ref: '#/components/schemas/PublicationWithdrawalRequest'
+            - type: 'null'
     PublicationWithdrawalRequestInput:
       type: object
       additionalProperties: false
@@ -5242,4 +5364,85 @@ components:
           minLength: 5
           maxLength: 1000
         reviewed:
+          const: true
+    PublicationSharingRenewal:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - state
+        - version
+        - publicationVersion
+        - createdAt
+        - cancelledAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum:
+            - ACTIVE
+            - CANCELLED
+        version:
+          type: integer
+          minimum: 1
+        publicationVersion:
+          type: integer
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+        cancelledAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+    PublicationSharingReview:
+      type: object
+      additionalProperties: false
+      required:
+        - publicationVersion
+        - canRenew
+        - canUndo
+        - renewal
+      properties:
+        publicationVersion:
+          type: integer
+          minimum: 1
+        canRenew:
+          type: boolean
+        canUndo:
+          type: boolean
+        renewal:
+          oneOf:
+            - $ref: '#/components/schemas/PublicationSharingRenewal'
+            - type: 'null'
+    PublicationSharingRenewalInput:
+      type: object
+      additionalProperties: false
+      required:
+        - clientRequestId
+        - publicationVersion
+        - confirmed
+      properties:
+        clientRequestId:
+          type: string
+          format: uuid
+        publicationVersion:
+          type: integer
+          minimum: 1
+        confirmed:
+          const: true
+    PublicationSharingRenewalCancellation:
+      type: object
+      additionalProperties: false
+      required:
+        - publicationVersion
+        - confirmed
+      properties:
+        publicationVersion:
+          type: integer
+          minimum: 1
+        confirmed:
           const: true

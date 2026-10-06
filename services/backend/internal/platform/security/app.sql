@@ -95,3 +95,9 @@ GRANT SELECT ON ops.publication_withdrawal_review TO js_publication;
 GRANT UPDATE(state,version) ON ops.publication_withdrawal_request TO js_ops;
 GRANT INSERT(request_id) ON ops.publication_withdrawal_cancel TO js_ops;
 GRANT SELECT ON ops.publication_sharing_eligibility TO js_ops,js_publication;
+
+-- Resident consent never grants direct publication or rewrites report preference.
+GRANT SELECT ON ops.publication_sharing_renewal,ops.publication_sharing_renewal_review TO js_ops;
+GRANT INSERT(id,request_id,report_id,client_request_id,publication_version) ON ops.publication_sharing_renewal TO js_ops;
+GRANT UPDATE(state,version) ON ops.publication_sharing_renewal TO js_ops;
+GRANT EXECUTE ON FUNCTION authz.sharing_renewal_target(uuid,uuid,bigint),authz.sharing_renewal_allowed(uuid,uuid,bigint) TO js_ops;

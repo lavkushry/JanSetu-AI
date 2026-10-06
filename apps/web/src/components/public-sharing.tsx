@@ -38,6 +38,14 @@ function ResidentSharing({ reportId, close }: { reportId: string; close: () => v
     key: string;
     confirmed: boolean;
   } | null>(null);
+  const [permission, setPermission] = useState<{
+    request: Request;
+    action: 'ALLOW' | 'UNDO';
+    publicationVersion: number;
+    client: string;
+    key: string;
+    confirmed: boolean;
+  } | null>(null);
   const [cancel, setCancel] = useState<Request | null>(null);
   const [cancelConfirmed, setCancelConfirmed] = useState(false);
   const resetProtected = (e: unknown) => {
@@ -60,6 +68,28 @@ function ResidentSharing({ reportId, close }: { reportId: string; close: () => v
       if (cancel && !latest.requests.some((r) => r.id === cancel.id && r.state === 'REQUESTED'))
         setCancel(null);
       setCancelConfirmed(false);
+      if (permission) {
+        const current =
+          latest.permissionRequest?.id === permission.request.id
+            ? latest.permissionRequest
+            : latest.requests.find((r) => r.id === permission.request.id);
+        const allowed =
+          permission.action === 'ALLOW'
+            ? current?.sharingReview?.canRenew
+            : current?.sharingReview?.canUndo;
+        if (!current?.sharingReview || !allowed) setPermission(null);
+        else
+          setPermission({
+            ...permission,
+            request: current,
+            publicationVersion: current.sharingReview.publicationVersion,
+            confirmed: false,
+            ...(current.sharingReview.publicationVersion !== permission.publicationVersion
+              ? { client: crypto.randomUUID(), key: crypto.randomUUID() }
+              : {}),
+          });
+      }
+      permissionCommand.reset();
       submit.reset();
       cancellation.reset();
     },
@@ -107,20 +137,99 @@ function ResidentSharing({ reportId, close }: { reportId: string; close: () => v
     },
     onError: resetProtected,
   });
-  const busy = submit.isPending || cancellation.isPending || refresh.isPending;
+  const permissionCommand = useMutation({
+    mutationFn: () => {
+      if (!permission) throw new Error('Choose a sharing permission');
+      const root = `${path}/publication-withdrawal-requests/${permission.request.id}/sharing-renewals`;
+      if (permission.action === 'ALLOW')
+        return api<Request>(root, {
+          method: 'POST',
+          version: permission.request.version,
+          key: permission.key,
+          body: {
+            clientRequestId: permission.client,
+            publicationVersion: permission.publicationVersion,
+            confirmed: permission.confirmed,
+          },
+        });
+      const renewal = permission.request.sharingReview?.renewal;
+      if (!renewal) throw new Error('Refresh the sharing permission');
+      return api<Request>(`${root}/${renewal.id}/cancellations`, {
+        method: 'POST',
+        version: renewal.version,
+        body: {
+          publicationVersion: permission.publicationVersion,
+          confirmed: permission.confirmed,
+        },
+      });
+    },
+    onSuccess: async () => {
+      const action = permission?.action;
+      setPermission(null);
+      await qc.invalidateQueries();
+      notify(
+        action === 'ALLOW'
+          ? 'Permission recorded. A fresh publisher review is still required.'
+          : 'Permission undone. New publication is paused.',
+      );
+    },
+    onError: resetProtected,
+  });
+  const busy =
+    submit.isPending || cancellation.isPending || refresh.isPending || permissionCommand.isPending;
+  const permissionConflict =
+    permissionCommand.error instanceof APIError &&
+    [409, 412].includes(permissionCommand.error.status);
+  const livePermission =
+    permission &&
+    (q.data?.permissionRequest?.id === permission.request.id
+      ? q.data.permissionRequest
+      : q.data?.requests.find((r) => r.id === permission.request.id));
+  const permissionStale =
+    !!permission &&
+    !!livePermission &&
+    (livePermission.sharingReview?.publicationVersion !== permission.publicationVersion ||
+      (permission.action === 'ALLOW'
+        ? !livePermission.sharingReview?.canRenew
+        : !livePermission.sharingReview?.canUndo));
+  const startPermission = (request: Request, action: 'ALLOW' | 'UNDO') => {
+    if (!request.sharingReview) return;
+    permissionCommand.reset();
+    setPermission({
+      request,
+      action,
+      publicationVersion: request.sharingReview.publicationVersion,
+      client: crypto.randomUUID(),
+      key: crypto.randomUUID(),
+      confirmed: false,
+    });
+  };
   const conflict = submit.error instanceof APIError && [409, 412].includes(submit.error.status);
   const stale = !!draft && q.data?.publication?.version !== draft.version;
   const existingPreviewRequest = q.data?.requests.find(
     (r) => r.publicationVersion === q.data?.publication?.version && r.state !== 'CANCELLED',
   );
   const refreshButton = (
-    <button className="secondary small" disabled={busy} onClick={() => refresh.mutate()}>
+    <button
+      type="button"
+      className="secondary small"
+      disabled={busy}
+      onClick={() => refresh.mutate()}
+    >
       Refresh sharing review
     </button>
   );
   return (
     <Modal
-      title={cancel ? 'Cancel withdrawal request?' : 'Manage public sharing'}
+      title={
+        permission
+          ? permission.action === 'ALLOW'
+            ? 'Allow future public progress?'
+            : 'Undo sharing permission?'
+          : cancel
+            ? 'Cancel withdrawal request?'
+            : 'Manage public sharing'
+      }
       onClose={() => !busy && close()}
     >
       <div className="publication resident-sharing" data-testid="resident-public-sharing">
@@ -128,6 +237,62 @@ function ResidentSharing({ reportId, close }: { reportId: string; close: () => v
           <Loading />
         ) : q.error ? (
           <ErrorState error={q.error} retry={() => q.refetch()} />
+        ) : permission ? (
+          <form
+            data-testid="sharing-permission-confirmation"
+            onSubmit={(e) => {
+              e.preventDefault();
+              permissionCommand.mutate();
+            }}
+          >
+            <p>
+              {permission.action === 'ALLOW'
+                ? 'This allows a publisher to review a sanitized title, summary and broad area again. Your private statement and photos stay private. Progress stays hidden until a fresh publisher review succeeds.'
+                : 'This undoes permission for future publication while progress is withdrawn. Private reports and agency work continue.'}
+            </p>
+            <p className="muted">
+              {permission.action === 'ALLOW'
+                ? 'You can undo this choice while progress remains withdrawn. If progress is published again, review its current preview to request another withdrawal.'
+                : 'A later opt-in will need a new confirmation. Your approved withdrawal history is kept.'}
+            </p>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                required
+                checked={permission.confirmed}
+                onChange={(e) => setPermission({ ...permission, confirmed: e.target.checked })}
+              />
+              {permission.action === 'ALLOW'
+                ? 'I allow future sanitized public updates after publisher review.'
+                : 'I want to undo this sharing permission.'}
+            </label>
+            {(permissionConflict || permissionStale) && (
+              <p role="alert" className="form-error">
+                Sharing permission or public progress changed. Refresh the sharing review and
+                confirm your choice again.
+              </p>
+            )}
+            <FormError error={permissionCommand.error || refresh.error} />
+            <div className="form-actions">
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => setPermission(null)}
+              >
+                Keep current permission
+              </button>
+              <button
+                className="primary"
+                disabled={busy || !permission.confirmed || permissionConflict || permissionStale}
+              >
+                {permission.action === 'ALLOW'
+                  ? 'Confirm future publisher review'
+                  : 'Confirm undo permission'}
+              </button>
+            </div>
+            {refreshButton}
+          </form>
         ) : cancel ? (
           <form
             onSubmit={(e) => {
@@ -170,8 +335,8 @@ function ResidentSharing({ reportId, close }: { reportId: string; close: () => v
         ) : (
           <>
             <p>
-              Your request is private. New public updates pause while a publisher reviews it.
-              Current public progress stays visible until withdrawal is approved; private case work
+              Withdrawal requests stay private and pause new publication while reviewed. Current
+              public progress stays visible until withdrawal is approved. Private case work
               continues.
             </p>
             {q.data.publication ? (
@@ -271,6 +436,53 @@ function ResidentSharing({ reportId, close }: { reportId: string; close: () => v
                 This public revision already has a reviewed request. A new request becomes available
                 after public progress changes.
               </p>
+            )}
+            {q.data.permissionRequest?.sharingReview && (
+              <section className="publication-history" data-testid="resident-sharing-permission">
+                <h3>Future public updates</h3>
+                <p>
+                  {q.data.permissionRequest.sharingReview.renewal?.state === 'ACTIVE'
+                    ? 'You have allowed future publisher review. This permission does not publish progress; all sharing rules still apply.'
+                    : 'Future publication is paused after your approved withdrawal. You can choose to allow a fresh publisher review.'}
+                </p>
+                {q.data.permissionRequest.sharingReview.renewal && (
+                  <small>
+                    Permission{' '}
+                    {q.data.permissionRequest.sharingReview.renewal.state === 'ACTIVE'
+                      ? 'recorded'
+                      : 'undone'}{' '}
+                    ·{' '}
+                    {dateLabel(
+                      q.data.permissionRequest.sharingReview.renewal.cancelledAt ||
+                        q.data.permissionRequest.sharingReview.renewal.createdAt,
+                    )}
+                  </small>
+                )}
+                {q.data.permissionRequest.sharingReview.canRenew && (
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => startPermission(q.data.permissionRequest!, 'ALLOW')}
+                  >
+                    Allow future publisher review
+                  </button>
+                )}
+                {q.data.permissionRequest.sharingReview.canUndo && (
+                  <button
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => startPermission(q.data.permissionRequest!, 'UNDO')}
+                  >
+                    Undo sharing permission
+                  </button>
+                )}
+                {q.data.publication && (
+                  <p className="muted">
+                    Progress is public again. Review the current preview above to request another
+                    withdrawal.
+                  </p>
+                )}
+              </section>
             )}
             <h3>Your withdrawal requests</h3>
             {q.data.requests.length ? (
@@ -501,9 +713,9 @@ function WithdrawalDecision({ review: v }: { review: Review }) {
           }}
         >
           <p>
-            Approval withdraws public progress and prevents republication for this report. Decline
-            keeps current public progress eligible for later review. Private reports, case age and
-            agency work continue.
+            Approval withdraws public progress and pauses republication until the resident allows a
+            fresh publisher review. Decline keeps current public progress eligible for later review.
+            Private reports, case age and agency work continue.
           </p>
           {(stale || conflict) && (
             <p role="alert" className="form-error">
