@@ -2993,7 +2993,7 @@ func (q *Queries) OwnContentReportPage(ctx context.Context, arg OwnContentReport
 }
 
 const ownReportProgress = `-- name: OwnReportProgress :many
-SELECT r.id,r.received_at,r.statement,r.language_tag,ir.state AS linkage,ir.case_id,receipt.id AS receipt_id,EXISTS(SELECT FROM ops.publication_withdrawal_request w WHERE w.report_id=r.id) AS has_publication_request
+SELECT r.id,r.received_at,r.statement,r.language_tag,r.intake_metadata,ir.state AS linkage,ir.case_id,receipt.id AS receipt_id,EXISTS(SELECT FROM ops.publication_withdrawal_request w WHERE w.report_id=r.id) AS has_publication_request
 FROM ops.report r JOIN ops.intake_review ir ON ir.report_id=r.id
 LEFT JOIN ops.publication_binding pb ON pb.case_id=ir.case_id
 LEFT JOIN social.case_receipt receipt ON receipt.id=pb.receipt_id AND receipt.publication_state='PUBLISHED'
@@ -3012,6 +3012,7 @@ type OwnReportProgressRow struct {
 	ReceivedAt            pgtype.Timestamptz `json:"received_at"`
 	Statement             string             `json:"statement"`
 	LanguageTag           string             `json:"language_tag"`
+	IntakeMetadata        []byte             `json:"intake_metadata"`
 	Linkage               string             `json:"linkage"`
 	CaseID                *uuid.UUID         `json:"case_id"`
 	ReceiptID             *uuid.UUID         `json:"receipt_id"`
@@ -3032,6 +3033,7 @@ func (q *Queries) OwnReportProgress(ctx context.Context, arg OwnReportProgressPa
 			&i.ReceivedAt,
 			&i.Statement,
 			&i.LanguageTag,
+			&i.IntakeMetadata,
 			&i.Linkage,
 			&i.CaseID,
 			&i.ReceiptID,

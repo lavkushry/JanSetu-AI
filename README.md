@@ -33,6 +33,8 @@ The first pilot is a city/district. The full product ships in phases. Indian-lan
 
 - [Earlier consolidated blueprint](JanSetu_AI_Detailed_Blueprint.md): preserved design snapshot, superseded by the specification suite.
 - [Earlier experience plan](docs/PRODUCT_EXPERIENCE_PLAN.md): preserved input, superseded by the UI and traceability documents.
+- [Private road reporting](docs/POTHOLE_REPORTING.md): resident pothole observations, camera/video frames, source-backed contact guidance and private complaint drafts.
+- [Pothole reference research](docs/POTHOLE_REFERENCE_RESEARCH.md): detection, routing, data integrity and reuse findings.
 - [Reference repository research](docs/REFERENCE_RESEARCH.md): source-level findings from CampusFix, RoadLens, the OCR notebooks, BlackVision, and ArmMind.
 - [Adjudication and enforcement design](JanSetu_AI_Blueprint_v1_Adjudication_and_Enforcement.md): responsibility disputes, continuity, and escalation.
 

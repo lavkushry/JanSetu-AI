@@ -24,6 +24,7 @@ type OCRCorrection struct {
 	AppliedAt     time.Time `json:"appliedAt"`
 }
 type ReportInput struct {
+	RoadDetails           *RoadDetails    `json:"roadDetails,omitempty"`
 	MediaIDs              []uuid.UUID     `json:"mediaIds,omitempty"`
 	OCRCorrections        []OCRCorrection `json:"ocrCorrections,omitempty"`
 	ClientSubmissionID    uuid.UUID       `json:"clientSubmissionId"`
@@ -61,8 +62,18 @@ func (b *ReportInput) validate() error {
 	if b.ClientSubmissionID == uuid.Nil || !textValid(b.Statement, 10, 8000) || !textValid(b.LocationLabel, 3, 180) || len(b.LanguageTag) > 40 {
 		return invalid("Add a description and a location or landmark")
 	}
-	if b.Category != "FOOTPATH" && b.Category != "LIGHT" && b.Category != "WASTE" && b.Category != "WATER" && b.Category != "OTHER" {
+	if b.Category != "ROAD" && b.Category != "FOOTPATH" && b.Category != "LIGHT" && b.Category != "WASTE" && b.Category != "WATER" && b.Category != "OTHER" {
 		return invalid("Choose a service category")
+	}
+	if b.Category == "ROAD" {
+		if b.RoadDetails == nil {
+			return invalid("Add the observed road issue details")
+		}
+		if e := b.RoadDetails.validate(); e != nil {
+			return e
+		}
+	} else if b.RoadDetails != nil {
+		return invalid("Road details belong to the road surface category")
 	}
 	if b.PublicationPreference != "PRIVATE" && b.PublicationPreference != "SANITIZED_RECEIPT" {
 		return invalid("Choose a publication preference")
@@ -129,7 +140,12 @@ func (a *App) submitReport(w http.ResponseWriter, r *http.Request, actor *Actor)
 			return uuid.Nil, nil, e
 		}
 		rid := uuid.New()
-		metadata := jsonBytes(map[string]any{"category": b.Category, "locationLabel": b.LocationLabel, "ocrCorrections": b.OCRCorrections})
+		fields := map[string]any{"category": b.Category, "locationLabel": b.LocationLabel, "ocrCorrections": b.OCRCorrections}
+		if b.RoadDetails != nil {
+			fields["roadDetails"] = b.RoadDetails
+			fields["roadGuidance"] = guidanceForRoad(b.RoadDetails.RoadType)
+		}
+		metadata := jsonBytes(fields)
 		if e = q.InsertReport(r.Context(), dbgen.InsertReportParams{ID: rid, ClientSubmissionID: b.ClientSubmissionID, ReporterRef: &alias, LanguageTag: b.LanguageTag, Statement: b.Statement, PublicationPreference: b.PublicationPreference, IntakeMetadata: metadata, RequestHash: hash[:]}); e != nil {
 			return uuid.Nil, nil, e
 		}
@@ -210,7 +226,8 @@ func (a *App) ownProgress(r *http.Request, actor *Actor, reportID uuid.UUID) ([]
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, map[string]any{"hasPublicationRequest": v.HasPublicationRequest, "mediaIds": mediaIDs, "id": v.ID, "statement": v.Statement, "languageTag": v.LanguageTag, "receivedAt": timestamp(v.ReceivedAt), "state": progress, "receiptId": v.ReceiptID, "responsibilities": responsibilities})
+		details, guidance, location := roadMetadata(v.IntakeMetadata)
+		items = append(items, map[string]any{"locationLabel": location, "roadDetails": details, "roadGuidance": guidance, "hasPublicationRequest": v.HasPublicationRequest, "mediaIds": mediaIDs, "id": v.ID, "statement": v.Statement, "languageTag": v.LanguageTag, "receivedAt": timestamp(v.ReceivedAt), "state": progress, "receiptId": v.ReceiptID, "responsibilities": responsibilities})
 	}
 	return items, nil
 }
@@ -278,7 +295,7 @@ func (a *App) triage(w http.ResponseWriter, r *http.Request, actor *Actor) (any,
 	if b.UrgencyTier < 0 || b.UrgencyTier > 3 || !textValid(b.Reason, 5, 1000) {
 		return nil, 0, invalid("Provide an urgency assessment and reason")
 	}
-	if b.Category != "FOOTPATH" && b.Category != "LIGHT" && b.Category != "WASTE" && b.Category != "WATER" && b.Category != "OTHER" {
+	if b.Category != "ROAD" && b.Category != "FOOTPATH" && b.Category != "LIGHT" && b.Category != "WASTE" && b.Category != "WATER" && b.Category != "OTHER" {
 		return nil, 0, invalid("Choose a service category")
 	}
 	var result any

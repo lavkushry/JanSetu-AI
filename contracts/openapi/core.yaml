@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.19.0
+  version: 0.20.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -10,6 +10,25 @@ info:
 servers:
   - url: /api
 paths:
+  /road-guidance:
+    get:
+      operationId: get_road_guidance
+      summary: Official contact entry points for a resident-selected road type
+      description: Curated sources only. No road ownership, individual officer, contractor match or external delivery is confirmed.
+      parameters:
+        - name: roadType
+          in: query
+          schema:
+            $ref: '#/components/schemas/RoadType'
+      responses:
+        '200':
+          description: Guidance, including explicit unavailable results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoadGuidance'
+        '422':
+          $ref: '#/components/responses/Problem'
   /auth/config:
     get:
       operationId: get_auth_config
@@ -3897,8 +3916,83 @@ components:
             $ref: '#/components/schemas/PublicProfile'
         nextCursor:
           type: 'null'
+    RoadType:
+      type: string
+      enum: [UNKNOWN, BENGALURU_CITY, NHAI_HIGHWAY, KARNATAKA_PWD]
+    RoadDetails:
+      type: object
+      additionalProperties: false
+      required: [roadName, issueKind, roadType]
+      properties:
+        roadName:
+          type: string
+          minLength: 3
+          maxLength: 180
+        issueKind:
+          type: string
+          enum: [POTHOLE, BROKEN_SURFACE]
+        roadType:
+          $ref: '#/components/schemas/RoadType'
+        travelDirection:
+          type: string
+          maxLength: 100
+        observedAt:
+          type: string
+          format: date-time
+          description: Resident-supplied observation time, never later than one minute ahead of the server clock.
+    RoadContact:
+      type: object
+      required: [name, scope, helpline, sourceUrl, sourceCheckedAt]
+      properties:
+        name:
+          type: string
+        scope:
+          type: string
+        helpline:
+          type: string
+        sourceUrl:
+          type: string
+          format: uri
+        sourceCheckedAt:
+          type: string
+          format: date
+    RoadGuidance:
+      type: object
+      required:
+        [
+          version,
+          roadType,
+          status,
+          contacts,
+          note,
+          contractorStatus,
+          contractorNote,
+          contractSourceUrl,
+        ]
+      properties:
+        version:
+          type: string
+        roadType:
+          $ref: '#/components/schemas/RoadType'
+        status:
+          type: string
+          enum: [ENTRY_POINTS_ONLY, UNAVAILABLE]
+        contacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoadContact'
+        note:
+          type: string
+        contractorStatus:
+          const: UNAVAILABLE
+        contractorNote:
+          type: string
+        contractSourceUrl:
+          type: [string, 'null']
+          format: uri
     ReportInput:
       type: object
+      additionalProperties: false
       required:
         - clientSubmissionId
         - statement
@@ -3906,7 +4000,10 @@ components:
         - category
         - locationLabel
         - publicationPreference
+      description: ROAD requires roadDetails. Other categories reject roadDetails. Contact guidance is derived and snapshotted by the server; clients cannot submit authority or contractor matches.
       properties:
+        roadDetails:
+          $ref: '#/components/schemas/RoadDetails'
         clientSubmissionId:
           type: string
           format: uuid
@@ -3919,6 +4016,7 @@ components:
         category:
           type: string
           enum:
+            - ROAD
             - FOOTPATH
             - LIGHT
             - WASTE
@@ -3961,6 +4059,9 @@ components:
     ReportProgress:
       type: object
       required:
+        - locationLabel
+        - roadDetails
+        - roadGuidance
         - id
         - statement
         - languageTag
@@ -3971,6 +4072,16 @@ components:
         - mediaIds
         - hasPublicationRequest
       properties:
+        locationLabel:
+          type: string
+        roadDetails:
+          oneOf:
+            - $ref: '#/components/schemas/RoadDetails'
+            - type: 'null'
+        roadGuidance:
+          oneOf:
+            - $ref: '#/components/schemas/RoadGuidance'
+            - type: 'null'
         hasPublicationRequest:
           type: boolean
         id:
@@ -4051,6 +4162,10 @@ components:
             - category
             - locationLabel
           properties:
+            roadDetails:
+              $ref: '#/components/schemas/RoadDetails'
+            roadGuidance:
+              $ref: '#/components/schemas/RoadGuidance'
             category:
               type: string
             locationLabel:
@@ -4353,6 +4468,7 @@ components:
         category:
           type: string
           enum:
+            - ROAD
             - FOOTPATH
             - LIGHT
             - WASTE

@@ -412,7 +412,8 @@ func (a *App) Handler() http.Handler {
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
 	for pattern, fn := range map[string]endpoint{
-		"GET /v1/dev/accounts": a.accounts, "POST /v1/dev/session": a.signIn, "POST /v1/me/logout": a.logout, "GET /v1/me": a.me,
+		"GET /v1/road-guidance": a.roadGuidance,
+		"GET /v1/dev/accounts":  a.accounts, "POST /v1/dev/session": a.signIn, "POST /v1/me/logout": a.logout, "GET /v1/me": a.me,
 		"GET /v1/auth/config": a.authConfig, "GET /v1/me/sessions": a.listSessions, "DELETE /v1/me/sessions/{id}": a.revokeSession, "POST /v1/me/sessions/revoke-others": a.revokeOtherSessions, "PATCH /v1/me/profile": a.updateProfile,
 		"POST /v1/media/uploads": a.createUpload, "GET /v1/media/{id}/upload": a.uploadStatus,
 		"POST /v1/media/{id}/upload-parts": a.renewUpload, "PUT /v1/media/{id}/parts/{number}": a.uploadPart,

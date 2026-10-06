@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/road-guidance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Official contact entry points for a resident-selected road type
+         * @description Curated sources only. No road ownership, individual officer, contractor match or external delivery is confirmed.
+         */
+        get: operations["get_road_guidance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/config": {
         parameters: {
             query?: never;
@@ -2001,13 +2021,51 @@ export interface components {
             profiles: components["schemas"]["PublicProfile"][];
             nextCursor: null;
         };
+        /** @enum {string} */
+        RoadType: "UNKNOWN" | "BENGALURU_CITY" | "NHAI_HIGHWAY" | "KARNATAKA_PWD";
+        RoadDetails: {
+            roadName: string;
+            /** @enum {string} */
+            issueKind: "POTHOLE" | "BROKEN_SURFACE";
+            roadType: components["schemas"]["RoadType"];
+            travelDirection?: string;
+            /**
+             * Format: date-time
+             * @description Resident-supplied observation time, never later than one minute ahead of the server clock.
+             */
+            observedAt?: string;
+        };
+        RoadContact: {
+            name: string;
+            scope: string;
+            helpline: string;
+            /** Format: uri */
+            sourceUrl: string;
+            /** Format: date */
+            sourceCheckedAt: string;
+        };
+        RoadGuidance: {
+            version: string;
+            roadType: components["schemas"]["RoadType"];
+            /** @enum {string} */
+            status: "ENTRY_POINTS_ONLY" | "UNAVAILABLE";
+            contacts: components["schemas"]["RoadContact"][];
+            note: string;
+            /** @constant */
+            contractorStatus: "UNAVAILABLE";
+            contractorNote: string;
+            /** Format: uri */
+            contractSourceUrl: string | null;
+        };
+        /** @description ROAD requires roadDetails. Other categories reject roadDetails. Contact guidance is derived and snapshotted by the server; clients cannot submit authority or contractor matches. */
         ReportInput: {
+            roadDetails?: components["schemas"]["RoadDetails"];
             /** Format: uuid */
             clientSubmissionId: string;
             statement: string;
             languageTag: string;
             /** @enum {string} */
-            category: "FOOTPATH" | "LIGHT" | "WASTE" | "WATER" | "OTHER";
+            category: "ROAD" | "FOOTPATH" | "LIGHT" | "WASTE" | "WATER" | "OTHER";
             locationLabel: string;
             /** @enum {string} */
             publicationPreference: "PRIVATE" | "SANITIZED_RECEIPT";
@@ -2022,6 +2080,9 @@ export interface components {
             message: string;
         };
         ReportProgress: {
+            locationLabel: string;
+            roadDetails: components["schemas"]["RoadDetails"] | null;
+            roadGuidance: components["schemas"]["RoadGuidance"] | null;
             hasPublicationRequest: boolean;
             id: string;
             statement: string;
@@ -2048,6 +2109,8 @@ export interface components {
             languageTag: string;
             publicationPreference: string;
             metadata: {
+                roadDetails?: components["schemas"]["RoadDetails"];
+                roadGuidance?: components["schemas"]["RoadGuidance"];
                 category: string;
                 locationLabel: string;
             };
@@ -2157,7 +2220,7 @@ export interface components {
             /** Format: uuid */
             agencyId: string;
             /** @enum {string} */
-            category: "FOOTPATH" | "LIGHT" | "WASTE" | "WATER" | "OTHER";
+            category: "ROAD" | "FOOTPATH" | "LIGHT" | "WASTE" | "WATER" | "OTHER";
             urgencyTier: number;
             reason: string;
         };
@@ -2594,6 +2657,29 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_road_guidance: {
+        parameters: {
+            query?: {
+                roadType?: components["schemas"]["RoadType"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Guidance, including explicit unavailable results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoadGuidance"];
+                };
+            };
+            422: components["responses"]["Problem"];
+        };
+    };
     get_auth_config: {
         parameters: {
             query?: never;

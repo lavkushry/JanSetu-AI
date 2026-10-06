@@ -8,6 +8,7 @@ import { Badge, Modal, FormError, Loading, Empty, ErrorState, useSession } from 
 import { ReceiptCard } from './social';
 import { PublicSharingControl } from './public-sharing';
 import { ReportPhotos, PrivatePhotos } from './media';
+import { RoadFields, RoadSummary, DownloadRoadComplaint, emptyRoad } from './roads';
 
 export function ReportWizard({ onClose }: { onClose: () => void }) {
   const { me, notify } = useSession();
@@ -16,6 +17,7 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
   const [mediaIds, setMediaIds] = useState<string[]>([]);
   const [analysisIds, setAnalysisIds] = useState<Record<string, string>>({});
   const [photoStates, setPhotoStates] = useState<Record<string, string>>({});
+  const [photosBusy, setPhotosBusy] = useState(false);
   const [photoCorrections, setPhotoCorrections] = useState<
     Record<string, Schema['OCRCorrection'][]>
   >({});
@@ -24,10 +26,11 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
       setPhotoStates((v) => (v[id] === state ? v : { ...v, [id]: state })),
     [],
   );
-  const photosReady = mediaIds.every((id) => photoStates[id] === 'APPROVED');
+  const photosReady = !photosBusy && mediaIds.every((id) => photoStates[id] === 'APPROVED');
   const ocrCorrections = mediaIds.flatMap((id) => photoCorrections[id] || []);
   const [statement, setStatement] = useState('');
   const [category, setCategory] = useState<Schema['ReportInput']['category']>('FOOTPATH');
+  const [roadDetails, setRoadDetails] = useState<Schema['RoadDetails']>(emptyRoad);
   const [locationLabel, setLocation] = useState('');
   const [languageTag, setLanguage] = useState('en-IN');
   const [publicationPreference, setPreference] =
@@ -47,6 +50,7 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
         JSON.stringify({
           statement,
           category,
+          roadDetails,
           locationLabel,
           languageTag,
           publicationPreference,
@@ -60,6 +64,7 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
     keep,
     statement,
     category,
+    roadDetails,
     locationLabel,
     languageTag,
     publicationPreference,
@@ -77,6 +82,7 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
           clientSubmissionId: submission.current,
           statement,
           category,
+          ...(category === 'ROAD' ? { roadDetails } : {}),
           locationLabel,
           languageTag,
           publicationPreference,
@@ -95,6 +101,7 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
       const d = JSON.parse(localStorage.getItem(draftKey) || '{}');
       setStatement(d.statement || '');
       setCategory(d.category || 'OTHER');
+      setRoadDetails(d.roadDetails || emptyRoad);
       setLocation(d.locationLabel || '');
       setLanguage(d.languageTag || 'en-IN');
       setPreference(d.publicationPreference || 'PRIVATE');
@@ -174,13 +181,15 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
                 value={category}
                 onChange={(e) => setCategory(e.target.value as Schema['ReportInput']['category'])}
               >
-                <option value="FOOTPATH">Roads & footpaths</option>
+                <option value="ROAD">Potholes & road surface</option>
+                <option value="FOOTPATH">Footpaths & crossings</option>
                 <option value="LIGHT">Street lighting</option>
                 <option value="WASTE">Waste & cleanliness</option>
                 <option value="WATER">Water & drainage</option>
                 <option value="OTHER">Other public service</option>
               </select>
             </label>
+            {category === 'ROAD' && <RoadFields value={roadDetails} onChange={setRoadDetails} />}
             <label>
               Location or landmark
               <input
@@ -206,6 +215,8 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
               />
             </label>
             <ReportPhotos
+              onBusy={setPhotosBusy}
+              roadMode={category === 'ROAD'}
               ids={mediaIds}
               setIds={setMediaIds}
               analysisIds={analysisIds}
@@ -226,6 +237,7 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
                     clientSubmissionId: submission.current,
                     statement: statement + '\n' + text,
                     category,
+                    ...(category === 'ROAD' ? { roadDetails } : {}),
                     locationLabel,
                     languageTag,
                     publicationPreference,
@@ -309,6 +321,7 @@ export function ReportWizard({ onClose }: { onClose: () => void }) {
               {locationLabel}
             </p>
             <p className="post-body full">{statement}</p>
+            {category === 'ROAD' && <RoadSummary details={roadDetails} />}
             <PrivatePhotos ids={mediaIds} />
             {mediaIds.length > 0 && (
               <p className="muted">
@@ -407,6 +420,15 @@ export function MyReports({ onReport }: { onReport: () => void }) {
               <Badge state={v.state} />
             </div>
             <p>{v.statement}</p>
+            {v.roadDetails && (
+              <>
+                <p className="receipt-location">
+                  <MapPin size={16} /> {v.locationLabel}
+                </p>
+                <RoadSummary details={v.roadDetails} guidance={v.roadGuidance} />
+                <DownloadRoadComplaint report={v} />
+              </>
+            )}
             <PrivatePhotos ids={v.mediaIds} />
             <small>Received {dateLabel(v.receivedAt)}</small>
             {v.responsibilities.map((o, i) => (

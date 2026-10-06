@@ -1,9 +1,10 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ImagePlus, LockKeyhole, ScanText, Trash2, RefreshCw } from 'lucide-react';
+import { ImagePlus, LockKeyhole, ScanText, Trash2, RefreshCw, Camera } from 'lucide-react';
 import { api, readable, APIError, type Schema } from '@/lib/api';
 import { FormError, useSession } from './ui';
+import { VideoFrames } from './video-frames';
 
 type Correction = Schema['OCRCorrection'];
 async function fingerprint(file: File): Promise<string> {
@@ -36,7 +37,11 @@ export function ReportPhotos({
   onApply,
   analysisIds,
   onAnalysisId,
+  roadMode = false,
+  onBusy,
 }: {
+  onBusy: (busy: boolean) => void;
+  roadMode?: boolean;
   analysisIds: Record<string, string>;
   onAnalysisId: (id: string, job: string) => void;
   ids: string[];
@@ -47,8 +52,13 @@ export function ReportPhotos({
   onApply: (id: string, text: string, corrections: Correction[]) => boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const cameraInput = useRef<HTMLInputElement>(null);
   const files = useRef(new Map<string, File>());
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusyLocal] = useState(false);
+  function setBusy(value: boolean) {
+    setBusyLocal(value);
+    onBusy(value);
+  }
   const [error, setError] = useState<Error | null>(null);
   const [failures, setFailures] = useState<Record<string, Error>>({});
   const [pending, setPending] = useState<PendingPhoto[]>([]);
@@ -193,6 +203,35 @@ export function ReportPhotos({
           <ImagePlus size={17} />
           {busy ? 'Uploading…' : 'Add photos'}
         </button>
+      </div>
+      <div className="photo-capture-actions">
+        <button
+          type="button"
+          className="secondary small"
+          disabled={busy || ids.length + pending.length >= 4}
+          onClick={() => cameraInput.current?.click()}
+        >
+          <Camera size={16} /> Take photo
+        </button>
+        <input
+          ref={cameraInput}
+          type="file"
+          hidden
+          accept="image/jpeg,image/png,image/webp"
+          capture="environment"
+          aria-label="Take report photo"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) void choose([file]);
+          }}
+        />
+        {roadMode && (
+          <VideoFrames
+            disabled={busy || ids.length + pending.length >= 4}
+            onUse={(file) => choose([file])}
+          />
+        )}
       </div>
       <input
         ref={input}
