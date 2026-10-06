@@ -64,12 +64,12 @@ func (a *App) renewPublicSharing(w http.ResponseWriter, r *http.Request, actor *
 		if !errors.Is(e, pgx.ErrNoRows) {
 			return uuid.Nil, nil, e
 		}
-		active, e := q.OwnerActiveSharingRenewal(r.Context(), requestID)
+		_, e = q.OwnerActiveSharingRenewal(r.Context(), requestID)
 		if e == nil {
-			if active.PublicationVersion != b.PublicationVersion {
-				return uuid.Nil, nil, sharingUnavailable()
-			}
-			return active.ID, map[string]any{"requestId": requestID}, nil
+			// Only a retained client ID can be acknowledged as a retry. Accepting
+			// another ID here would leave no lifetime receipt after key expiry,
+			// allowing its old confirmation to grant permission again after undo.
+			return uuid.Nil, nil, sharingUnavailable()
 		}
 		if !errors.Is(e, pgx.ErrNoRows) {
 			return uuid.Nil, nil, e

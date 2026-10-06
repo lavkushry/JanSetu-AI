@@ -2589,8 +2589,9 @@ paths:
         or immediately publishing anything. Only the latest approved withdrawal for
         that report can gain a new permission. Stable clientRequestId and command key
         preserve retries; the response hydrates the current owner record. A later approved
-        withdrawal requires fresh permission. Original PRIVATE preferences and other
-        source vetoes remain effective.
+        withdrawal requires fresh permission. A different client ID conflicts while
+        permission is active. Original PRIVATE preferences and other source vetoes
+        remain effective.
       parameters:
         - $ref: '#/components/parameters/CSRF'
         - $ref: '#/components/parameters/Version'

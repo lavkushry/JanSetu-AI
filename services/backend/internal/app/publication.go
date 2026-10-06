@@ -77,6 +77,16 @@ func (a *App) publishReceipt(w http.ResponseWriter, r *http.Request, actor *Acto
 			if err != nil {
 				return err
 			}
+			// Owner-scoped SQL can hold this receipt independently of API
+			// serialization. Recheck permission after waiting for its lock,
+			// before either publication or an identical-preview no-op.
+			allowed, err := q.PublicationAllowed(r.Context(), cid)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				return failure(403, "PUBLICATION_PRIVATE", "Private sharing preferences or withdrawal requests currently prevent publication")
+			}
 			publicationVersion = current.PublicationVersion
 			if publicationVersion != *b.PublicationVersion {
 				return publicationConflict()

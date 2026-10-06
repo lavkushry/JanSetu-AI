@@ -1505,7 +1505,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Verified owner only. If-Match binds the approved withdrawal request version; publicationVersion binds the current withdrawn receipt. Explicitly allows future sanitized publisher review without changing the original report or immediately publishing anything. Only the latest approved withdrawal for that report can gain a new permission. Stable clientRequestId and command key preserve retries; the response hydrates the current owner record. A later approved withdrawal requires fresh permission. Original PRIVATE preferences and other source vetoes remain effective. */
+        /** @description Verified owner only. If-Match binds the approved withdrawal request version; publicationVersion binds the current withdrawn receipt. Explicitly allows future sanitized publisher review without changing the original report or immediately publishing anything. Only the latest approved withdrawal for that report can gain a new permission. Stable clientRequestId and command key preserve retries; the response hydrates the current owner record. A later approved withdrawal requires fresh permission. A different client ID conflicts while permission is active. Original PRIVATE preferences and other source vetoes remain effective. */
         post: operations["renew_owned_public_sharing"];
         delete?: never;
         options?: never;

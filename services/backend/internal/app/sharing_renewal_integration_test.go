@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -100,13 +101,15 @@ func TestSharingRenewalRetriesUndoAndFreshPublisherReview(t *testing.T) {
 	for _, retry := range []struct {
 		body map[string]any
 		key  string
-	}{{input, key}, {input, uuid.NewString()}, {renewalInput(2), uuid.NewString()}} {
+	}{{input, key}, {input, uuid.NewString()}} {
 		w = owner.request("POST", path, retry.body, 2, retry.key)
 		mustStatus(t, w, 201)
 		if parsed[renewedSharingRequest](t, w).SharingReview.Renewal.ID != n.ID {
 			t.Fatal("retry duplicated active permission")
 		}
 	}
+	// A different ID is a new intent, never an acknowledged but unretained retry.
+	mustStatus(t, owner.request("POST", path, renewalInput(2), 2, uuid.NewString()), 409)
 	mustStatus(t, other.request("GET", "case-receipts/"+rid.String(), nil, 0, ""), 404)
 	preview := publicationPreview(2, "Fresh permission review")
 	preview["reviewed"] = false
@@ -292,11 +295,12 @@ func TestSharingRenewalConcurrentCreationAndUndoPublicationRace(t *testing.T) {
 	path := "my-reports/" + report.String() + "/publication-withdrawal-requests/" + req.ID.String() + "/sharing-renewals"
 	var wg sync.WaitGroup
 	ids := make(chan uuid.UUID, 4)
+	input := renewalInput(2)
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			w := owner.request("POST", path, renewalInput(2), 2, uuid.NewString())
+			w := owner.request("POST", path, input, 2, uuid.NewString())
 			mustStatus(t, w, 201)
 			ids <- parsed[renewedSharingRequest](t, w).SharingReview.Renewal.ID
 		}()
@@ -340,4 +344,65 @@ func TestSharingRenewalConcurrentCreationAndUndoPublicationRace(t *testing.T) {
 	if (permission == "CANCELLED" && publication != "WITHDRAWN") || (permission == "ACTIVE" && publication != "PUBLISHED") {
 		t.Fatal("race left inconsistent sharing", permission, publication)
 	}
+}
+
+func TestSharingRenewalPublisherRechecksAfterScopedUndo(t *testing.T) {
+	a := testApp(t)
+	owner, publisher := login(t, a, 0), login(t, a, 2)
+	report, cid, rid, req := approvedSharingFixture(t, owner, publisher)
+	path := "my-reports/" + report.String() + "/publication-withdrawal-requests/" + req.ID.String() + "/sharing-renewals"
+	w := owner.request("POST", path, renewalInput(2), 2, uuid.NewString())
+	mustStatus(t, w, 201)
+	n := parsed[renewedSharingRequest](t, w).SharingReview.Renewal
+	grant, err := a.Vault.Aliases(context.Background(), owner.cookie.Value, uuid.NewString(), uuid.Nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(scopedContext(owner, a.Operations, grant), 8*time.Second)
+	defer cancel()
+	tx, err := a.begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	var ownerPID int
+	if err = tx.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&ownerPID); err != nil {
+		t.Fatal(err)
+	}
+	// A separately issued owner-scoped SQL transition holds the receipt through
+	// its trigger, without taking the API's pilot mutation lock. The publisher
+	// sees committed ACTIVE permission, then waits for this receipt lock.
+	if _, err = tx.Exec(ctx, "UPDATE ops.publication_sharing_renewal SET state='CANCELLED',version=version+1 WHERE id=$1", n.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan int, 1)
+	go func() {
+		done <- publisher.request("POST", "authority/cases/"+cid.String()+"/publications", publicationPreview(2, "Scoped undo racing with review"), 1, "").Code
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		var blocked bool
+		if err = integrationAdmin.QueryRow(ctx, "SELECT EXISTS(SELECT FROM pg_stat_activity a WHERE a.datname=current_database() AND $1=ANY(pg_blocking_pids(a.pid)) AND a.query LIKE '%FROM social.case_receipt%FOR UPDATE%')", ownerPID).Scan(&blocked); err != nil {
+			t.Fatal(err)
+		}
+		if blocked {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("publisher did not wait for the owner receipt lock")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case status := <-done:
+		if status != 403 {
+			t.Fatal("publisher used consent read before receipt lock", status)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("publisher did not finish after scoped undo committed")
+	}
+	mustStatus(t, owner.request("GET", "case-receipts/"+rid.String(), nil, 0, ""), 404)
 }
