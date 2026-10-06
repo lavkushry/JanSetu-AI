@@ -16,7 +16,15 @@ func ownerWithdrawalDTO(v dbgen.OwnerWithdrawalRequestsRow) any {
 	if v.Result.Valid {
 		outcome = map[string]any{"result": v.Result.String, "reason": v.ResidentReason.String, "decidedAt": timestamp(v.DecidedAt)}
 	}
-	return map[string]any{"id": v.ID, "publicationVersion": v.PublicationVersion, "reasonCode": v.ReasonCode, "state": v.State, "version": v.Version, "createdAt": timestamp(v.CreatedAt), "outcome": outcome}
+	var sharingReview any
+	if v.SharingPublicationVersion.Valid {
+		var renewal any
+		if v.RenewalID != nil {
+			renewal = map[string]any{"id": v.RenewalID, "state": v.RenewalState.String, "version": v.RenewalVersion.Int64, "publicationVersion": v.RenewalPublicationVersion.Int64, "createdAt": timestamp(v.RenewedAt), "cancelledAt": timestamp(v.RenewalCancelledAt)}
+		}
+		sharingReview = map[string]any{"publicationVersion": v.SharingPublicationVersion.Int64, "canRenew": v.CanRenew, "canUndo": v.CanUndo, "renewal": renewal}
+	}
+	return map[string]any{"id": v.ID, "publicationVersion": v.PublicationVersion, "reasonCode": v.ReasonCode, "state": v.State, "version": v.Version, "createdAt": timestamp(v.CreatedAt), "outcome": outcome, "sharingReview": sharingReview}
 }
 func ownerWithdrawalReceipt(r *http.Request, q *dbgen.Queries, reportID, requestID uuid.UUID) (any, error) {
 	row, err := q.OwnerWithdrawalReceipt(r.Context(), dbgen.OwnerWithdrawalReceiptParams{ID: requestID, ReportID: reportID})
@@ -66,7 +74,15 @@ func (a *App) myPublicSharing(w http.ResponseWriter, r *http.Request, actor *Act
 			return nil, 0, e
 		}
 	}
-	return map[string]any{"publication": preview, "blocked": blocked || report.PublicationPreference == "PRIVATE", "requests": items}, 200, nil
+	var permissionRequest any
+	permission, e := q.OwnerCurrentSharingRequest(r.Context(), reportID)
+	if e == nil {
+		permissionRequest = ownerWithdrawalDTO(dbgen.OwnerWithdrawalRequestsRow(permission))
+	}
+	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+		return nil, 0, e
+	}
+	return map[string]any{"publication": preview, "blocked": blocked || report.PublicationPreference == "PRIVATE", "requests": items, "permissionRequest": permissionRequest}, 200, nil
 }
 
 // Stable client IDs survive a lost response or expired command key. Stored

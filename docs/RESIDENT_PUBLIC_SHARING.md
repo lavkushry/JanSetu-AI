@@ -1,6 +1,6 @@
 # Resident requests to withdraw public progress
 
-Residents can request withdrawal of the current reviewed public service preview from their own report progress. The request remains private, pauses new publication, and enters a publisher review queue. Approval withdraws the public receipt and keeps republication blocked. Private reports, first-reported time, agency work and verification continue independently. This is the fictional local workflow described in the [implementation status](IMPLEMENTATION_STATUS.md), with production requirements still governed by the [canonical specification](spec/README.md).
+Residents can request withdrawal of the current reviewed public service preview from their own report progress. The request remains private, pauses new publication, and enters a publisher review queue. Approval withdraws the public receipt and keeps republication blocked until the owner explicitly allows a fresh publisher review. See [resident permission renewal](RESIDENT_SHARING_RENEWAL.md). Private reports, first-reported time, agency work and verification continue independently. This is the fictional local workflow described in the [implementation status](IMPLEMENTATION_STATUS.md), with production requirements still governed by the [canonical specification](spec/README.md).
 
 ## Resident and publisher experience
 
@@ -12,7 +12,7 @@ A stale request, case or publication prevents submission. Refresh keeps concern 
 
 ## Commands and concurrency
 
-The executable contract is [OpenAPI 0.18.0](../contracts/openapi/core.yaml). Normal sign-in, CSRF and origin checks apply.
+The executable contract is [OpenAPI 0.19.0](../contracts/openapi/core.yaml). Normal sign-in, CSRF and origin checks apply.
 
 | Route (under `/v1`)                                                               | Preconditions and result                                                                                                                                             |
 | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -25,7 +25,7 @@ The executable contract is [OpenAPI 0.18.0](../contracts/openapi/core.yaml). Nor
 
 Missing `If-Match` returns 428; a stale request or case returns 412; a stale publication or already decided request returns 409. Invalid semantic fields return 422; unknown JSON fields return 400. Owner creation retries with identical content preserve the request ID, including after command-key expiry. Stored command responses hold only that ID and hydrate the current outcome. Changed content conflicts. One non-cancelled request records each report/receipt/publication snapshot, preventing repeated declined requests against an unchanged preview.
 
-Cancellation and publisher review serialize through the pilot mutation lock before taking row locks. Exactly one wins; the stale loser cannot write another outcome. Pending and approved requests veto the normal publication endpoint, including an identical-preview retry. Decline and cancellation remove their own veto, but still require a fresh publication review and never override an original PRIVATE preference or another source's veto. Approval does not increment operational case versions. If the public receipt is already withdrawn, approval records the request outcome without another withdrawal event.
+Cancellation and publisher review serialize through the pilot mutation lock before taking row locks. Exactly one wins; the stale loser cannot write another outcome. Pending requests and the latest approved request without active owner permission veto the normal publication endpoint, including an identical-preview retry. Decline and cancellation remove their own veto, but still require a fresh publication review and never override an original PRIVATE preference or another source's veto. Approval does not increment operational case versions. If the public receipt is already withdrawn, approval records the request outcome without another withdrawal event.
 
 ## Persistence and isolation
 
@@ -54,4 +54,4 @@ Retain the existing database/media volumes and vault keys. The schema-23 worker 
 
 Race-enabled integration tests cover owner-only access, forged binding/version denial, unknown fields, confirmation, command-key expiry and lifetime deduplication, pending publication veto, independent agency work, stale review, approved withdrawal across public surfaces, current-outcome retries, cancellation/approval races, decline and fresh correction, private reason separation, restricted grants and live role/session revocation. Browser journeys cover real OIDC, resident confirmation/cancellation, publisher approval/decline, stale drafts, lost responses and 320px light/dark layouts.
 
-Resident opt-in after approval, history pagination, emergency takedown automation, policy-based second-person publication, evaluated redaction, protected intake, production retention and purge, outbound notifications and realtime cache invalidation remain pending. Approval conservatively prevents later publication from the affected case; merged multi-source cases will require an explicit sharing policy. Local global serialization remains a throughput limit. This milestone does not complete all FR37 contracts or authorize real/protected intake.
+[Resident opt-in after approval](RESIDENT_SHARING_RENEWAL.md) is implemented. History pagination, emergency takedown automation, policy-based second-person publication, evaluated redaction, protected intake, production retention and purge, outbound notifications and realtime cache invalidation remain pending. An approved withdrawal requires fresh owner permission and publisher review for later publication; merged multi-source cases will require an explicit sharing policy. Local global serialization remains a throughput limit. This milestone does not complete all FR37 contracts or authorize real/protected intake.

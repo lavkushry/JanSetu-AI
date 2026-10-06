@@ -606,15 +606,18 @@ SELECT r.id,r.publication_preference,i.case_id,b.receipt_id FROM ops.report r
 LEFT JOIN ops.intake_review i ON i.report_id=r.id LEFT JOIN ops.publication_binding b ON b.case_id=i.case_id
 WHERE r.id=$1 AND authz.owns_report(r.id);
 -- name: OwnerWithdrawalRequests :many
-SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at
+SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at,
+o.publication_version AS sharing_publication_version,COALESCE(o.can_renew,false)::boolean AS can_renew,COALESCE(o.can_undo,false)::boolean AS can_undo,
+o.renewal_id,o.renewal_state,o.renewal_version,o.renewal_publication_version,o.renewed_at,o.renewal_cancelled_at
 FROM ops.publication_withdrawal_request w LEFT JOIN ops.publication_withdrawal_outcome d ON d.request_id=w.id
+LEFT JOIN ops.publication_sharing_renewal_review o ON o.request_id=w.id
 WHERE w.report_id=$1 ORDER BY w.created_at DESC,w.id DESC LIMIT 20;
 -- name: OwnerWithdrawalByClient :one
 SELECT id,publication_version,reason_code FROM ops.publication_withdrawal_request WHERE report_id=$1 AND client_request_id=$2;
 -- name: OwnerWithdrawalBySnapshot :one
 SELECT id,publication_version,reason_code FROM ops.publication_withdrawal_request WHERE report_id=$1 AND receipt_id=$2 AND publication_version=$3 AND state<>'CANCELLED';
 -- name: OwnerWithdrawalBlocked :one
-SELECT EXISTS(SELECT FROM ops.publication_withdrawal_request WHERE report_id=$1 AND state IN ('REQUESTED','APPROVED'));
+SELECT EXISTS(SELECT FROM ops.publication_withdrawal_request w WHERE w.report_id=$1 AND (w.state='REQUESTED' OR (w.state='APPROVED' AND NOT EXISTS(SELECT FROM ops.publication_withdrawal_request newer WHERE newer.report_id=w.report_id AND newer.case_id=w.case_id AND newer.state='APPROVED' AND ROW(newer.created_at,newer.id)>ROW(w.created_at,w.id)) AND NOT EXISTS(SELECT FROM ops.publication_sharing_renewal n WHERE n.request_id=w.id AND n.state='ACTIVE'))));
 -- name: InsertWithdrawalRequest :exec
 INSERT INTO ops.publication_withdrawal_request(id,report_id,case_id,receipt_id,client_request_id,publication_version,reason_code) VALUES($1,$2,$3,$4,$5,$6,$7);
 -- name: WithdrawalReview :one
@@ -633,6 +636,31 @@ SELECT id,report_id,state,version FROM ops.publication_withdrawal_request WHERE 
 -- name: InsertWithdrawalCancel :exec
 INSERT INTO ops.publication_withdrawal_cancel(request_id) VALUES($1);
 -- name: OwnerWithdrawalReceipt :one
-SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at
+SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at,
+o.publication_version AS sharing_publication_version,COALESCE(o.can_renew,false)::boolean AS can_renew,COALESCE(o.can_undo,false)::boolean AS can_undo,
+o.renewal_id,o.renewal_state,o.renewal_version,o.renewal_publication_version,o.renewed_at,o.renewal_cancelled_at
 FROM ops.publication_withdrawal_request w LEFT JOIN ops.publication_withdrawal_outcome d ON d.request_id=w.id
+LEFT JOIN ops.publication_sharing_renewal_review o ON o.request_id=w.id
 WHERE w.id=$1 AND w.report_id=$2;
+
+-- name: OwnerSharingRenewalByClient :one
+SELECT id,request_id,publication_version FROM ops.publication_sharing_renewal WHERE report_id=$1 AND client_request_id=$2;
+-- name: OwnerActiveSharingRenewal :one
+SELECT id,publication_version FROM ops.publication_sharing_renewal WHERE request_id=$1 AND state='ACTIVE';
+-- name: InsertSharingRenewal :exec
+INSERT INTO ops.publication_sharing_renewal(id,request_id,report_id,client_request_id,publication_version) VALUES($1,$2,$3,$4,$5);
+-- name: LockOwnerSharingRenewal :one
+SELECT id,request_id,state,version FROM ops.publication_sharing_renewal WHERE id=$1 AND request_id=$2 AND report_id=$3 FOR UPDATE;
+-- name: CancelSharingRenewal :exec
+UPDATE ops.publication_sharing_renewal SET state='CANCELLED',version=version+1 WHERE id=$1;
+-- name: OwnerSharingRenewalReview :one
+SELECT request_id,publication_version,COALESCE(can_renew,false)::boolean AS can_renew,COALESCE(can_undo,false)::boolean AS can_undo
+FROM ops.publication_sharing_renewal_review WHERE request_id=$1 AND report_id=$2;
+
+-- name: OwnerCurrentSharingRequest :one
+SELECT w.id,w.client_request_id,w.publication_version,w.reason_code,w.state,w.version,w.created_at,d.result,d.resident_reason,d.decided_at,
+o.publication_version AS sharing_publication_version,COALESCE(o.can_renew,false)::boolean AS can_renew,COALESCE(o.can_undo,false)::boolean AS can_undo,
+o.renewal_id,o.renewal_state,o.renewal_version,o.renewal_publication_version,o.renewed_at,o.renewal_cancelled_at
+FROM ops.publication_withdrawal_request w LEFT JOIN ops.publication_withdrawal_outcome d ON d.request_id=w.id
+LEFT JOIN ops.publication_sharing_renewal_review o ON o.request_id=w.id
+WHERE w.report_id=$1 AND w.state='APPROVED' ORDER BY w.created_at DESC,w.id DESC LIMIT 1;
