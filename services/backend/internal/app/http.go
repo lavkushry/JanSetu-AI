@@ -452,8 +452,10 @@ func (a *App) Handler() http.Handler {
 
 		"GET /v1/authority/intake": a.intakeQueue, "GET /v1/authority/agencies": a.agencies, "POST /v1/authority/reports/{id}/triage": a.triage,
 		"GET /v1/authority/cases": a.cases, "GET /v1/authority/cases/{id}": a.caseDetail,
-		"POST /v1/authority/cases/{id}/obligations":  a.proposeObligation,
-		"POST /v1/authority/obligations/{id}/accept": a.acceptObligation, "POST /v1/authority/obligations/{id}/start": a.startWork,
+		"POST /v1/authority/cases/{id}/obligations":               a.proposeObligation,
+		"POST /v1/authority/obligations/{id}/partial-acceptances": a.partiallyAcceptTask,
+		"POST /v1/authority/cases/{id}/task-split-decisions":      a.decideTaskSplit,
+		"POST /v1/authority/obligations/{id}/accept":              a.acceptObligation, "POST /v1/authority/obligations/{id}/start": a.startWork,
 		"POST /v1/authority/obligations/{id}/completion-claims": a.claimCompletion,
 		"POST /v1/authority/cases/{id}/verification-decisions":  a.verify,
 		"POST /v1/authority/cases/{id}/publications":            a.publishReceipt,

@@ -55,12 +55,22 @@ func (a *App) caseData(r *http.Request, q *dbgen.Queries, cid uuid.UUID, actor *
 		return nil, e
 	}
 	items := []any{}
+	splits, e := q.CaseTaskSplits(r.Context(), cid)
+	if e != nil {
+		return nil, e
+	}
+	open := c.State != "RESOLVED" && c.State != "WITHDRAWN"
 	for _, o := range obligations {
+		pendingSplit := false
+		for _, s := range splits {
+			pendingSplit = pendingSplit || s.TaskID == o.ID && s.State == "PENDING"
+		}
+		canPartiallyAccept := open && o.State == "PROPOSED" && o.RequiredForRestoration && o.ObligationType == "RESTORATION" && !pendingSplit && len(obligations)+2 <= maxRestorationTasks && canWorkTask(actor, o.AgencyID)
 		prerequisite := prerequisitesFor(prerequisites, o.ID)
 		if o.AgencyID != nil && actor.Agency(*o.AgencyID, "") {
 			allowed = true
 		}
-		items = append(items, map[string]any{"id": o.ID, "agencyId": o.AgencyID, "agency": o.AgencyName, "scope": o.ScopeText, "requiredForRestoration": o.RequiredForRestoration, "prerequisiteTaskIds": prerequisite.IDs, "blockedByTaskIds": prerequisite.BlockedIDs, "state": o.State, "version": o.Version, "dueAt": timestamp(o.DueAt), "workSummary": o.WorkSummary, "acceptedAt": timestamp(o.AcceptedAt), "completedAt": timestamp(o.CompletedAt), "canVerify": o.AgencyID != nil && actor.Agency(*o.AgencyID, "VERIFIER") && (o.CompletionActorRef == nil || *o.CompletionActorRef != actor.PrincipalID)})
+		items = append(items, map[string]any{"id": o.ID, "agencyId": o.AgencyID, "agency": o.AgencyName, "scope": o.ScopeText, "requiredForRestoration": o.RequiredForRestoration, "scopeReplaced": o.ScopeReplaced, "parentTaskId": o.ParentObligationID, "canPartiallyAccept": canPartiallyAccept, "prerequisiteTaskIds": prerequisite.IDs, "blockedByTaskIds": prerequisite.BlockedIDs, "state": o.State, "version": o.Version, "dueAt": timestamp(o.DueAt), "workSummary": o.WorkSummary, "acceptedAt": timestamp(o.AcceptedAt), "completedAt": timestamp(o.CompletedAt), "canVerify": o.AgencyID != nil && actor.Agency(*o.AgencyID, "VERIFIER") && (o.CompletionActorRef == nil || *o.CompletionActorRef != actor.PrincipalID)})
 	}
 	if !allowed {
 		return nil, forbidden()
@@ -92,7 +102,7 @@ func (a *App) caseData(r *http.Request, q *dbgen.Queries, cid uuid.UUID, actor *
 		}
 		blocked = !allowed
 	}
-	return map[string]any{"canProposeTask": actor.Has("COORDINATOR") && c.State != "RESOLVED" && c.State != "WITHDRAWN" && len(obligations) < maxRestorationTasks, "publicationBlocked": blocked, "canPublish": actor.Has("PUBLISHER"), "publication": publication, "id": c.ID, "category": c.CategoryCode, "state": c.State, "urgencyTier": c.UrgencyTier, "version": c.Version, "firstReportedAt": timestamp(c.FirstValidReportAt), "obligations": items, "events": timeline, "receiptId": receipt}, nil
+	return map[string]any{"canProposeTask": actor.Has("COORDINATOR") && c.State != "RESOLVED" && c.State != "WITHDRAWN" && len(obligations) < maxRestorationTasks, "publicationBlocked": blocked, "canPublish": actor.Has("PUBLISHER"), "publication": publication, "id": c.ID, "category": c.CategoryCode, "state": c.State, "urgencyTier": c.UrgencyTier, "version": c.Version, "firstReportedAt": timestamp(c.FirstValidReportAt), "obligations": items, "taskSplitRequests": caseSplitData(splits, actor, open), "events": timeline, "receiptId": receipt}, nil
 }
 func (a *App) caseDetail(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
 	cid, e := id(r, "id")
@@ -151,6 +161,15 @@ func (a *App) obligationTransition(r *http.Request, actor *Actor, target string)
 		valid := (target == "ACCEPTED" && o.State == "PROPOSED") || (target == "IN_PROGRESS" && o.State == "ACCEPTED") || (target == "COMPLETION_CLAIMED" && o.State == "IN_PROGRESS")
 		if !valid {
 			return failure(409, "INVALID_TRANSITION", "Refresh the current task state")
+		}
+		if target == "ACCEPTED" {
+			pending, err := q.TaskHasPendingSplit(r.Context(), oid)
+			if err != nil {
+				return err
+			}
+			if pending {
+				return failure(409, "TASK_SPLIT_PENDING", "A partial acceptance awaits coordinator review. Refresh the case")
+			}
 		}
 		if target != "ACCEPTED" {
 			if e = requirePrerequisiteVerification(r, q, c.ID, oid); e != nil {

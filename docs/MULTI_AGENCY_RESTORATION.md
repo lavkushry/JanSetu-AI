@@ -112,9 +112,10 @@ This is a local slice of FR-20 and required-work portions of AC-53/54, not compl
 of those canonical contracts. The local fixture has a City Works agent/verifier;
 backend tests provision temporary Water Services grants in isolated databases.
 The [prerequisite milestone](TASK_PREREQUISITES.md) now enforces immutable task
-sequencing at proposal time. Controlled staff provisioning, dependency changes,
-partial acceptance,
-splitting, reassignment, disputes, adjudication, signed SLA clocks, escalation,
+sequencing at proposal time. [Reviewed partial acceptance](PARTIAL_ACCEPTANCE.md)
+now preserves both required scopes through independent coordinator confirmation.
+Controlled staff provisioning, dependency changes,
+reassignment, disputes, adjudication, signed SLA clocks, escalation,
 reopening verified closure and real agency delivery remain pending. Scopes do not
 infer sequencing; explicit prerequisites enforce it. Inspection records fictional
 decisions without physical

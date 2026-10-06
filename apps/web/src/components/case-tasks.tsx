@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, dateLabel, type Me, type Schema } from '@/lib/api';
 import { Badge, ErrorState, FormError, Loading, useSession } from './ui';
+import { PartialAcceptance, TaskSplitReview } from './task-splits';
 
 export function TaskProposal({ caseDetail: c }: { caseDetail: Schema['CaseDetail'] }) {
   const qc = useQueryClient();
@@ -157,15 +158,23 @@ export function ObligationCard({
   );
   const open = c.state !== 'RESOLVED' && c.state !== 'WITHDRAWN';
   const workBlocked = o.blockedByTaskIds.length > 0;
+  const splits = c.taskSplitRequests.filter((s) => s.taskId === o.id);
+  const pendingSplit = splits.some((s) => s.state === 'PENDING');
+  const parentNumber = c.obligations.findIndex((task) => task.id === o.parentTaskId) + 1;
   return (
-    <div className="obligation" data-testid={`obligation-${o.id}`}>
+    <div className="obligation" id={`obligation-${o.id}`} data-testid={`obligation-${o.id}`}>
       <strong>{o.agency}</strong>
       <Badge state={o.state} />
       <p className="task-scope">{o.scope || 'Restoration task assessed at intake'}</p>
       <small>
-        {o.requiredForRestoration ? 'Required for restoration' : 'Additional task'} ·{' '}
-        {o.dueAt ? `Due ${dateLabel(o.dueAt)}` : 'Deadline unavailable'}
+        {o.scopeReplaced
+          ? 'Original scope retained in split history'
+          : o.requiredForRestoration
+            ? 'Required for restoration'
+            : 'Additional task'}{' '}
+        · {o.dueAt ? `Due ${dateLabel(o.dueAt)}` : 'Deadline unavailable'}
       </small>
+      {o.parentTaskId && <p className="review-note">Required scope from task {parentNumber}.</p>}
       <p>{o.workSummary || 'The proposed task has not yet been accepted.'}</p>
       {o.prerequisiteTaskIds.length > 0 && (
         <div className="task-sequence" data-testid="task-sequence">
@@ -182,8 +191,12 @@ export function ObligationCard({
                   {task.scope || 'Restoration task assessed at intake'}
                   <small>
                     {o.blockedByTaskIds.includes(task.id)
-                      ? 'Awaiting independent verification'
-                      : 'Independently verified'}
+                      ? task.scopeReplaced
+                        ? 'Split scopes awaiting independent verification'
+                        : 'Awaiting independent verification'
+                      : task.scopeReplaced
+                        ? 'Split scopes independently verified'
+                        : 'Independently verified'}
                   </small>
                 </li>
               ) : null,
@@ -196,49 +209,56 @@ export function ObligationCard({
           )}
         </div>
       )}
-      {open && isAgent && ['PROPOSED', 'ACCEPTED', 'IN_PROGRESS'].includes(o.state) && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const route =
-              o.state === 'PROPOSED'
-                ? 'accept'
-                : o.state === 'ACCEPTED'
-                  ? 'start'
-                  : 'completion-claims';
-            action.mutate({
-              path: `authority/obligations/${o.id}/${route}`,
-              version: o.version,
-              body: { summary },
-            });
-          }}
-        >
-          <label>
-            Work or decision summary
-            <textarea
-              required
-              minLength={5}
-              maxLength={2000}
-              rows={3}
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-              placeholder="Record the agency’s decision or work performed"
-            />
-          </label>
-          <div className="form-actions">
-            <button
-              className="primary"
-              disabled={action.isPending || (o.state !== 'PROPOSED' && workBlocked)}
-            >
-              {o.state === 'PROPOSED'
-                ? 'Accept task'
-                : o.state === 'ACCEPTED'
-                  ? 'Start work'
-                  : 'Claim completion'}
-            </button>
-          </div>
-        </form>
-      )}
+      {open &&
+        isAgent &&
+        !pendingSplit &&
+        ['PROPOSED', 'ACCEPTED', 'IN_PROGRESS'].includes(o.state) && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const route =
+                o.state === 'PROPOSED'
+                  ? 'accept'
+                  : o.state === 'ACCEPTED'
+                    ? 'start'
+                    : 'completion-claims';
+              action.mutate({
+                path: `authority/obligations/${o.id}/${route}`,
+                version: o.version,
+                body: { summary },
+              });
+            }}
+          >
+            <label>
+              Work or decision summary
+              <textarea
+                required
+                minLength={5}
+                maxLength={2000}
+                rows={3}
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+                placeholder="Record the agency’s decision or work performed"
+              />
+            </label>
+            <div className="form-actions">
+              <button
+                className="primary"
+                disabled={action.isPending || (o.state !== 'PROPOSED' && workBlocked)}
+              >
+                {o.state === 'PROPOSED'
+                  ? 'Accept task'
+                  : o.state === 'ACCEPTED'
+                    ? 'Start work'
+                    : 'Claim completion'}
+              </button>
+            </div>
+          </form>
+        )}
+      {o.canPartiallyAccept && <PartialAcceptance obligation={o} />}
+      {splits.map((s) => (
+        <TaskSplitReview key={s.id} request={s} caseDetail={c} />
+      ))}
       {o.state === 'COMPLETION_CLAIMED' && (
         <p className="review-note">Completion is a claim until independently verified.</p>
       )}

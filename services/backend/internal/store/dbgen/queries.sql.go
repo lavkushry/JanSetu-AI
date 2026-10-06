@@ -619,7 +619,11 @@ func (q *Queries) CaseFollowing(ctx context.Context, arg CaseFollowingParams) (b
 }
 
 const caseObligations = `-- name: CaseObligations :many
-SELECT o.id, o.case_id, o.agency_id, o.obligation_type, o.state, o.authority_basis_ref, o.due_at, o.accepted_at, o.completed_at, o.version, o.required_for_restoration, o.parent_obligation_id, o.work_summary, o.completion_actor_ref, o.scope_text, o.client_task_id, o.created_at,a.name AS agency_name FROM ops.obligation o LEFT JOIN ops.agency a ON a.id=o.agency_id WHERE o.case_id=$1 ORDER BY o.created_at,o.id
+SELECT o.id,o.case_id,o.agency_id,o.obligation_type,o.state,o.authority_basis_ref,o.due_at,o.accepted_at,o.completed_at,o.version,
+ COALESCE(o.required_for_restoration AND NOT EXISTS(SELECT FROM ops.task_split_request s WHERE s.task_id=o.id AND s.state='APPROVED'),false)::boolean AS required_for_restoration,
+ o.parent_obligation_id,o.work_summary,o.completion_actor_ref,o.scope_text,o.client_task_id,o.created_at,a.name AS agency_name,
+ EXISTS(SELECT FROM ops.task_split_request s WHERE s.task_id=o.id AND s.state='APPROVED') AS scope_replaced
+FROM ops.obligation o LEFT JOIN ops.agency a ON a.id=o.agency_id WHERE o.case_id=$1 ORDER BY o.created_at,o.id
 `
 
 type CaseObligationsRow struct {
@@ -641,6 +645,7 @@ type CaseObligationsRow struct {
 	ClientTaskID           *uuid.UUID         `json:"client_task_id"`
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 	AgencyName             pgtype.Text        `json:"agency_name"`
+	ScopeReplaced          bool               `json:"scope_replaced"`
 }
 
 func (q *Queries) CaseObligations(ctx context.Context, caseID uuid.UUID) ([]CaseObligationsRow, error) {
@@ -671,6 +676,7 @@ func (q *Queries) CaseObligations(ctx context.Context, caseID uuid.UUID) ([]Case
 			&i.ClientTaskID,
 			&i.CreatedAt,
 			&i.AgencyName,
+			&i.ScopeReplaced,
 		); err != nil {
 			return nil, err
 		}
@@ -683,7 +689,7 @@ func (q *Queries) CaseObligations(ctx context.Context, caseID uuid.UUID) ([]Case
 }
 
 const caseTaskPrerequisites = `-- name: CaseTaskPrerequisites :many
-SELECT p.task_id,p.prerequisite_task_id,o.state FROM ops.task_prerequisite p
+SELECT p.task_id,p.prerequisite_task_id,CASE WHEN ops.task_restored(o.id) THEN 'VERIFIED' ELSE o.state END::text AS state FROM ops.task_prerequisite p
 JOIN ops.obligation o ON o.case_id=p.case_id AND o.id=p.prerequisite_task_id
 WHERE p.case_id=$1 ORDER BY p.task_id,p.prerequisite_task_id
 `
@@ -704,6 +710,49 @@ func (q *Queries) CaseTaskPrerequisites(ctx context.Context, caseID uuid.UUID) (
 	for rows.Next() {
 		var i CaseTaskPrerequisitesRow
 		if err := rows.Scan(&i.TaskID, &i.PrerequisiteTaskID, &i.State); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const caseTaskSplits = `-- name: CaseTaskSplits :many
+SELECT id, case_id, task_id, client_request_id, proposer_ref, task_version, accepted_scope, remaining_scope, authority_basis_ref, reason, state, reviewer_ref, decision_reason, accepted_task_id, remaining_task_id, remaining_agency_id, created_at, reviewed_at FROM ops.task_split_request WHERE case_id=$1 ORDER BY created_at,id
+`
+
+func (q *Queries) CaseTaskSplits(ctx context.Context, caseID uuid.UUID) ([]OpsTaskSplitRequest, error) {
+	rows, err := q.db.Query(ctx, caseTaskSplits, caseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OpsTaskSplitRequest{}
+	for rows.Next() {
+		var i OpsTaskSplitRequest
+		if err := rows.Scan(
+			&i.ID,
+			&i.CaseID,
+			&i.TaskID,
+			&i.ClientRequestID,
+			&i.ProposerRef,
+			&i.TaskVersion,
+			&i.AcceptedScope,
+			&i.RemainingScope,
+			&i.AuthorityBasisRef,
+			&i.Reason,
+			&i.State,
+			&i.ReviewerRef,
+			&i.DecisionReason,
+			&i.AcceptedTaskID,
+			&i.RemainingTaskID,
+			&i.RemainingAgencyID,
+			&i.CreatedAt,
+			&i.ReviewedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1157,6 +1206,33 @@ func (q *Queries) ContentReportTarget(ctx context.Context, arg ContentReportTarg
 		&i.DisplayName,
 	)
 	return i, err
+}
+
+const decideTaskSplit = `-- name: DecideTaskSplit :exec
+UPDATE ops.task_split_request SET state=$2,reviewer_ref=$3,decision_reason=$4,accepted_task_id=$5,remaining_task_id=$6,remaining_agency_id=$7,reviewed_at=now() WHERE id=$1
+`
+
+type DecideTaskSplitParams struct {
+	ID                uuid.UUID   `json:"id"`
+	State             string      `json:"state"`
+	ReviewerRef       *uuid.UUID  `json:"reviewer_ref"`
+	DecisionReason    pgtype.Text `json:"decision_reason"`
+	AcceptedTaskID    *uuid.UUID  `json:"accepted_task_id"`
+	RemainingTaskID   *uuid.UUID  `json:"remaining_task_id"`
+	RemainingAgencyID *uuid.UUID  `json:"remaining_agency_id"`
+}
+
+func (q *Queries) DecideTaskSplit(ctx context.Context, arg DecideTaskSplitParams) error {
+	_, err := q.db.Exec(ctx, decideTaskSplit,
+		arg.ID,
+		arg.State,
+		arg.ReviewerRef,
+		arg.DecisionReason,
+		arg.AcceptedTaskID,
+		arg.RemainingTaskID,
+		arg.RemainingAgencyID,
+	)
+	return err
 }
 
 const decideWithdrawalRequest = `-- name: DecideWithdrawalRequest :exec
@@ -2217,6 +2293,34 @@ func (q *Queries) InsertSharingRenewal(ctx context.Context, arg InsertSharingRen
 	return err
 }
 
+const insertSplitObligation = `-- name: InsertSplitObligation :exec
+INSERT INTO ops.obligation(id,case_id,agency_id,obligation_type,state,authority_basis_ref,scope_text,client_task_id,parent_obligation_id,due_at)
+VALUES($1,$2,$3,'RESTORATION','PROPOSED','synthetic-local-mandate-v1',$4,$5,$6,$7)
+`
+
+type InsertSplitObligationParams struct {
+	ID                 uuid.UUID          `json:"id"`
+	CaseID             uuid.UUID          `json:"case_id"`
+	AgencyID           *uuid.UUID         `json:"agency_id"`
+	ScopeText          string             `json:"scope_text"`
+	ClientTaskID       *uuid.UUID         `json:"client_task_id"`
+	ParentObligationID *uuid.UUID         `json:"parent_obligation_id"`
+	DueAt              pgtype.Timestamptz `json:"due_at"`
+}
+
+func (q *Queries) InsertSplitObligation(ctx context.Context, arg InsertSplitObligationParams) error {
+	_, err := q.db.Exec(ctx, insertSplitObligation,
+		arg.ID,
+		arg.CaseID,
+		arg.AgencyID,
+		arg.ScopeText,
+		arg.ClientTaskID,
+		arg.ParentObligationID,
+		arg.DueAt,
+	)
+	return err
+}
+
 const insertTaskPrerequisite = `-- name: InsertTaskPrerequisite :exec
 INSERT INTO ops.task_prerequisite(case_id,task_id,prerequisite_task_id) VALUES($1,$2,$3)
 `
@@ -2229,6 +2333,38 @@ type InsertTaskPrerequisiteParams struct {
 
 func (q *Queries) InsertTaskPrerequisite(ctx context.Context, arg InsertTaskPrerequisiteParams) error {
 	_, err := q.db.Exec(ctx, insertTaskPrerequisite, arg.CaseID, arg.TaskID, arg.PrerequisiteTaskID)
+	return err
+}
+
+const insertTaskSplitRequest = `-- name: InsertTaskSplitRequest :exec
+INSERT INTO ops.task_split_request(id,case_id,task_id,client_request_id,proposer_ref,task_version,accepted_scope,remaining_scope,authority_basis_ref,reason)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,'synthetic-local-mandate-v1',$9)
+`
+
+type InsertTaskSplitRequestParams struct {
+	ID              uuid.UUID `json:"id"`
+	CaseID          uuid.UUID `json:"case_id"`
+	TaskID          uuid.UUID `json:"task_id"`
+	ClientRequestID uuid.UUID `json:"client_request_id"`
+	ProposerRef     uuid.UUID `json:"proposer_ref"`
+	TaskVersion     int64     `json:"task_version"`
+	AcceptedScope   string    `json:"accepted_scope"`
+	RemainingScope  string    `json:"remaining_scope"`
+	Reason          string    `json:"reason"`
+}
+
+func (q *Queries) InsertTaskSplitRequest(ctx context.Context, arg InsertTaskSplitRequestParams) error {
+	_, err := q.db.Exec(ctx, insertTaskSplitRequest,
+		arg.ID,
+		arg.CaseID,
+		arg.TaskID,
+		arg.ClientRequestID,
+		arg.ProposerRef,
+		arg.TaskVersion,
+		arg.AcceptedScope,
+		arg.RemainingScope,
+		arg.Reason,
+	)
 	return err
 }
 
@@ -2778,6 +2914,41 @@ func (q *Queries) LockReport(ctx context.Context, id uuid.UUID) (OpsReport, erro
 		&i.RetentionPolicyID,
 		&i.RequestHash,
 		&i.Version,
+	)
+	return i, err
+}
+
+const lockTaskSplit = `-- name: LockTaskSplit :one
+SELECT id, case_id, task_id, client_request_id, proposer_ref, task_version, accepted_scope, remaining_scope, authority_basis_ref, reason, state, reviewer_ref, decision_reason, accepted_task_id, remaining_task_id, remaining_agency_id, created_at, reviewed_at FROM ops.task_split_request WHERE case_id=$1 AND id=$2 FOR UPDATE
+`
+
+type LockTaskSplitParams struct {
+	CaseID uuid.UUID `json:"case_id"`
+	ID     uuid.UUID `json:"id"`
+}
+
+func (q *Queries) LockTaskSplit(ctx context.Context, arg LockTaskSplitParams) (OpsTaskSplitRequest, error) {
+	row := q.db.QueryRow(ctx, lockTaskSplit, arg.CaseID, arg.ID)
+	var i OpsTaskSplitRequest
+	err := row.Scan(
+		&i.ID,
+		&i.CaseID,
+		&i.TaskID,
+		&i.ClientRequestID,
+		&i.ProposerRef,
+		&i.TaskVersion,
+		&i.AcceptedScope,
+		&i.RemainingScope,
+		&i.AuthorityBasisRef,
+		&i.Reason,
+		&i.State,
+		&i.ReviewerRef,
+		&i.DecisionReason,
+		&i.AcceptedTaskID,
+		&i.RemainingTaskID,
+		&i.RemainingAgencyID,
+		&i.CreatedAt,
+		&i.ReviewedAt,
 	)
 	return i, err
 }
@@ -4516,6 +4687,52 @@ func (q *Queries) SetVote(ctx context.Context, arg SetVoteParams) error {
 	return err
 }
 
+const taskHasPendingSplit = `-- name: TaskHasPendingSplit :one
+SELECT EXISTS(SELECT FROM ops.task_split_request WHERE task_id=$1 AND state='PENDING')
+`
+
+func (q *Queries) TaskHasPendingSplit(ctx context.Context, taskID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, taskHasPendingSplit, taskID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const taskSplitByClientID = `-- name: TaskSplitByClientID :one
+SELECT id, case_id, task_id, client_request_id, proposer_ref, task_version, accepted_scope, remaining_scope, authority_basis_ref, reason, state, reviewer_ref, decision_reason, accepted_task_id, remaining_task_id, remaining_agency_id, created_at, reviewed_at FROM ops.task_split_request WHERE task_id=$1 AND client_request_id=$2
+`
+
+type TaskSplitByClientIDParams struct {
+	TaskID          uuid.UUID `json:"task_id"`
+	ClientRequestID uuid.UUID `json:"client_request_id"`
+}
+
+func (q *Queries) TaskSplitByClientID(ctx context.Context, arg TaskSplitByClientIDParams) (OpsTaskSplitRequest, error) {
+	row := q.db.QueryRow(ctx, taskSplitByClientID, arg.TaskID, arg.ClientRequestID)
+	var i OpsTaskSplitRequest
+	err := row.Scan(
+		&i.ID,
+		&i.CaseID,
+		&i.TaskID,
+		&i.ClientRequestID,
+		&i.ProposerRef,
+		&i.TaskVersion,
+		&i.AcceptedScope,
+		&i.RemainingScope,
+		&i.AuthorityBasisRef,
+		&i.Reason,
+		&i.State,
+		&i.ReviewerRef,
+		&i.DecisionReason,
+		&i.AcceptedTaskID,
+		&i.RemainingTaskID,
+		&i.RemainingAgencyID,
+		&i.CreatedAt,
+		&i.ReviewedAt,
+	)
+	return i, err
+}
+
 const threadReplyable = `-- name: ThreadReplyable :one
 SELECT EXISTS(SELECT FROM social.post p JOIN social.profile author ON author.id=p.author_id AND author.state='ACTIVE'
 WHERE p.id=$1::uuid AND p.state='PUBLISHED'
@@ -4534,6 +4751,15 @@ func (q *Queries) ThreadReplyable(ctx context.Context, arg ThreadReplyableParams
 	var allowed bool
 	err := row.Scan(&allowed)
 	return allowed, err
+}
+
+const touchObligation = `-- name: TouchObligation :exec
+UPDATE ops.obligation SET version=version+1 WHERE id=$1
+`
+
+func (q *Queries) TouchObligation(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, touchObligation, id)
+	return err
 }
 
 const touchQuestionResponse = `-- name: TouchQuestionResponse :exec

@@ -51,7 +51,9 @@ capacity. Missing/foreign task IDs receive the same safe validation response.
 
 Private staff obligations contain `prerequisiteTaskIds` and `blockedByTaskIds` as
 deterministically ordered arrays. The latter contains prerequisites whose live
-state is not `VERIFIED`. Blocked start/completion/verification commands return
+work has not been independently verified. For a prerequisite replaced by a
+[reviewed scope split](PARTIAL_ACCEPTANCE.md), every required replacement leaf must
+be verified; the original prerequisite ID remains unchanged. Blocked start/completion/verification commands return
 `TASK_PREREQUISITES_PENDING` (409) after authorization and applicable version/state
 checks. These checks run inside the existing serialized pilot transaction.
 
@@ -104,7 +106,8 @@ flows cover lost acknowledgements and stale proposals retaining prerequisite
 choices, blocked acceptance/start, independent verification release, scoped agency
 actions and mobile light/dark layout.
 
-Partial acceptance, scope splitting, dependency changes, responsibility disputes,
+[Reviewed partial acceptance](PARTIAL_ACCEPTANCE.md) now inherits prerequisites
+for both replacement scopes. Dependency changes, responsibility disputes,
 SLA clocks, escalation and reopening already verified work remain pending. A
 cancelled or permanently unavailable prerequisite requires future governed repair;
 there is no silent bypass. This synthetic workflow does not establish actual
