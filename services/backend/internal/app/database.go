@@ -28,7 +28,7 @@ func (a *App) requestScope(r *http.Request, trace string) *http.Request {
 	if strings.Contains(r.Pattern, "/media/") || strings.Contains(r.Pattern, "/analyses/") {
 		s.Pool = a.Media
 	}
-	if strings.HasSuffix(r.Pattern, "/publications") || strings.HasSuffix(r.Pattern, "/publication-withdrawals") {
+	if strings.Contains(r.Pattern, "/authority/publication-withdrawal-requests") || strings.HasSuffix(r.Pattern, "/publications") || strings.HasSuffix(r.Pattern, "/publication-withdrawals") {
 		s.Pool = a.Publication
 	}
 	return r.WithContext(context.WithValue(r.Context(), databaseScopeKey{}, s))

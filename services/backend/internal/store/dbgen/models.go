@@ -122,6 +122,27 @@ type OpsPublicationStatus struct {
 	AreaLabel          string    `json:"area_label"`
 }
 
+type OpsPublicationWithdrawalReview struct {
+	ID                        uuid.UUID          `json:"id"`
+	CaseID                    uuid.UUID          `json:"case_id"`
+	ReceiptID                 uuid.UUID          `json:"receipt_id"`
+	PublicationVersion        int64              `json:"publication_version"`
+	ReasonCode                string             `json:"reason_code"`
+	State                     string             `json:"state"`
+	Version                   int64              `json:"version"`
+	CreatedAt                 pgtype.Timestamptz `json:"created_at"`
+	CaseVersion               int64              `json:"case_version"`
+	PublicationState          string             `json:"publication_state"`
+	CurrentPublicationVersion int64              `json:"current_publication_version"`
+	Title                     string             `json:"title"`
+	SafeSummary               string             `json:"safe_summary"`
+	AreaLabel                 string             `json:"area_label"`
+	Result                    pgtype.Text        `json:"result"`
+	InternalReason            pgtype.Text        `json:"internal_reason"`
+	ResidentReason            pgtype.Text        `json:"resident_reason"`
+	DecidedAt                 pgtype.Timestamptz `json:"decided_at"`
+}
+
 type OpsReport struct {
 	ID                    uuid.UUID          `json:"id"`
 	ClientSubmissionID    uuid.UUID          `json:"client_submission_id"`

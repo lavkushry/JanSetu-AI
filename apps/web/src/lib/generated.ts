@@ -1380,6 +1380,119 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/my-reports/{id}/public-sharing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /** @description Report owner only, using a verified vault alias claim. Returns the current public preview and newest twenty private requests. No case IDs, requester/reviewer identities, internal reasons or withdrawn preview are returned. */
+        get: operations["get_owned_public_sharing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/my-reports/{id}/publication-withdrawal-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Owner-only fixed-category request against the current publication revision. Pauses new publication while reviewed; does not immediately hide existing public progress or alter private case work. Stable clientRequestId and command key deduplicate lost responses; retries hydrate current outcomes. */
+        post: operations["request_owned_public_withdrawal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/my-reports/{id}/publication-withdrawal-requests/{requestId}/cancellations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Owner-only cancellation. If-Match binds request version. Pending cancellation records an immutable marker and advances only request version. Repeating a current cancelled version is a no-op. Publisher-decided requests cannot be cancelled. */
+        post: operations["cancel_owned_public_withdrawal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/authority/publication-withdrawal-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Live publisher-only queue. Up to one hundred oldest pending or newest final requests. Minimal safe preview and private review fields; excludes report IDs, aliases, principal identities and original statements. */
+        get: operations["get_public_withdrawal_queue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/authority/publication-withdrawal-requests/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /** @description Live publisher-only current request, public preview and minimal review outcome. */
+        get: operations["get_public_withdrawal_review"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/authority/publication-withdrawal-requests/{id}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description If-Match binds request version; caseVersion and publicationVersion bind current case and public preview. Approval atomically withdraws public progress, records separate internal/resident reasons, and prevents republication while preserving private work and original case age. Decline records a resident-visible reason and permits later fresh publication review. Stale request/case returns 412; stale publication returns 409; cancelled/final requests cannot acquire another decision. */
+        post: operations["review_public_withdrawal_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1868,6 +1981,7 @@ export interface components {
             message: string;
         };
         ReportProgress: {
+            hasPublicationRequest: boolean;
             id: string;
             statement: string;
             languageTag: string;
@@ -1922,6 +2036,8 @@ export interface components {
             canVerify: boolean;
         };
         CaseDetail: {
+            /** @description Live publisher-only sharing eligibility flag; false for other staff. Pending or approved owner withdrawal requests prevent new publication. Withdrawal remains available. */
+            publicationBlocked: boolean;
             canPublish: boolean;
             id: string;
             category: string;
@@ -2268,6 +2384,92 @@ export interface components {
             nextCursor: string | null;
             /** Format: date-time */
             expiresAt: string;
+        };
+        /** @enum {string} */
+        PublicationWithdrawalReason: "PRIVACY" | "LOCATION" | "SHARING_PREFERENCE";
+        PublicationWithdrawalRequest: {
+            /** Format: uuid */
+            id: string;
+            publicationVersion: number;
+            reasonCode: components["schemas"]["PublicationWithdrawalReason"];
+            /** @enum {string} */
+            state: "REQUESTED" | "APPROVED" | "DECLINED" | "CANCELLED";
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            outcome: {
+                /** @enum {string} */
+                result: "APPROVED" | "DECLINED";
+                reason: string;
+                /** Format: date-time */
+                decidedAt: string;
+            } | null;
+        };
+        OwnerPublicSharing: {
+            publication: {
+                /** Format: uuid */
+                receiptId: string;
+                title: string;
+                summary: string;
+                area: string;
+                version: number;
+            } | null;
+            blocked: boolean;
+            requests: components["schemas"]["PublicationWithdrawalRequest"][];
+        };
+        PublicationWithdrawalRequestInput: {
+            /** Format: uuid */
+            clientRequestId: string;
+            publicationVersion: number;
+            reasonCode: components["schemas"]["PublicationWithdrawalReason"];
+            /** @constant */
+            confirmed: true;
+        };
+        PublicationWithdrawalCancellation: {
+            /** @constant */
+            confirmed: true;
+        };
+        PublicationWithdrawalReview: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            caseId: string;
+            version: number;
+            /** @enum {string} */
+            state: "REQUESTED" | "APPROVED" | "DECLINED" | "CANCELLED";
+            reasonCode: components["schemas"]["PublicationWithdrawalReason"];
+            /** Format: date-time */
+            createdAt: string;
+            requestedPublicationVersion: number;
+            caseVersion: number;
+            publication: {
+                /** Format: uuid */
+                receiptId: string;
+                title: string;
+                summary: string;
+                area: string;
+                version: number;
+                /** @enum {string} */
+                state: "PUBLISHED" | "WITHDRAWN";
+            };
+            outcome: {
+                /** @enum {string} */
+                result: "APPROVED" | "DECLINED";
+                reason: string;
+                /** Format: date-time */
+                decidedAt: string;
+                internalReason: string;
+            } | null;
+        };
+        PublicationWithdrawalDecisionInput: {
+            /** @enum {string} */
+            result: "APPROVED" | "DECLINED";
+            caseVersion: number;
+            publicationVersion: number;
+            internalReason: string;
+            residentReason: string;
+            /** @constant */
+            reviewed: true;
         };
     };
     responses: {
@@ -4617,6 +4819,207 @@ export interface operations {
             401: components["responses"]["Problem"];
             404: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_owned_public_sharing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Private sharing review */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnerPublicSharing"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    request_owned_public_withdrawal: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-JanSetu-CSRF": components["parameters"]["CSRF"];
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationWithdrawalRequestInput"];
+            };
+        };
+        responses: {
+            /** @description Private sharing review */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationWithdrawalRequest"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    cancel_owned_public_withdrawal: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-JanSetu-CSRF": components["parameters"]["CSRF"];
+                "If-Match": components["parameters"]["Version"];
+            };
+            path: {
+                id: components["parameters"]["ID"];
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationWithdrawalCancellation"];
+            };
+        };
+        responses: {
+            /** @description Private sharing review */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationWithdrawalRequest"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_public_withdrawal_queue: {
+        parameters: {
+            query?: {
+                state?: "REQUESTED" | "APPROVED" | "DECLINED" | "CANCELLED";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Private sharing review */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["PublicationWithdrawalReview"][];
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    get_public_withdrawal_review: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Private sharing review */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationWithdrawalReview"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    review_public_withdrawal_request: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-JanSetu-CSRF": components["parameters"]["CSRF"];
+                "If-Match": components["parameters"]["Version"];
+            };
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationWithdrawalDecisionInput"];
+            };
+        };
+        responses: {
+            /** @description Private sharing review */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationWithdrawalReview"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };

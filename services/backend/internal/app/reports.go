@@ -210,7 +210,7 @@ func (a *App) ownProgress(r *http.Request, actor *Actor, reportID uuid.UUID) ([]
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, map[string]any{"mediaIds": mediaIDs, "id": v.ID, "statement": v.Statement, "languageTag": v.LanguageTag, "receivedAt": timestamp(v.ReceivedAt), "state": progress, "receiptId": v.ReceiptID, "responsibilities": responsibilities})
+		items = append(items, map[string]any{"hasPublicationRequest": v.HasPublicationRequest, "mediaIds": mediaIDs, "id": v.ID, "statement": v.Statement, "languageTag": v.LanguageTag, "receivedAt": timestamp(v.ReceivedAt), "state": progress, "receiptId": v.ReceiptID, "responsibilities": responsibilities})
 	}
 	return items, nil
 }

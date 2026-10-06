@@ -6,6 +6,7 @@ import { ArrowRight, CheckCircle2, LockKeyhole, MapPin, FileText } from 'lucide-
 import { api, dateLabel, readable, type Receipt, type Schema } from '@/lib/api';
 import { Badge, Modal, FormError, Loading, Empty, ErrorState, useSession } from './ui';
 import { ReceiptCard } from './social';
+import { PublicSharingControl } from './public-sharing';
 import { ReportPhotos, PrivatePhotos } from './media';
 
 export function ReportWizard({ onClose }: { onClose: () => void }) {
@@ -419,6 +420,7 @@ export function MyReports({ onReport }: { onReport: () => void }) {
                 Agency acceptance has not been confirmed. A coordinator will assess the report.
               </p>
             )}
+            {(v.receiptId || v.hasPublicationRequest) && <PublicSharingControl reportId={v.id} />}
             {v.receiptId && (
               <Link className="text-button" href={`/cases/${v.receiptId}`}>
                 View reviewed public progress <ArrowRight size={14} />
