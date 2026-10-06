@@ -3961,7 +3961,7 @@ test('structured road reports preserve reviewed details, private exports and coo
   const marker = `Fictional pothole observation ${Date.now()}`;
   const road = `PRIVATE fictional road ${Date.now()}`;
   await dialog.getByLabel('Service category').selectOption('ROAD');
-  await expect(dialog).toContainText('Automatic pothole detection is unavailable');
+  await expect(dialog).toContainText('Review candidates yourself');
   await dialog.getByLabel('Road name or number').fill(road);
   await dialog.getByLabel('Road type you believe applies').selectOption('NHAI_HIGHWAY');
   const guidance = dialog.getByRole('complementary', { name: 'Road contact guidance' });
@@ -4042,6 +4042,226 @@ test('structured road reports preserve reviewed details, private exports and coo
   }
 });
 
+test('private pothole opt-in finds actual candidates and empty scenes without changing the road report', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(150_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Report a service issue' });
+  const statement = `Fictional manually reviewed road ${Date.now()}`;
+  await dialog.getByLabel('Service category').selectOption('ROAD');
+  await dialog.getByLabel('Road name or number').fill('Fictional candidate review road');
+  await dialog.getByLabel('Location or landmark').fill('Fictional candidate crossing');
+  await dialog.getByLabel('Describe the issue').fill(statement);
+  const analysisRequests: string[][] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/analyses') && request.method() === 'POST')
+      analysisRequests.push((request.postDataJSON() as { tasks: string[] }).tasks);
+  });
+  await dialog
+    .getByLabel('Choose report photos')
+    .setInputFiles('tests/fixtures/pothole-positive.png');
+  const first = dialog.getByRole('article', { name: 'Photo 1', exact: true });
+  const optIn = first.getByLabel('Include experimental pothole recognition');
+  await expect(optIn).toBeVisible();
+  await expect(optIn).not.toBeChecked();
+  expect(analysisRequests).toEqual([]);
+  await optIn.check();
+  const created = page.waitForResponse(
+    (r) => r.url().endsWith('/analyses') && r.request().method() === 'POST',
+  );
+  await first.getByRole('button', { name: 'Analyze text and potholes', exact: true }).click();
+  const analysis = (await (await created).json()) as Schema['Analysis'];
+  expect(analysisRequests).toEqual([['QUALITY', 'OCR', 'POTHOLE_DETECTION']]);
+  const review = first.getByRole('region', { name: 'Pothole recognition review' });
+  await expect(review.getByRole('img', { name: 'Pothole candidate regions' })).toBeVisible({
+    timeout: 45_000,
+  });
+  await expect(review).toContainText('possible pothole');
+  await expect(review).toContainText('India and night evaluation is pending');
+  await expect(review.locator('polygon')).not.toHaveCount(0);
+  await review.getByLabel('Show pothole regions').uncheck();
+  await expect(review.locator('polygon')).toHaveCount(0);
+  await expect(review).toContainText('Region 1: pothole');
+  await review.getByLabel('Show pothole regions').check();
+  await expect(dialog.getByLabel('Describe the issue')).toHaveValue(statement);
+  await expect(dialog.getByLabel('Service category')).toHaveValue('ROAD');
+  await expect(dialog.getByLabel('Road type you believe applies')).toHaveValue('UNKNOWN');
+  const result = (await (
+    await page.request.get(`/api/analyses/${analysis.id}`)
+  ).json()) as Schema['Analysis'];
+  const pothole = result.tasks.find((t) => t.kind === 'POTHOLE_DETECTION')!;
+  expect(pothole.state).toBe('SUCCEEDED');
+  expect(pothole.result?.modelVersion).toContain('/onnx-sha256:');
+  expect(pothole.result?.regions.every((r) => r.confidence === null)).toBe(true);
+  expect(pothole.result?.codes).toContain('FIELD_EVALUATION_PENDING');
+  await page.setViewportSize({ width: 320, height: 780 });
+  await review.scrollIntoViewIfNeeded();
+  expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await page.screenshot({ path: 'test-results/pothole-mobile-light.png' });
+  await dialog.getByLabel('Save this private draft on this device').check();
+  await dialog.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+  await page.getByRole('button', { name: 'Open navigation', exact: true }).click();
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  await dialog.getByRole('button', { name: 'Restore draft', exact: true }).click();
+  await expect(review.getByRole('img', { name: 'Pothole candidate regions' })).toBeVisible();
+  await review.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/pothole-mobile-dark.png' });
+  await dialog.getByLabel('Choose report photos').setInputFiles('tests/fixtures/road-texture.png');
+  const second = dialog.getByRole('article', { name: 'Photo 2', exact: true });
+  await expect(second.getByLabel('Include experimental pothole recognition')).not.toBeChecked();
+  await second.getByLabel('Include experimental pothole recognition').check();
+  await second.getByRole('button', { name: 'Analyze text and potholes', exact: true }).click();
+  await expect(second.getByRole('region', { name: 'Pothole recognition review' })).toContainText(
+    'No pothole candidates found',
+    { timeout: 45_000 },
+  );
+  await expect(second).toContainText('This does not mean the scene is safe');
+  await expect(dialog.getByLabel('Describe the issue')).toHaveValue(statement);
+  const other = await browser.newContext();
+  try {
+    const foreign = await other.newPage();
+    await foreign.goto('/');
+    await signIn(foreign, 'Rohan Mehta');
+    expect((await foreign.request.get(`/api/analyses/${analysis.id}`)).status()).toBe(404);
+    expect((await foreign.request.get(`/api/media/${analysis.mediaId}`)).status()).toBe(404);
+  } finally {
+    await other.close();
+  }
+  await dialog.getByRole('button', { name: 'Review report', exact: true }).click();
+  await dialog.getByLabel('I have reviewed this fictional report.').check();
+  const submitted = page.waitForResponse(
+    (r) => r.url().endsWith('/service-reports') && r.request().method() === 'POST',
+  );
+  await dialog.getByRole('button', { name: 'Submit report', exact: true }).click();
+  const response = await submitted;
+  expect(response.status()).toBe(201);
+  const receipt = (await response.json()) as Schema['ReportAck'];
+  const own = (await (
+    await page.request.get(`/api/my-reports/${receipt.id}`)
+  ).json()) as Schema['ReportProgress'];
+  expect(own.statement).toBe(statement);
+  expect(own.mediaIds).toHaveLength(2);
+  expect((response.request().postDataJSON() as Schema['ReportInput']).category).toBe('ROAD');
+  expect(own.roadDetails?.roadType).toBe('UNKNOWN');
+  const feed = await page.request.get('/api/feed');
+  expect(await feed.text()).not.toContain(analysis.id);
+});
+
+test('pothole capability outage and category changes preserve opt-out and manual reporting', async ({
+  page,
+}) => {
+  test.setTimeout(100_000);
+  await page.route('**/api/capabilities', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Schema['Capabilities'];
+    body.analysisCapabilities = body.analysisCapabilities.map((c) =>
+      c.kind === 'POTHOLE_DETECTION' ? { ...c, status: 'PLANNED' } : c,
+    );
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Report a service issue' });
+  await dialog.getByLabel('Service category').selectOption('ROAD');
+  await dialog.getByLabel('Road name or number').fill('Fictional manual fallback road');
+  await dialog.getByLabel('Location or landmark').fill('Fictional fallback crossing');
+  await dialog
+    .getByLabel('Describe the issue')
+    .fill('Fictional manual observation without model assistance');
+  await dialog.getByLabel('Choose report photos').setInputFiles('tests/fixtures/pothole-big.png');
+  await expect(
+    dialog.getByRole('button', { name: 'Read text from photo', exact: true }),
+  ).toBeVisible();
+  await expect(dialog.getByLabel('Include experimental pothole recognition')).toHaveCount(0);
+  const created = page.waitForResponse(
+    (r) => r.url().endsWith('/analyses') && r.request().method() === 'POST',
+  );
+  await dialog.getByRole('button', { name: 'Read text from photo', exact: true }).click();
+  const response = await created;
+  expect((response.request().postDataJSON() as { tasks: string[] }).tasks).toEqual([
+    'QUALITY',
+    'OCR',
+  ]);
+  await expect(dialog.getByRole('region', { name: 'Pothole recognition review' })).toHaveCount(0);
+  await dialog.getByLabel('Service category').selectOption('FOOTPATH');
+  await expect(dialog.getByLabel('Road name or number')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Review report', exact: true })).toBeEnabled();
+});
+
+test('pothole failure review retries only the selected task and preserves completed OCR', async ({
+  page,
+}) => {
+  test.setTimeout(100_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Report a service issue' });
+  const marker = 'Fictional unchanged observations while recognition fails';
+  await dialog.getByLabel('Service category').selectOption('ROAD');
+  await dialog.getByLabel('Road name or number').fill('Fictional retry road');
+  await dialog.getByLabel('Location or landmark').fill('Fictional retry crossing');
+  await dialog.getByLabel('Describe the issue').fill(marker);
+  await dialog.getByLabel('Choose report photos').setInputFiles('tests/fixtures/pothole-big.png');
+  await dialog.getByLabel('Include experimental pothole recognition').check();
+  let restored = false;
+  let finished: Schema['Analysis'] | undefined;
+  // UI failure fixture only; real failing-process/retry fencing is exercised by Go integration tests.
+  await page.route('**/api/analyses/*', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Schema['Analysis'];
+    if (body.state === 'SUCCEEDED') {
+      finished = body;
+      if (!restored) {
+        await route.fulfill({
+          response,
+          json: {
+            ...body,
+            state: 'PARTIAL',
+            tasks: body.tasks.map((t) =>
+              t.kind === 'POTHOLE_DETECTION'
+                ? {
+                    ...t,
+                    state: 'FAILED',
+                    result: null,
+                    retryable: true,
+                    errorCode: 'VISION_FAILED',
+                  }
+                : t,
+            ),
+          },
+        });
+        return;
+      }
+    }
+    await route.fulfill({ response });
+  });
+  await page.route('**/api/analyses/*/retry', async (route) => {
+    expect((route.request().postDataJSON() as { tasks: string[] }).tasks).toEqual([
+      'POTHOLE_DETECTION',
+    ]);
+    restored = true;
+    await route.fulfill({ status: 202, json: finished });
+  });
+  await dialog.getByRole('button', { name: 'Analyze text and potholes', exact: true }).click();
+  const review = dialog.getByRole('region', { name: 'Pothole recognition review' });
+  await expect(review).toContainText('Pothole recognition failed', { timeout: 45_000 });
+  await expect(dialog.getByLabel('Describe the issue')).toHaveValue(marker);
+  await expect(dialog.getByRole('button', { name: 'Review report', exact: true })).toBeEnabled();
+  const preserved = finished!.tasks.filter((t) => t.kind !== 'POTHOLE_DETECTION');
+  await review.getByRole('button', { name: 'Retry pothole recognition' }).click();
+  await expect(review.getByRole('img', { name: 'Pothole candidate regions' })).toBeVisible({
+    timeout: 15_000,
+  });
+  expect(finished!.tasks.filter((t) => t.kind !== 'POTHOLE_DETECTION')).toEqual(preserved);
+  await expect(dialog.getByLabel('Describe the issue')).toHaveValue(marker);
+});
+
 test('recorded road footage stays local until an explicitly reviewed frame is attached', async ({
   page,
 }) => {
@@ -4107,7 +4327,7 @@ test('recorded road footage stays local until an explicitly reviewed frame is at
     ((await analyses.json()) as Schema['Capabilities']).analysisCapabilities.find(
       (c) => c.kind === 'POTHOLE_DETECTION',
     )?.status,
-  ).toBe('PLANNED');
+  ).toBe('EVALUATING');
   await dialog.getByRole('button', { name: 'Review report', exact: true }).click();
   await dialog.getByLabel('I have reviewed this fictional report.').check();
   const submitted = page.waitForResponse(

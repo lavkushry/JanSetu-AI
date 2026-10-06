@@ -292,6 +292,7 @@ export function ReportPhotos({
           key={id}
           id={id}
           index={index}
+          roadMode={roadMode}
           language={language}
           initialJob={analysisIds[id]}
           onJob={(job) => onAnalysisId(id, job)}
@@ -328,7 +329,9 @@ function PhotoCard({
   busy,
   hasFile,
   onResume,
+  roadMode,
 }: {
+  roadMode: boolean;
   progress?: UploadProgress;
   busy: boolean;
   hasFile: boolean;
@@ -346,6 +349,7 @@ function PhotoCard({
 }) {
   const [jobId, setJobId] = useState<string | null>(initialJob || null);
   const [includeObjects, setIncludeObjects] = useState(false);
+  const [includePotholes, setIncludePotholes] = useState(false);
   const capabilities = useQuery({
     queryKey: ['capabilities'],
     queryFn: () => api<Schema['Capabilities']>('capabilities'),
@@ -353,6 +357,11 @@ function PhotoCard({
   const visionEnabled = capabilities.data?.analysisCapabilities.some(
     (c) => c.kind === 'ISSUE_DETECTION' && c.status === 'EVALUATING',
   );
+  const potholeEnabled =
+    roadMode &&
+    capabilities.data?.analysisCapabilities.some(
+      (c) => c.kind === 'POTHOLE_DETECTION' && c.status === 'EVALUATING',
+    );
   const [retrying, setRetrying] = useState(false);
   const resumeInput = useRef<HTMLInputElement>(null);
   const q = useQuery({
@@ -385,6 +394,7 @@ function PhotoCard({
             'QUALITY',
             'OCR',
             ...(includeObjects && visionEnabled ? ['ISSUE_DETECTION'] : []),
+            ...(includePotholes && potholeEnabled ? ['POTHOLE_DETECTION'] : []),
           ],
           languageTag: language,
         },
@@ -554,6 +564,17 @@ function PhotoCard({
                 Include experimental object recognition
               </label>
             )}
+            {potholeEnabled && (
+              <label className="object-opt-in">
+                <input
+                  type="checkbox"
+                  checked={includePotholes}
+                  onChange={(e) => setIncludePotholes(e.target.checked)}
+                  disabled={analyze.isPending}
+                />
+                Include experimental pothole recognition
+              </label>
+            )}
             <button
               type="button"
               className="secondary small"
@@ -563,9 +584,13 @@ function PhotoCard({
               <ScanText size={16} />
               {analyze.isPending
                 ? 'Starting…'
-                : includeObjects && visionEnabled
-                  ? 'Analyze text and objects'
-                  : 'Read text from photo'}
+                : includePotholes && potholeEnabled
+                  ? includeObjects && visionEnabled
+                    ? 'Analyze text and candidates'
+                    : 'Analyze text and potholes'
+                  : includeObjects && visionEnabled
+                    ? 'Analyze text and objects'
+                    : 'Read text from photo'}
             </button>
           </>
         )}
@@ -574,7 +599,7 @@ function PhotoCard({
     </article>
   );
 }
-function ObjectReview({
+function CandidateReview({
   task,
   derivative,
   pending,
@@ -587,25 +612,28 @@ function ObjectReview({
   retrying: boolean;
   onRetry: () => void;
 }) {
+  const pothole = task.kind === 'POTHOLE_DETECTION';
+  const name = pothole ? 'Pothole' : 'Object';
+  const noun = pothole ? 'pothole' : 'object';
   const [showRegions, setShowRegions] = useState(true);
   const result = task.state === 'SUCCEEDED' ? task.result : null;
   const regions = (result?.regions || []).filter(
     (r): r is Schema['DetectionRegion'] => 'label' in r,
   );
   return (
-    <section className="object-review" aria-label="Object recognition review">
-      <strong>Object candidates · Experimental</strong>
+    <section className="object-review" aria-label={`${name} recognition review`}>
+      <strong>{name} candidates · Experimental</strong>
       <p className="photo-help">
-        Review what is visible yourself. This model cannot identify potholes, leaks, waste, or
-        damage. Your description and category stay under your control.
+        {pothole
+          ? 'Review each possible pothole yourself. The model can miss potholes or mistake shadows, puddles and repairs for damage. It cannot measure depth or severity; India and night evaluation is pending.'
+          : 'Review what is visible yourself. This object model cannot identify potholes, leaks, waste, or damage.'}{' '}
+        Your description and category stay under your control.
       </p>
       {['QUEUED', 'RUNNING'].includes(task.state) && (
-        <p role="status">Finding object candidates…</p>
+        <p role="status">Finding {noun} candidates…</p>
       )}
       {task.state === 'SUCCEEDED' && regions.length === 0 && (
-        <p className="muted">
-          No supported object candidates found. This does not mean the scene is safe.
-        </p>
+        <p className="muted">No {noun} candidates found. This does not mean the scene is safe.</p>
       )}
       {regions.length > 0 && (
         <>
@@ -617,13 +645,13 @@ function ObjectReview({
                   checked={showRegions}
                   onChange={(e) => setShowRegions(e.target.checked)}
                 />
-                Show object regions
+                Show {noun} regions
               </label>
               <svg
                 className="object-overlay"
                 viewBox={`0 0 ${result.originalSize.width} ${result.originalSize.height}`}
                 role="img"
-                aria-label="Object candidate regions"
+                aria-label={`${name} candidate regions`}
               >
                 <image
                   href={derivative.url}
@@ -648,7 +676,7 @@ function ObjectReview({
           <ol className="object-candidates">
             {regions.map((region, i) => (
               <li key={region.id}>
-                Region {i + 1}: {region.label} <span className="muted">· possible object</span>
+                Region {i + 1}: {region.label} <span className="muted">· possible {noun}</span>
               </li>
             ))}
           </ol>
@@ -657,7 +685,7 @@ function ObjectReview({
       {task.state === 'FAILED' && (
         <>
           <p role="alert">
-            Object recognition failed. Your photo and extracted text are still usable.
+            {name} recognition failed. Your photo and extracted text are still usable.
           </p>
           {task.retryable && (
             <button
@@ -666,16 +694,16 @@ function ObjectReview({
               disabled={pending || retrying}
               onClick={onRetry}
             >
-              Retry object recognition
+              Retry {noun} recognition
             </button>
           )}
         </>
       )}
       {task.state === 'UNSUPPORTED' && (
-        <p className="muted">Object recognition is unavailable. Use your own observations.</p>
+        <p className="muted">{name} recognition is unavailable. Use your own observations.</p>
       )}
       {task.state === 'CANCELLED' && (
-        <p className="muted">Object recognition cancelled. Use your own observations.</p>
+        <p className="muted">{name} recognition cancelled. Use your own observations.</p>
       )}
     </section>
   );
@@ -711,6 +739,7 @@ function AnalysisReview({
   const ocr = q.data?.tasks.find((t) => t.kind === 'OCR');
   const quality = q.data?.tasks.find((t) => t.kind === 'QUALITY');
   const detection = q.data?.tasks.find((t) => t.kind === 'ISSUE_DETECTION');
+  const pothole = q.data?.tasks.find((t) => t.kind === 'POTHOLE_DETECTION');
   const pending = q.data && ['QUEUED', 'RUNNING'].includes(q.data.state);
   const regions =
     ocr?.state === 'SUCCEEDED'
@@ -774,12 +803,21 @@ function AnalysisReview({
         <p className="muted">No readable text was found. Write your own description.</p>
       )}
       {detection && (
-        <ObjectReview
+        <CandidateReview
           task={detection}
           derivative={derivative}
           pending={Boolean(pending)}
           retrying={action.isPending}
           onRetry={() => action.mutate({ cancel: false, kinds: ['ISSUE_DETECTION'] })}
+        />
+      )}
+      {pothole && (
+        <CandidateReview
+          task={pothole}
+          derivative={derivative}
+          pending={Boolean(pending)}
+          retrying={action.isPending}
+          onRetry={() => action.mutate({ cancel: false, kinds: ['POTHOLE_DETECTION'] })}
         />
       )}
       {regions.length > 0 && (

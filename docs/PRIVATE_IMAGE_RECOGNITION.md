@@ -2,7 +2,7 @@
 
 Residents can opt into **Include experimental object recognition** when analyzing a private report photo. **Analyze text and objects** creates independent QUALITY, OCR and ISSUE_DETECTION tasks. Review shows candidate regions on the decoded image and a readable list. Hiding boxes leaves the list available. Nothing is inserted into the statement or category, routed to an agency, verified or published automatically.
 
-This adapter recognizes possible objects, not civic hazards. Its bounded vocabulary is person, bicycle, car, motorcycle, bus, truck, traffic light, fire hydrant, stop sign and bench. It cannot recognize potholes, leaks, waste, broken assets, severity or whether a scene is safe. Empty results mean no supported candidates passed the internal threshold. The canonical issue/category detector and field evaluation remain pending.
+This adapter recognizes possible objects, not civic hazards. Its bounded vocabulary is person, bicycle, car, motorcycle, bus, truck, traffic light, fire hydrant, stop sign and bench. It cannot recognize potholes, leaks, waste, broken assets, severity or whether a scene is safe. Empty results mean no supported candidates passed the internal threshold. The separate [experimental pothole adapter](PRIVATE_POTHOLE_RECOGNITION.md) handles pothole candidates; broader issue/category detection and field evaluation remain pending.
 
 ## Run and inspect
 
@@ -28,7 +28,7 @@ Sign in with a fictional account, open **Report an issue**, attach a photo, sele
 
 ## Inference and validation
 
-The [Go detector adapter](../services/backend/internal/media/detection.go) invokes a fixed local executable with one internally selected decoded PNG path. Its child receives a minimal environment without database/vault credentials. Requests cannot choose models, executable options or external image URLs. Photographed instructions are data. The Python runner uses CPU inference, one ONNX/OpenCV thread and disabled telemetry. Compose retains the worker's read-only root, dropped capabilities, 768 MiB memory limit, one CPU and bounded temporary directory.
+The [Go detector adapter](../services/backend/internal/media/detection.go) invokes a fixed local executable with one internally selected decoded PNG path. Its child receives a minimal environment without database/vault credentials. Requests cannot choose models, executable options or external image URLs. Photographed instructions are data. The Python runner uses CPU inference, one ONNX/OpenCV thread and disabled telemetry. Compose retains the worker's read-only root, dropped capabilities, 1 GiB memory limit (shared with the optional pothole adapter), one CPU and bounded temporary directory.
 
 YOLOX's published ONNX interface uses raw BGR pixels, top-left letterboxing and grid/stride decoding. JanSetu maps each axis back with actual rounded resize dimensions, uses fixed 0.45 score and class-aware suppression thresholds, clips boxes and returns at most 100 regions. Unsupported labels are discarded. Selection scores are not calibrated probabilities. [Official inference example](https://github.com/Megvii-BaseDetection/YOLOX/blob/6ddff4824372906469a7fae2dc3206c7aa4bbaee/demo/ONNXRuntime/onnx_inference.py), [preprocessing](https://github.com/Megvii-BaseDetection/YOLOX/blob/6ddff4824372906469a7fae2dc3206c7aa4bbaee/yolox/data/data_augment.py).
 

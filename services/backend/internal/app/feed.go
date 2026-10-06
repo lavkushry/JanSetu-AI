@@ -20,10 +20,14 @@ func (a *App) capabilities(w http.ResponseWriter, r *http.Request, _ *Actor) (an
 	if a.Config.VisionBinary != "" {
 		visionStatus, visionNote = "EVALUATING", "Local YOLOX object candidates only. Potholes, leaks, waste, damage, and agency routing are unsupported. Review results yourself."
 	}
+	potholeStatus, potholeNote := "PLANNED", "Pothole recognition is unavailable. Use your own road observations."
+	if a.Config.PotholeBinary != "" {
+		potholeStatus, potholeNote = "EVALUATING", "Experimental local Faster R-CNN pothole candidates. False positives and missed potholes are possible; India/night evaluation and confidence calibration are pending. Review your observations yourself."
+	}
 	return map[string]any{"synthetic": true, "mediaUpload": a.Media != nil && a.Files != nil, "ocr": false,
 		"uploads": map[string]any{"mimeTypes": []string{"image/jpeg", "image/png", "image/webp"}, "maxBytes": 10485760, "maxAttachments": 4, "maxPixels": 12000000, "purpose": "REPORT", "adapter": "LOCAL_PRIVATE_MULTIPART", "partSize": 2097152, "maxParts": 5},
 		"analysisCapabilities": []any{
-			map[string]any{"kind": "POTHOLE_DETECTION", "status": "PLANNED", "languageTags": []string{}, "note": "Automatic pothole detection is unavailable. Road surface reports use resident-reviewed observations; object candidates do not identify potholes."},
+			map[string]any{"kind": "POTHOLE_DETECTION", "status": potholeStatus, "languageTags": []string{}, "note": potholeNote},
 			map[string]any{"kind": "OCR", "status": "EVALUATING", "languageTags": []string{"en-IN", "en-US", "en-GB", "en"}, "note": "Local Tesseract English preview; review every word. Production language evaluation is pending."},
 			map[string]any{"kind": "QUALITY", "status": "EVALUATING", "languageTags": []string{}, "note": "Resolution check only; no blur, lighting, or truth assessment."},
 			map[string]any{"kind": "ISSUE_DETECTION", "status": visionStatus, "languageTags": []string{}, "note": visionNote},

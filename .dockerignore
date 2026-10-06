@@ -13,6 +13,8 @@ playwright-report
 **/.env.*
 !**/.env.example
 services/vision/.venv
+services/vision/.export-venv
+services/vision/pothole-manifest.json
 services/vision/*.onnx
 services/vision/*.tmp
 **/__pycache__

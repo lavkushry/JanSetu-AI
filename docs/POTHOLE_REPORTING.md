@@ -39,9 +39,9 @@ Owner-only report DTOs add the landmark and nullable road details/guidance. Olde
 
 ## Recognition boundary
 
-Capabilities explicitly advertise `POTHOLE_DETECTION` as `PLANNED`, with an unavailable explanation. It is not an accepted analysis task. The existing opt-in [object candidate adapter](PRIVATE_IMAGE_RECOGNITION.md) remains limited to its COCO objects. It does not identify potholes, assign urgency or route an agency.
+The optional [local pothole CNN adapter](PRIVATE_POTHOLE_RECOGNITION.md) accepts a separate `POTHOLE_DETECTION` task, advertised as `EVALUATING` when configured and `PLANNED` otherwise. It is off by default for each photo and returns resident-reviewed candidates with null confidence. The existing opt-in [object candidate adapter](PRIVATE_IMAGE_RECOGNITION.md) remains limited to its COCO objects. It does not identify potholes, assign urgency or route an agency.
 
-The [reference research](POTHOLE_REFERENCE_RESEARCH.md) found hosted vision calls, no verified local CNN weights and conflicting reuse declarations. This milestone uses original JanSetu code and curated official contact facts, with no imported reference code/data. Automatic pothole detection requires separately licensed/provenanced weights, a bounded private adapter and a held-out human-labeled evaluation of positive, negative and abstention behavior. Calibrated confidence, metric size estimation, GPS/boundary and highway ownership lookup, individual officer/verified contractor attribution, live directory refresh, external complaint delivery and continuous drive mode remain pending.
+The [reference research](POTHOLE_REFERENCE_RESEARCH.md) found hosted vision calls, no verified local CNN weights and conflicting reuse declarations. This milestone uses original JanSetu code and curated official contact facts, with no imported reference code/data. A fixed checkpoint, bounded private adapter and reproducible public-photo smoke observations are implemented; independent human-labeled, verified held-out field evaluation and training-image rights review remain pending. Calibrated confidence, metric size estimation, GPS/boundary and highway ownership lookup, individual officer/verified contractor attribution, live directory refresh, external complaint delivery and continuous drive mode remain pending.
 
 ## Upgrade and verification
 

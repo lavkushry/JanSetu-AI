@@ -96,3 +96,50 @@ func TestPinnedDetectorActualInference(t *testing.T) {
 		t.Fatal(code)
 	}
 }
+
+func TestPotholeResultVocabularyAndVersion(t *testing.T) {
+	valid := `{"width":640,"height":480,"empty":false,"regions":[{"label":"pothole","polygon":[[1,2],[100,2],[100,200],[1,200]]}]}`
+	result, code := parseCandidates([]byte(valid), PotholeModel, []byte{1}, 640, 480, "POTHOLE_DETECTION")
+	if code != "" || len(result.Regions) != 1 || result.Regions[0].Confidence != nil || result.Codes[0] != "POTHOLE_CANDIDATES_ONLY" {
+		t.Fatalf("%+v %s", result, code)
+	}
+	for _, bad := range []string{strings.Replace(valid, `"pothole"`, `"person"`, 1), strings.Replace(valid, `[100,200]`, `[9999,200]`, 1), strings.Replace(valid, `"label":"pothole"`, `"label":"pothole","severity":"URGENT"`, 1)} {
+		if _, code := parseCandidates([]byte(bad), PotholeModel, nil, 640, 480, "POTHOLE_DETECTION"); code != "VISION_INVALID_RESULT" {
+			t.Fatal("accepted", bad)
+		}
+	}
+	version := PotholeModel + "/onnx-sha256:" + strings.Repeat("a", 64)
+	if !potholeVersion.MatchString(version) || potholeVersion.MatchString(PotholeModel) || potholeVersion.MatchString(version+"/caller") {
+		t.Fatal("unpinned version accepted")
+	}
+}
+
+func TestPinnedPotholeActualInference(t *testing.T) {
+	binary := os.Getenv("JANSETU_POTHOLE_BINARY")
+	if binary == "" {
+		t.Skip("set JANSETU_POTHOLE_BINARY after make pothole-setup; CI requires this")
+	}
+	detector := Detector{Binary: binary, Kind: "POTHOLE_DETECTION"}
+	version, err := detector.Version(context.Background())
+	if err != nil || !potholeVersion.MatchString(version) {
+		t.Fatalf("readiness %s %v", version, err)
+	}
+	path, err := filepath.Abs("../../../../tests/fixtures/pothole-positive.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, code := detector.Run(context.Background(), path, version, []byte{1, 2}, 583, 1200)
+	if code != "" || result.Empty || len(result.Regions) == 0 || result.Regions[0].Label != "pothole" || result.Regions[0].Confidence != nil {
+		t.Fatalf("actual %+v %s", result, code)
+	}
+	for _, r := range result.Regions {
+		if r.Text != "" {
+			t.Fatal("pothole contains OCR text")
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, code := detector.Run(ctx, path, version, nil, 583, 1200); code != "VISION_TIMEOUT" {
+		t.Fatal(code)
+	}
+}

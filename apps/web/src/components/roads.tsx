@@ -75,8 +75,8 @@ export function RoadFields({
     <fieldset className="road-fields">
       <legend>Road surface observation</legend>
       <p className="photo-help">
-        Automatic pothole detection is unavailable. Describe what you observed; a reviewer will
-        assess it.
+        Describe what you observed; a reviewer will assess it. If enabled, optional experimental
+        pothole recognition is available for private photos. Review candidates yourself.
       </p>
       <label>
         Road name or number

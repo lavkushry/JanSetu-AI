@@ -44,6 +44,14 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	slog.Info("Local private image worker ready", "ocrModel", model, "visionModel", worker.VisionModel)
+	if cfg.PotholeBinary != "" {
+		worker.Pothole = &media.Detector{Binary: cfg.PotholeBinary, Kind: "POTHOLE_DETECTION"}
+		worker.PotholeModel, e = worker.Pothole.Version(ctx)
+		if e != nil {
+			slog.Error("Pinned pothole engine unavailable")
+			os.Exit(1)
+		}
+	}
+	slog.Info("Local private image worker ready", "potholeModel", worker.PotholeModel, "ocrModel", model, "visionModel", worker.VisionModel)
 	worker.Run(ctx, func(e error) { slog.Error("Media processing failed") })
 }

@@ -1,0 +1,69 @@
+{
+  "scope": "Visual smoke labels from implementation review, not independent human ground truth. Training overlap unknown. No India/night or probability accuracy claim.",
+  "iouThreshold": 0.3,
+  "cases": [
+    {
+      "file": "pothole-positive.png",
+      "sha256": "de737604d4b590b86dffb67b1609845381994846e17058f674fd7362eec4cacc",
+      "boxes": [
+        [
+          25,
+          325,
+          545,
+          755
+        ]
+      ],
+      "note": "Visible asphalt depression; CC0, Computerfan0",
+      "source": "https://commons.wikimedia.org/wiki/File:Pothole_on_local_Road_in_County_Monaghan.jpg"
+    },
+    {
+      "file": "pothole-big.png",
+      "sha256": "fb48b2c44bb87f271374d3ad35c27770042864ba1820bd52bec2a5e5ae575b2f",
+      "boxes": [
+        [
+          115,
+          165,
+          350,
+          270
+        ]
+      ],
+      "note": "Visible asphalt depression; public-domain dedication, Uncl3dad",
+      "source": "https://commons.wikimedia.org/wiki/File:Pothole_Big.jpg"
+    },
+    {
+      "file": "pothole-villeray.png",
+      "sha256": "27a47c34b00de0c82fcfcc0a61e3381e55b389e4bc1de7280d17462dc1fabcb8",
+      "boxes": [
+        [
+          345,
+          375,
+          770,
+          800
+        ]
+      ],
+      "note": "Visible paved cavity with water; glove above is not a pothole; public-domain dedication, Miguel Tremblay",
+      "source": "https://commons.wikimedia.org/wiki/File:Pothole_in_Villeray,_Montr%C3%A9al.jpg"
+    },
+    {
+      "file": "road-texture.png",
+      "sha256": "6ff92b4ea87dde822bcc7da979d2219fd9c04ab2c66e145236307de5125993b9",
+      "boxes": [],
+      "note": "No visible pothole in this surface crop; CC0, Kurt Kaiser",
+      "source": "https://commons.wikimedia.org/wiki/File:Asphalt_road_texture.jpg"
+    },
+    {
+      "file": "road-plain.png",
+      "sha256": "ebb5165211028e6152ce8f2121790b737a1ab14dcb96279a2298148777f55402",
+      "boxes": [],
+      "note": "No visible pothole in this image; CC BY-SA4.0, Masssly",
+      "source": "https://commons.wikimedia.org/wiki/File:Asphalt_road_at_Shiashie.jpg"
+    },
+    {
+      "file": "road-sunset.png",
+      "sha256": "245789bb9f2e2a2cb5c6ae98c075488e1192e8b8f25ac7d1ab8c13b96747e325",
+      "boxes": [],
+      "note": "No visible pothole; darkness limits review; CC BY-SA4.0, Diellza Buzhala",
+      "source": "https://commons.wikimedia.org/wiki/File:Asphalt_road_and_sunset.jpg"
+    }
+  ]
+}
