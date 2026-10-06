@@ -3948,3 +3948,222 @@ test('resident sharing stale drafts and lost responses recover without duplicate
     await staff.context.close();
   }
 });
+
+test('structured road reports preserve reviewed details, private exports and coordinator handoff', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Report a service issue' });
+  const marker = `Fictional pothole observation ${Date.now()}`;
+  const road = `PRIVATE fictional road ${Date.now()}`;
+  await dialog.getByLabel('Service category').selectOption('ROAD');
+  await expect(dialog).toContainText('Automatic pothole detection is unavailable');
+  await dialog.getByLabel('Road name or number').fill(road);
+  await dialog.getByLabel('Road type you believe applies').selectOption('NHAI_HIGHWAY');
+  const guidance = dialog.getByRole('complementary', { name: 'Road contact guidance' });
+  await expect(guidance).toContainText('1033');
+  await expect(guidance).toContainText('Contractor unconfirmed');
+  await expect(guidance.getByRole('link', { name: 'Official source' })).toHaveAttribute(
+    'href',
+    'https://ihmcl.co.in/24x7-national-highways-helpline-1033-page/',
+  );
+  await dialog
+    .getByLabel('Direction or lane (optional)')
+    .fill('Fictional left lane towards the school');
+  await dialog.getByLabel('Location or landmark').fill('PRIVATE fictional school crossing');
+  await dialog.getByLabel('Describe the issue').fill(marker);
+  await page.setViewportSize({ width: 320, height: 780 });
+  await guidance.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/road-guidance-mobile-light.png' });
+  await dialog.getByRole('button', { name: 'Review report', exact: true }).click();
+  await expect(dialog.getByLabel('Reviewed road details')).toContainText(road);
+  await dialog.getByLabel('I have reviewed this fictional report.').check();
+  const submitted = page.waitForResponse(
+    (r) => r.url().endsWith('/service-reports') && r.request().method() === 'POST',
+  );
+  await dialog.getByRole('button', { name: 'Submit report', exact: true }).click();
+  const response = await submitted;
+  expect(response.status()).toBe(201);
+  const { id } = (await response.json()) as Schema['ReportAck'];
+  await page.getByRole('link', { name: 'View my reports' }).click();
+  const card = page.locator('.my-report').filter({ hasText: marker });
+  await card.getByText('Saved contact guidance', { exact: true }).click();
+  await expect(card).toContainText('1033');
+  const downloading = page.waitForEvent('download');
+  await card.getByRole('button', { name: 'Download private complaint draft' }).click();
+  const download = await downloading;
+  expect(download.suggestedFilename()).toBe(`jansetu-road-report-${id}.txt`);
+  const path = await download.path();
+  expect(path).toBeTruthy();
+  const text = readFileSync(path!, 'utf8');
+  expect(text).toContain(road);
+  expect(text).toContain('PRIVATE fictional school crossing');
+  expect(text).toContain('No external complaint has been sent');
+  expect(text).toContain('ROAD OWNER / INDIVIDUAL OFFICER / CONTRACTOR: UNCONFIRMED');
+  await page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+  await card.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/road-report-mobile-dark.png' });
+  const staff = await staffPage(browser, 'Kiran Shah');
+  const stranger = await staffPage(browser, 'Rohan Mehta');
+  try {
+    expect((await stranger.page.request.get(`/api/my-reports/${id}`)).status()).toBe(404);
+    expect(await (await stranger.page.request.get('/api/my-reports')).text()).not.toContain(road);
+    await staff.page.getByRole('button', { name: 'Service intake', exact: true }).click();
+    const intake = staff.page.locator('.staff-card').filter({ hasText: marker });
+    await expect(intake.getByLabel('Reviewed road details')).toContainText(road);
+    await intake
+      .getByLabel('Assessment reason')
+      .fill('Fictional road concern reviewed manually for synthetic City Works routing');
+    const triaged = staff.page.waitForResponse(
+      (r) => r.url().endsWith('/triage') && r.request().method() === 'POST',
+    );
+    await intake.getByRole('button', { name: 'Create case & propose task' }).click();
+    const triage = await triaged;
+    expect(triage.status()).toBe(201);
+    const { caseId } = (await triage.json()) as { caseId: string };
+    const detail = (await (
+      await staff.page.request.get(`/api/authority/cases/${caseId}`)
+    ).json()) as Schema['CaseDetail'];
+    expect(detail.category).toBe('ROAD');
+    expect(detail.obligations[0].state).toBe('PROPOSED');
+    expect(
+      ((await (await page.request.get(`/api/my-reports/${id}`)).json()) as Schema['ReportProgress'])
+        .roadDetails?.roadName,
+    ).toBe(road);
+  } finally {
+    await staff.context.close();
+    await stranger.context.close();
+  }
+});
+
+test('recorded road footage stays local until an explicitly reviewed frame is attached', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  await page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Report a service issue' });
+  const marker = `Fictional recorded road observation ${Date.now()}`;
+  await dialog.getByLabel('Service category').selectOption('ROAD');
+  await dialog.getByLabel('Road name or number').fill('Fictional camera road');
+  await dialog.getByLabel('Location or landmark').fill('Fictional road video crossing');
+  await dialog.getByLabel('Describe the issue').fill(marker);
+  const uploads: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().endsWith('/media/uploads')) uploads.push(r.url());
+  });
+  await expect(dialog.getByLabel('Take report photo')).toHaveAttribute('capture', 'environment');
+  await dialog
+    .getByLabel('Choose recorded road video')
+    .setInputFiles('tests/fixtures/road-frame.webm');
+  const video = dialog.getByLabel('Local road video preview');
+  await expect
+    .poll(async () => video.evaluate((v) => (v as HTMLVideoElement).readyState))
+    .toBeGreaterThanOrEqual(2);
+  expect(uploads).toHaveLength(0);
+  await dialog.getByRole('button', { name: 'Review this frame', exact: true }).click();
+  await expect(dialog.getByRole('img', { name: /Selected road frame/ })).toBeVisible();
+  expect(uploads).toHaveLength(0);
+  await page.setViewportSize({ width: 320, height: 780 });
+  await dialog.getByRole('button', { name: 'Attach reviewed frame' }).scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/road-frame-mobile-dark.png' });
+  await dialog.getByRole('button', { name: 'Attach reviewed frame' }).click();
+  await expect(video).toHaveCount(0);
+  await expect(
+    dialog.getByRole('img', { name: 'Private report photo 1', exact: true }),
+  ).toBeVisible();
+  expect(uploads).toHaveLength(1);
+  await expect(dialog.getByLabel('Service category')).toHaveValue('ROAD');
+  await expect(dialog.getByLabel('Describe the issue')).toHaveValue(marker);
+  const analyses = await page.request.get('/api/capabilities');
+  expect(
+    ((await analyses.json()) as Schema['Capabilities']).analysisCapabilities.find(
+      (c) => c.kind === 'POTHOLE_DETECTION',
+    )?.status,
+  ).toBe('PLANNED');
+  await dialog.getByRole('button', { name: 'Review report', exact: true }).click();
+  await dialog.getByLabel('I have reviewed this fictional report.').check();
+  const submitted = page.waitForResponse(
+    (r) => r.url().endsWith('/service-reports') && r.request().method() === 'POST',
+  );
+  await dialog.getByRole('button', { name: 'Submit report', exact: true }).click();
+  const response = await submitted;
+  expect(response.status()).toBe(201);
+  const { id } = (await response.json()) as Schema['ReportAck'];
+  const own = (await (
+    await page.request.get(`/api/my-reports/${id}`)
+  ).json()) as Schema['ReportProgress'];
+  expect(own.mediaIds).toHaveLength(1);
+  expect(own.roadGuidance?.status).toBe('UNAVAILABLE');
+  expect(own.roadGuidance?.contacts).toEqual([]);
+});
+
+test('road drafts recover observations and manual reporting survives unavailable guidance and invalid video', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await signIn(page, 'Ananya Rao');
+  await page.route('**/api/road-guidance?*', (route) => route.abort());
+  await page.getByRole('button', { name: 'Report an issue', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Report a service issue' });
+  await dialog.getByLabel('Service category').selectOption('ROAD');
+  await dialog.getByLabel('Road name or number').fill('Fictional recovered road');
+  await dialog.getByLabel('Observed surface issue').selectOption('BROKEN_SURFACE');
+  await dialog.getByLabel('Road type you believe applies').selectOption('KARNATAKA_PWD');
+  await dialog.getByLabel('Direction or lane (optional)').fill('Fictional westbound lane');
+  await dialog.getByLabel('Location or landmark').fill('Fictional restored road crossing');
+  const marker = `Fictional manual road fallback ${Date.now()}`;
+  await dialog.getByLabel('Describe the issue').fill(marker);
+  await dialog
+    .getByLabel('Choose recorded road video')
+    .setInputFiles({
+      name: 'invalid-road.webm',
+      mimeType: 'video/webm',
+      buffer: Buffer.from('not a video'),
+    });
+  await expect(dialog).toContainText('This video format could not be read');
+  await expect(dialog.getByRole('button', { name: 'Review report', exact: true })).toBeEnabled();
+  await dialog.getByLabel('Save this private draft on this device').check();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Object.entries(localStorage).find(([k]) => k.startsWith('jansetu.report-draft.'))?.[1] ||
+          '',
+      ),
+    )
+    .toContain('Fictional recovered road');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.locator('main').getByRole('button', { name: 'Report an issue', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Restore draft', exact: true }).click();
+  await expect(dialog.getByLabel('Road name or number')).toHaveValue('Fictional recovered road');
+  await expect(dialog.getByLabel('Observed surface issue')).toHaveValue('BROKEN_SURFACE');
+  await expect(dialog.getByLabel('Direction or lane (optional)')).toHaveValue(
+    'Fictional westbound lane',
+  );
+  // A category change must not silently include stale road observations.
+  await dialog.getByLabel('Service category').selectOption('LIGHT');
+  await expect(dialog.getByLabel('Road name or number')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Review report', exact: true }).click();
+  await dialog.getByLabel('I have reviewed this fictional report.').check();
+  const submitted = page.waitForResponse(
+    (r) => r.url().endsWith('/service-reports') && r.request().method() === 'POST',
+  );
+  await dialog.getByRole('button', { name: 'Submit report', exact: true }).click();
+  const response = await submitted;
+  expect(response.request().postDataJSON()).not.toHaveProperty('roadDetails');
+  expect(response.status()).toBe(201);
+  const { id } = (await response.json()) as Schema['ReportAck'];
+  expect(
+    ((await (await page.request.get(`/api/my-reports/${id}`)).json()) as Schema['ReportProgress'])
+      .roadDetails,
+  ).toBeNull();
+});

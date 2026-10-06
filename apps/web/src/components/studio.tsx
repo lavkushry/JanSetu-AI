@@ -1,5 +1,6 @@
 'use client';
 import { PrivatePhotos } from './media';
+import { RoadSummary } from './roads';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, ShieldCheck, ClipboardList } from 'lucide-react';
@@ -274,6 +275,9 @@ function IntakeCard({
       </div>
       <h3>{v.metadata.locationLabel}</h3>
       <p>{v.statement}</p>
+      {v.metadata.roadDetails && (
+        <RoadSummary details={v.metadata.roadDetails} guidance={v.metadata.roadGuidance} />
+      )}
       <PrivatePhotos ids={v.mediaIds} />
       <small>
         {readable(v.metadata.category)} · Received {dateLabel(v.receivedAt)} ·{' '}
