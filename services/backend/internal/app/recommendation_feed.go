@@ -1,12 +1,14 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/pb"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/snapshotcache"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
 )
 
@@ -34,6 +37,77 @@ type recommendationSnapshot struct {
 	Model         string              `json:"model"`
 	Policy        string              `json:"policy"`
 	Serving       string              `json:"serving"`
+}
+
+func recommendationCursor(s recommendationSnapshot) uuid.UUID {
+	return uuid.NewSHA1(s.ID, []byte(fmt.Sprintf("%d|%d", s.PostOffset, s.ReceiptOffset)))
+}
+
+func decodeRecommendationSnapshot(payload []byte) (recommendationSnapshot, error) {
+	var s recommendationSnapshot
+	d := json.NewDecoder(bytes.NewReader(payload))
+	d.DisallowUnknownFields()
+	if len(payload) > 64*1024 || d.Decode(&s) != nil || d.Decode(new(any)) != io.EOF ||
+		s.ID == uuid.Nil || len(s.Posts) > 200 || len(s.Receipts) > 200 ||
+		s.PostOffset < 0 || s.PostOffset > len(s.Posts) || s.ReceiptOffset < 0 || s.ReceiptOffset > len(s.Receipts) ||
+		s.Model == "" || len(s.Model) > 128 || s.Policy == "" || len(s.Policy) > 128 ||
+		(s.Serving != "ranked" && s.Serving != "shadow" && s.Serving != "fallback") {
+		return s, errors.New("invalid recommendation snapshot")
+	}
+	seen := map[uuid.UUID]bool{}
+	exposures := map[uuid.UUID]bool{}
+	for _, ref := range s.Posts {
+		if ref.ID == uuid.Nil || ref.Exposure == uuid.Nil || ref.Revision < 1 || seen[ref.ID] || exposures[ref.Exposure] ||
+			(ref.Explanation != "RECENT_PUBLIC_POST" && ref.Explanation != "EXPLICIT_INTEREST" && ref.Explanation != "CHOSEN_LOCALITY" && ref.Explanation != "FOLLOWING") {
+			return s, errors.New("invalid recommendation reference")
+		}
+		seen[ref.ID] = true
+		exposures[ref.Exposure] = true
+	}
+	seen = map[uuid.UUID]bool{}
+	for _, id := range s.Receipts {
+		if id == uuid.Nil || seen[id] {
+			return s, errors.New("invalid recommendation receipt")
+		}
+		seen[id] = true
+	}
+	return s, nil
+}
+
+func (a *App) cachedRecommendationSnapshot(ctx context.Context, scope snapshotcache.Scope) (recommendationSnapshot, time.Time, bool) {
+	if a.Snapshots == nil {
+		return recommendationSnapshot{}, time.Time{}, false
+	}
+	record, err := a.Snapshots.Load(ctx, scope)
+	status := "hit"
+	if errors.Is(err, snapshotcache.ErrMiss) {
+		status = "miss"
+	} else if err != nil {
+		status = "error"
+	}
+	var s recommendationSnapshot
+	if err == nil {
+		s, err = decodeRecommendationSnapshot(record.Payload)
+		if err == nil && (recommendationCursor(s) != scope.Token || !time.Now().Before(record.Expires)) {
+			err = errors.New("cached cursor does not match snapshot")
+		}
+		if err != nil {
+			status = "invalid"
+		}
+	}
+	slog.Info("recommendation snapshot cache", "operation", "load", "status", status)
+	return s, record.Expires, err == nil
+}
+
+func (a *App) saveRecommendationSnapshot(ctx context.Context, scope snapshotcache.Scope, record snapshotcache.Record) {
+	if a.Snapshots == nil {
+		return
+	}
+	status := "saved"
+	if a.Snapshots.Save(ctx, scope, record) != nil {
+		status = "error"
+	}
+	slog.Info("recommendation snapshot cache", "operation", "save", "status", status)
 }
 
 const recommendationCandidates = `
@@ -214,25 +288,34 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 	}
 	var s recommendationSnapshot
 	expires := time.Now().Add(5 * time.Minute)
+	var readThroughScope snapshotcache.Scope
+	var readThroughRecord snapshotcache.Record
 	if raw := r.URL.Query().Get("cursor"); raw != "" {
 		token, e := uuid.Parse(raw)
 		if e != nil {
 			return nil, 0, invalid("Invalid feed cursor")
 		}
-		var payload []byte
-		var generation int64
-		err = a.store(r.Context()).QueryRow(r.Context(), `SELECT payload,expires_at,generation FROM social.recommendation_snapshot WHERE id=$1 AND viewer_id=$2 AND query_key=$3`, token, viewer, query).Scan(&payload, &expires, &generation)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, 0, failure(410, "CURSOR_EXPIRED", "Refresh the feed to continue")
-		}
-		if err != nil {
-			return nil, 0, err
-		}
-		if time.Now().After(expires) || generation != p.Generation {
-			return nil, 0, failure(410, "CURSOR_EXPIRED", "Refresh the feed to continue")
-		}
-		if err = json.Unmarshal(payload, &s); err != nil {
-			return nil, 0, err
+		scope := snapshotcache.Scope{Token: token, Query: query, Generation: p.Generation}
+		var hit bool
+		s, expires, hit = a.cachedRecommendationSnapshot(r.Context(), scope)
+		if !hit {
+			var payload []byte
+			var generation int64
+			err = a.store(r.Context()).QueryRow(r.Context(), `SELECT payload,expires_at,generation FROM social.recommendation_snapshot WHERE id=$1 AND viewer_id=$2 AND query_key=$3`, token, viewer, query).Scan(&payload, &expires, &generation)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, 0, failure(410, "CURSOR_EXPIRED", "Refresh the feed to continue")
+			}
+			if err != nil {
+				return nil, 0, err
+			}
+			if !time.Now().Before(expires) || generation != p.Generation {
+				return nil, 0, failure(410, "CURSOR_EXPIRED", "Refresh the feed to continue")
+			}
+			if s, err = decodeRecommendationSnapshot(payload); err != nil {
+				return nil, 0, err
+			}
+			readThroughScope = scope
+			readThroughRecord = snapshotcache.Record{Payload: payload, Expires: expires}
 		}
 	} else {
 		s, err = a.createRecommendationSnapshot(r.Context(), viewer, binding, p, cid)
@@ -245,12 +328,17 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 	}
 	items := []any{}
 	var next any
+	var pendingScope snapshotcache.Scope
+	var pendingRecord snapshotcache.Record
 	hydrate := func(tx pgx.Tx) error {
 		current, e := readRecommendationPreference(r.Context(), tx, viewer)
 		if e != nil {
 			return e
 		}
 		if current.Generation != p.Generation {
+			return failure(410, "CURSOR_EXPIRED", "Refresh the feed to continue")
+		}
+		if !time.Now().Before(expires) {
 			return failure(410, "CURSOR_EXPIRED", "Refresh the feed to continue")
 		}
 		ids := []uuid.UUID{}
@@ -362,10 +450,15 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 		for len(items) < 20 && addReceipt() {
 		}
 		if s.PostOffset < len(s.Posts) || s.ReceiptOffset < len(s.Receipts) {
-			token := uuid.NewSHA1(s.ID, []byte(fmt.Sprintf("%d|%d", s.PostOffset, s.ReceiptOffset)))
-			_, e = tx.Exec(r.Context(), `INSERT INTO social.recommendation_snapshot(id,viewer_id,query_key,generation,expires_at,payload) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, token, viewer, query, p.Generation, expires, jsonBytes(s))
+			token := recommendationCursor(s)
+			payload := jsonBytes(s)
+			_, e = tx.Exec(r.Context(), `INSERT INTO social.recommendation_snapshot(id,viewer_id,query_key,generation,expires_at,payload) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, token, viewer, query, p.Generation, expires, payload)
 			if e != nil {
 				return e
+			}
+			if a.Snapshots != nil {
+				pendingScope = snapshotcache.Scope{Token: token, Query: query, Generation: p.Generation}
+				pendingRecord = snapshotcache.Record{Payload: payload, Expires: expires}
 			}
 			next = token.String()
 		}
@@ -386,6 +479,13 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 	}
 	if err != nil {
 		return nil, 0, err
+	}
+	// Cache writes happen only after exposures and the durable child cursor commit.
+	if readThroughScope.Token != uuid.Nil {
+		a.saveRecommendationSnapshot(r.Context(), readThroughScope, readThroughRecord)
+	}
+	if pendingScope.Token != uuid.Nil {
+		a.saveRecommendationSnapshot(r.Context(), pendingScope, pendingRecord)
 	}
 	return map[string]any{"items": items, "nextCursor": next, "expiresAt": expires.UTC().Format(time.RFC3339), "mode": mode, "recommendationMode": s.Serving}, 200, nil
 }
