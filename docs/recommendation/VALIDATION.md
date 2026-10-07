@@ -23,9 +23,9 @@
 
 ## Redis snapshots
 
-- `make recommendation-stream-proof` passed with the real Redis snapshot adapter and race detector (16.605 seconds for the final stream/snapshot tests). Snapshot cache writes were checked from an independent database connection after commit.
+- `make recommendation-stream-proof` passed with the real Redis snapshot adapter and race detector (15.305 seconds for the final stream/snapshot tests). Snapshot cache writes were checked from an independent database connection after commit.
 - Identical pages/exposure IDs replay across API instances. A cached cursor continues after removing its durable row in the isolated fixture, proving the hit skips the snapshot read; the fixture then restores that row. Cache loss and read/write outages recover through PostgreSQL with stable cursors.
-- Corrupt scope, schema, expiry, root/offset and explanation entries fall back safely. Authenticated/anonymous bindings, publication revocation, changed revisions, blocks, mutes and immediate Less feedback remain authoritative. Reset and withdrawal reject cursors while their old-generation entries still exist.
+- Corrupt scope, schema, expiry, root/offset, explanation and duplicate exposure entries fall back safely. Authenticated/anonymous bindings, publication revocation, changed revisions, blocks, mutes and immediate Less feedback remain authoritative. Reset and withdrawal reject cursors while their old-generation entries still exist.
 - The unresponsive Redis socket test passes with enlarged URL timeout/retry settings, confirming the adapter's bounded optional dependency. The cache is disabled by default; no pilot database or public service binding changed. [Snapshot contract](SNAPSHOTS.md) documents subsequent parity, deployment and load-measurement gates.
 - Full isolated PostgreSQL Go regression tests passed with the race detector (66.635 seconds for the application package); `go vet ./...` and documentation validation passed.
 

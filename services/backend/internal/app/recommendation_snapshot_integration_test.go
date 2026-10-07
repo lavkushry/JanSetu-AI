@@ -124,6 +124,12 @@ func TestRecommendationRedisSnapshotReplayFallbackAndFencing(t *testing.T) {
 		"reference reason": func(e map[string]any) {
 			e["payload"].(map[string]any)["posts"].([]any)[0].(map[string]any)["explanation"] = "PRIVATE_REPORT"
 		},
+		"duplicate exposure": func(e map[string]any) {
+			payload := e["payload"].(map[string]any)
+			posts := payload["posts"].([]any)
+			offset := int(payload["postOffset"].(float64))
+			posts[offset+1].(map[string]any)["exposure"] = posts[offset].(map[string]any)["exposure"]
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var envelope map[string]any

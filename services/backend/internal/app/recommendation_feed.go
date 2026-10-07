@@ -55,12 +55,14 @@ func decodeRecommendationSnapshot(payload []byte) (recommendationSnapshot, error
 		return s, errors.New("invalid recommendation snapshot")
 	}
 	seen := map[uuid.UUID]bool{}
+	exposures := map[uuid.UUID]bool{}
 	for _, ref := range s.Posts {
-		if ref.ID == uuid.Nil || ref.Exposure == uuid.Nil || ref.Revision < 1 || seen[ref.ID] ||
+		if ref.ID == uuid.Nil || ref.Exposure == uuid.Nil || ref.Revision < 1 || seen[ref.ID] || exposures[ref.Exposure] ||
 			(ref.Explanation != "RECENT_PUBLIC_POST" && ref.Explanation != "EXPLICIT_INTEREST" && ref.Explanation != "CHOSEN_LOCALITY" && ref.Explanation != "FOLLOWING") {
 			return s, errors.New("invalid recommendation reference")
 		}
 		seen[ref.ID] = true
+		exposures[ref.Exposure] = true
 	}
 	seen = map[uuid.UUID]bool{}
 	for _, id := range s.Receipts {
