@@ -8,6 +8,7 @@ JanSetu optimizes discovery for useful local conversations and creators, with sa
 - [Architecture](ARCHITECTURE.md): implemented service boundary and phased distributed design.
 - [Events and privacy](EVENTS.md): current authenticated event API, generation fencing and retention.
 - [Replayable event and feature foundation](STREAMS.md): dedicated outbox, Kafka delivery, Redis projections and isolated replay proof.
+- [First aggregate concurrency migration](CONCURRENCY.md): independent post count projection and the remaining lock-order audit.
 - [References](REFERENCES.md): pinned repository revisions, source links and licensing decisions.
 - [Validation record](VALIDATION.md): tests, browser/container proof and measured limits.
 - [Benchmark protocol](BENCHMARKS.md): reproducible workloads and capacity/cost reporting.
@@ -25,7 +26,7 @@ Defaults are `JANSETU_RECOMMENDATION_MODE=shadow` and `JANSETU_RECOMMENDATION_RO
 | --- | --- | --- |
 | 1. Specification and evaluation | PRD, privacy/event contracts, reference inventory, transport benchmark, viewer-cluster experiment evaluator | Real randomized satisfaction studies and representative complete-API load results |
 | 2. Rust baseline | Tonic service, documented formula, up to 2,000 multi-source candidates, 200 ranked references, 20-item pages, batch hydration, explanations, consent controls, stable server snapshots, telemetry, shadow and fallback | Pilot evaluation before enabling serving traffic |
-| 3. Distributed data | Dedicated transactional outbox, restricted worker role, Kafka publisher, Redis projections, replay/deduplication and live consent fencing | Redis serving features/snapshots, ClickHouse/S3 datasets, public retrieval backfill, load-tested aggregate locks for existing civic mutations |
+| 3. Distributed data | Dedicated transactional outbox, restricted worker role, Kafka publisher, Redis projections, replay/deduplication, live consent fencing and independent post count projections | Redis serving features/snapshots, ClickHouse/S3 datasets, public retrieval backfill, load-tested aggregate locks for existing civic mutations |
 | 4. Learned discovery | Evaluation contract and statistical promotion gate | Eligible real data, temporal training/holdout datasets, two-tower retrieval, multi-outcome ranker, Qdrant and tested ONNX adapter |
 | 5. Session and exploration | Explicit More feedback influences future baseline interest; Less/Skip suppress posts immediately | Separate session/long-term feature stores, randomized 10% exploration with conditional selection probabilities, measured creator exposure; sequence models only after simpler baselines |
 | 6. Video | Events reject video actions | Video publishing, transcoding, delivery and moderation before watch/replay features |

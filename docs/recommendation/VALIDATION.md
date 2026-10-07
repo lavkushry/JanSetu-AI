@@ -21,6 +21,13 @@
 - The proof removes its Kafka/Redis containers/network on exit. PostgreSQL fixtures are removed by the integration harness. The active pilot database is unchanged.
 - This is a correctness proof. No sustained event-throughput/cost benchmark, Redis serving integration, analytics export or replicated deployment has been measured. [Remaining stage-3 work](STREAMS.md#remaining-stage-3-work) stays explicit.
 
+## First aggregate concurrency migration
+
+- Full Go vet and PostgreSQL integration suite with the race detector passed after moving vote/repost count projections onto their post aggregate lock.
+- A real database gate holds the pilot ordering lock and pauses the first post projection while a second post's count projection and acknowledgement finish. Both vote and repost totals remain correct.
+- The existing reply-notification/command deadlock regression and worker replay/compatibility tests passed. [Reviewed write set](CONCURRENCY.md) records the narrow allowlist and remaining civic/API migration.
+- The exposure/reply regression reproduces a real PostgreSQL deadlock with the old profile lock. With `FOR NO KEY UPDATE`, both transactions complete and record exactly one served exposure and reply notification. Consent/reset/deactivation and owner-scope recommendation tests also pass.
+
 ## Measured limits
 
 The [transport smoke result](benchmark-local.json) uses 2,000 synthetic candidates/request and 200 ranked references, 1,000 requests at concurrency eight. It measured p95 14.893 ms, p99 17.071 ms, 718.87 requests/second and zero errors on a four-vCPU ARM host with a two-CPU container limit. This is a short transport test, not a steady-state complete-feed benchmark. Hardware/build/budget metadata is in the JSON artifact. Serving/event costs are unavailable.

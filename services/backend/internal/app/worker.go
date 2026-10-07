@@ -65,6 +65,14 @@ func validateProjectionEvent(event dbgen.InfraOutbox) error {
 	return nil
 }
 
+// These envelopes rebuild only their post's counts. Their complete write set is
+// post -> post_stats, plus the leased outbox/dedup rows; no profile/receipt locks
+// or notification inserts follow the post lock. Keep this allowlist explicit.
+func postStatsOnly(event dbgen.InfraOutbox) bool {
+	return event.AggregateType == "POST" && event.AggregateID != uuid.Nil && event.AggregateVersion > 0 && event.PayloadVersion == 1 &&
+		(event.EventType == "PostVoteChanged" || event.EventType == "PostRepostChanged")
+}
+
 // ProjectOnce claims and fences one durable event. Projection, deduplication,
 // and acknowledgement commit together; duplicate delivery is safe.
 func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
@@ -83,8 +91,11 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 		// Notification foreign keys lock recipient profiles after the post. Join
 		// command serialization before any row locks to avoid the reverse order
 		// of commands, which lock their profile before locking the post.
-		if err := q.LockIdempotency(ctx, pilotMutationLock); err != nil {
-			return err
+		statsOnly := postStatsOnly(event)
+		if !statsOnly {
+			if err := q.LockIdempotency(ctx, pilotMutationLock); err != nil {
+				return err
+			}
 		}
 		claimed, e := q.LockClaim(ctx, dbgen.LockClaimParams{ID: event.ID, LeaseToken: &token, LeaseOwner: leaseOwner})
 		if errors.Is(e, pgx.ErrNoRows) {
@@ -92,6 +103,11 @@ func (a *App) ProjectOnce(ctx context.Context, owner string) (bool, error) {
 		}
 		if e != nil {
 			return e
+		}
+		// The leased row must still belong to the reviewed write set. Never enter
+		// a notification path without acquiring its ordering lock first.
+		if statsOnly && !postStatsOnly(claimed) {
+			return errInvalidProjectionEvent
 		}
 		_, e = q.EventProcessed(ctx, event.ID)
 		if e != nil && !errors.Is(e, pgx.ErrNoRows) {

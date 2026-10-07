@@ -56,7 +56,13 @@ func (a *App) recommendationTransaction(ctx context.Context, actor *Actor, fn fu
 	if err = a.checkSession(ctx, tx, actor); err != nil {
 		return err
 	}
-	if err = tx.QueryRow(ctx, `SELECT authz.lock_profile($1)`, actor.PrincipalID).Scan(&state); err != nil {
+	// NO KEY UPDATE still serializes state/consent changes, while allowing the
+	// KEY SHARE lock that notification foreign keys take on this profile. A feed
+	// exposure also references a post, so FOR UPDATE here would reverse the
+	// notification worker's post -> recipient-profile order and create a cycle.
+	if err = tx.QueryRow(ctx, `SELECT state FROM social.profile WHERE id=$1 AND id=authz.current_profile() FOR NO KEY UPDATE`, actor.ProfileID).Scan(&state); errors.Is(err, pgx.ErrNoRows) {
+		return forbidden()
+	} else if err != nil {
 		return err
 	}
 	if state == nil || *state != "ACTIVE" {
