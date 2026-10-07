@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation"
 	"github.com/redis/go-redis/v9"
 )
 
 type Config struct {
 	RecommendationTarget           string
+	RecommendationTLS              recommendation.TLSConfig
 	RecommendationMode             string
 	RecommendationRollout          int
 	RecommendationSnapshotRedisURL string
@@ -33,7 +35,13 @@ func env(key, fallback string) string {
 
 func Load() (Config, error) {
 	c := Config{
-		RecommendationTarget:           env("JANSETU_RECOMMENDATION_TARGET", "127.0.0.1:50051"),
+		RecommendationTarget: env("JANSETU_RECOMMENDATION_TARGET", "127.0.0.1:50051"),
+		RecommendationTLS: recommendation.TLSConfig{
+			CAFile:     os.Getenv("JANSETU_RECOMMENDATION_TLS_CA_FILE"),
+			CertFile:   os.Getenv("JANSETU_RECOMMENDATION_TLS_CERT_FILE"),
+			KeyFile:    os.Getenv("JANSETU_RECOMMENDATION_TLS_KEY_FILE"),
+			ServerName: os.Getenv("JANSETU_RECOMMENDATION_TLS_SERVER_NAME"),
+		},
 		RecommendationMode:             env("JANSETU_RECOMMENDATION_MODE", "shadow"),
 		RecommendationSnapshotRedisURL: os.Getenv("JANSETU_RECOMMENDATION_SNAPSHOT_REDIS_URL"),
 		VisionBinary:                   os.Getenv("JANSETU_VISION_BINARY"),
@@ -67,6 +75,9 @@ func Load() (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if err := c.RecommendationTLS.Validate(); err != nil {
+		return err
+	}
 	if c.RecommendationSnapshotRedisURL != "" {
 		if _, err := redis.ParseURL(c.RecommendationSnapshotRedisURL); err != nil {
 			return errors.New("invalid recommendation snapshot Redis URL")

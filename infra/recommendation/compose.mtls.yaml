@@ -1,0 +1,36 @@
+# Optional overlay: docker compose -f compose.yaml -f infra/recommendation/compose.mtls.yaml ...
+# File sources must be absolute paths readable by each service's nonroot UID.
+services:
+  api:
+    environment:
+      JANSETU_RECOMMENDATION_TLS_CA_FILE: /run/secrets/recommendation_server_ca
+      JANSETU_RECOMMENDATION_TLS_CERT_FILE: /run/secrets/recommendation_api_cert
+      JANSETU_RECOMMENDATION_TLS_KEY_FILE: /run/secrets/recommendation_api_key
+      JANSETU_RECOMMENDATION_TLS_SERVER_NAME: ${JANSETU_RECOMMENDATION_TLS_SERVER_NAME:?required ranker certificate DNS SAN}
+    secrets:
+      - recommendation_server_ca
+      - recommendation_api_cert
+      - recommendation_api_key
+  recommendation:
+    environment:
+      JANSETU_ENV: local
+      JANSETU_RECOMMENDATION_TLS_CA_FILE: /run/secrets/recommendation_client_ca
+      JANSETU_RECOMMENDATION_TLS_CERT_FILE: /run/secrets/recommendation_server_cert
+      JANSETU_RECOMMENDATION_TLS_KEY_FILE: /run/secrets/recommendation_server_key
+    secrets:
+      - recommendation_client_ca
+      - recommendation_server_cert
+      - recommendation_server_key
+secrets:
+  recommendation_server_ca:
+    file: ${JANSETU_RECOMMENDATION_SERVER_CA_PATH:?required server CA bundle path}
+  recommendation_api_cert:
+    file: ${JANSETU_RECOMMENDATION_API_CERT_PATH:?required API certificate path}
+  recommendation_api_key:
+    file: ${JANSETU_RECOMMENDATION_API_KEY_PATH:?required API private key path}
+  recommendation_client_ca:
+    file: ${JANSETU_RECOMMENDATION_CLIENT_CA_PATH:?required dedicated API CA bundle path}
+  recommendation_server_cert:
+    file: ${JANSETU_RECOMMENDATION_SERVER_CERT_PATH:?required ranker certificate path}
+  recommendation_server_key:
+    file: ${JANSETU_RECOMMENDATION_SERVER_KEY_PATH:?required ranker private key path}

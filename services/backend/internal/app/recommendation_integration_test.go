@@ -404,7 +404,7 @@ func TestRecommendationRustWireAndFallback(t *testing.T) {
 	owner := login(t, a, 0)
 	recommendationFixture(t, a)
 	if target := os.Getenv("JANSETU_RECOMMENDATION_TEST_TARGET"); target != "" {
-		client, e := recommendation.New(target)
+		client, e := recommendation.New(target, recommendation.TLSConfig{})
 		if e != nil {
 			t.Fatal(e)
 		}

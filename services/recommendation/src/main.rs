@@ -6,6 +6,7 @@ use jansetu_recommendation::{
     rank,
 };
 use tonic::{transport::Server, Request, Response, Status};
+mod transport;
 #[derive(Default)]
 struct Service;
 #[tonic::async_trait]
@@ -29,7 +30,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = std::env::var("JANSETU_RECOMMENDATION_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:50051".into())
         .parse()?;
-    Server::builder()
+    let mut server = Server::builder();
+    if let Some(tls) = transport::from_env()? {
+        server = server.tls_config(tls)?;
+    }
+    server
         .concurrency_limit_per_connection(128)
         .timeout(std::time::Duration::from_millis(120))
         .add_service(

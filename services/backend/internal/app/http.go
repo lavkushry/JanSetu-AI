@@ -115,7 +115,7 @@ func New(db *pgxpool.Pool, vault *vault.Client, c platform.Config) *App {
 	}
 	a := &App{DB: db, Auth: db, Operations: db, Publication: db, Worker: db, Vault: vault, Config: c, cursorKey: key}
 	if c.RecommendationTarget != "" {
-		client, err := recommendation.New(c.RecommendationTarget)
+		client, err := recommendation.New(c.RecommendationTarget, c.RecommendationTLS)
 		if err != nil {
 			panic(err)
 		}

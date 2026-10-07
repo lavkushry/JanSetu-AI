@@ -59,6 +59,11 @@ recommendation-benchmark:
 recommendation-generate:
 	bash scripts/generate_recommendation_contract.sh
 
+.PHONY: recommendation-transport-proof
+recommendation-transport-proof:
+	cargo build --locked --manifest-path services/recommendation/Cargo.toml --bin jansetu-recommendation
+	cd services/backend && JANSETU_RECOMMENDATION_TEST_BINARY="$(CURDIR)/services/recommendation/target/debug/jansetu-recommendation" go test -race ./internal/recommendation -run 'Test(TLSConfiguration|RustMutualTLS)' -count=1
+
 recommendation-browser-proof:
 	python3 scripts/recommendation_browser_proof.py
 

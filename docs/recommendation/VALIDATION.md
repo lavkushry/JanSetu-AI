@@ -43,6 +43,13 @@
 - The existing reply-notification/command deadlock regression and worker replay/compatibility tests passed. [Reviewed write set](CONCURRENCY.md) records the narrow allowlist and remaining civic/API migration.
 - The exposure/reply regression reproduces a real PostgreSQL deadlock with the old profile lock. With `FOR NO KEY UPDATE`, both transactions complete and record exactly one served exposure and reply notification. Consent/reset/deactivation and owner-scope recommendation tests also pass.
 
+## Authenticated Go/Rust transport
+
+- `make recommendation-transport-proof` passed with the race detector (1.237 seconds). Temporary ECDSA identities and separate client/server CAs exercise the actual Rust listener and production Go client. Valid ranking succeeds before and after rejection of plaintext, missing/untrusted/expired/wrong-purpose client identities, untrusted/expired servers and wrong server names. TLS does not downgrade to a plaintext endpoint.
+- Partial TLS configuration, malformed CA material, missing keys and mismatched certificate/key pairs fail startup. Rust local-only plaintext validation, formatting, Clippy with warnings denied, Rust tests and Python evaluation tests passed.
+- Full Go vet and isolated PostgreSQL integration tests passed with the race detector (64.406 seconds for the application package). The optional TLS Compose overlay and Markdown/whitespace validation passed. Public bindings, pilot data and rollout settings are unchanged.
+- [Transport operations](TRANSPORT.md) describe the dedicated client trust domain, secret mounts and restart-based rotation. Certificate provisioning, revocation/rotation drills, container deployment and sustained TLS throughput are not claimed by the process-level proof.
+
 ## Measured limits
 
 The [transport smoke result](benchmark-local.json) uses 2,000 synthetic candidates/request and 200 ranked references, 1,000 requests at concurrency eight. It measured p95 14.893 ms, p99 17.071 ms, 718.87 requests/second and zero errors on a four-vCPU ARM host with a two-CPU container limit. This is a short transport test, not a steady-state complete-feed benchmark. Hardware/build/budget metadata is in the JSON artifact. Serving/event costs are unavailable.

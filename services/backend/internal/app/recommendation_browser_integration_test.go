@@ -28,7 +28,7 @@ func TestRecommendationBrowserFixture(t *testing.T) {
 	if target == "" {
 		target = "127.0.0.1:50051"
 	}
-	rpc, err := recommendation.New(target)
+	rpc, err := recommendation.New(target, recommendation.TLSConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
