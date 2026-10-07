@@ -17,6 +17,7 @@ func TestIdentityConfigurationFailsClosed(t *testing.T) {
 		"origin path":            func(c *Config) { c.WebOrigin += "/anything" },
 		"missing client":         func(c *Config) { c.OIDCClientID = "" },
 		"invalid snapshot cache": func(c *Config) { c.RecommendationSnapshotRedisURL = "http://localhost:16379" },
+		"partial ranker TLS":     func(c *Config) { c.RecommendationTLS.ServerName = "ranker.test" },
 		"HTTPS rewrite": func(c *Config) {
 			c.OIDCIssuer = "https://identity.example.test"
 			c.OIDCBackchannel = "http://identity:8080"
@@ -33,5 +34,22 @@ func TestIdentityConfigurationFailsClosed(t *testing.T) {
 	c.WebOrigin = "https://jansetu.example.test"
 	if !c.SecureCookies() {
 		t.Fatal("HTTPS cookies are not secure")
+	}
+}
+
+func TestRecommendationTLSLoaded(t *testing.T) {
+	t.Setenv("JANSETU_ENV", "test")
+	t.Setenv("JANSETU_AUTH_MODE", "demo")
+	t.Setenv("JANSETU_WEB_ORIGIN", "http://localhost:3100")
+	t.Setenv("JANSETU_RECOMMENDATION_TLS_CA_FILE", "/run/secrets/server-ca.pem")
+	t.Setenv("JANSETU_RECOMMENDATION_TLS_CERT_FILE", "/run/secrets/api.pem")
+	t.Setenv("JANSETU_RECOMMENDATION_TLS_KEY_FILE", "/run/secrets/api-key.pem")
+	t.Setenv("JANSETU_RECOMMENDATION_TLS_SERVER_NAME", "ranker.internal")
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.RecommendationTLS.CAFile != "/run/secrets/server-ca.pem" || c.RecommendationTLS.CertFile != "/run/secrets/api.pem" || c.RecommendationTLS.KeyFile != "/run/secrets/api-key.pem" || c.RecommendationTLS.ServerName != "ranker.internal" {
+		t.Fatal("ranker TLS environment was not loaded")
 	}
 }

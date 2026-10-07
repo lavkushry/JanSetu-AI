@@ -35,6 +35,7 @@ jobs:
       - run: make vision-test
       - run: make seed
       - run: make check
+      - run: make recommendation-transport-proof
       - name: Start Rust ranker for wire integration
         run: |
           cargo run --locked --manifest-path services/recommendation/Cargo.toml --bin jansetu-recommendation > /tmp/jansetu-recommendation.log 2>&1 &

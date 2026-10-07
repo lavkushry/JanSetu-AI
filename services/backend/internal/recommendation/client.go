@@ -7,7 +7,6 @@ import (
 
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/pb"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 type Ranker interface {
@@ -18,8 +17,12 @@ type Client struct {
 	rpc  pb.RecommendationServiceClient
 }
 
-func New(target string) (*Client, error) {
-	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(128*1024), grpc.MaxCallSendMsgSize(1024*1024)))
+func New(target string, transport TLSConfig) (*Client, error) {
+	creds, err := transport.credentials()
+	if err != nil {
+		return nil, err
+	}
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(creds), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(128*1024), grpc.MaxCallSendMsgSize(1024*1024)))
 	if err != nil {
 		return nil, err
 	}
