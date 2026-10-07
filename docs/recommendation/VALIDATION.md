@@ -26,6 +26,7 @@
 - Full Go vet and PostgreSQL integration suite with the race detector passed after moving vote/repost count projections onto their post aggregate lock.
 - A real database gate holds the pilot ordering lock and pauses the first post projection while a second post's count projection and acknowledgement finish. Both vote and repost totals remain correct.
 - The existing reply-notification/command deadlock regression and worker replay/compatibility tests passed. [Reviewed write set](CONCURRENCY.md) records the narrow allowlist and remaining civic/API migration.
+- The exposure/reply regression reproduces a real PostgreSQL deadlock with the old profile lock. With `FOR NO KEY UPDATE`, both transactions complete and record exactly one served exposure and reply notification. Consent/reset/deactivation and owner-scope recommendation tests also pass.
 
 ## Measured limits
 
