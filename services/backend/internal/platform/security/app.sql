@@ -122,3 +122,9 @@ GRANT USAGE ON SCHEMA rec_stream TO js_recommendation_stream;
 GRANT EXECUTE ON FUNCTION rec_stream.claim(uuid,integer),rec_stream.ack(uuid,uuid),rec_stream.retry(uuid,uuid),rec_stream.current_authority(uuid),rec_stream.expire() TO js_recommendation_stream;
 GRANT USAGE ON SCHEMA rec_stream TO js_worker;
 GRANT EXECUTE ON FUNCTION rec_stream.expire() TO js_worker;
+
+REVOKE ALL ON ALL TABLES IN SCHEMA identity,ops,infra,social,rec_stream,rec_serving FROM js_recommendation_control;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA authz,rec_stream,rec_serving FROM js_recommendation_control;
+GRANT USAGE ON SCHEMA rec_serving TO js_social,js_recommendation_control;
+GRANT EXECUTE ON FUNCTION rec_serving.current_control() TO js_social,js_recommendation_control;
+GRANT EXECUTE ON FUNCTION rec_serving.set_disabled(boolean,bigint) TO js_recommendation_control;

@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/control"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/pb"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/snapshotcache"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
@@ -29,14 +30,23 @@ type recommendationRef struct {
 	Exposure    uuid.UUID `json:"exposure"`
 }
 type recommendationSnapshot struct {
-	ID            uuid.UUID           `json:"snapshotId"`
-	Posts         []recommendationRef `json:"posts"`
-	Receipts      []uuid.UUID         `json:"receipts"`
-	PostOffset    int                 `json:"postOffset"`
-	ReceiptOffset int                 `json:"receiptOffset"`
-	Model         string              `json:"model"`
-	Policy        string              `json:"policy"`
-	Serving       string              `json:"serving"`
+	ID             uuid.UUID           `json:"snapshotId"`
+	Posts          []recommendationRef `json:"posts"`
+	Receipts       []uuid.UUID         `json:"receipts"`
+	PostOffset     int                 `json:"postOffset"`
+	ReceiptOffset  int                 `json:"receiptOffset"`
+	Model          string              `json:"model"`
+	Policy         string              `json:"policy"`
+	Serving        string              `json:"serving"`
+	ServingVersion int64               `json:"servingVersion,omitempty"`
+}
+
+func recommendationServingControl(ctx context.Context, db control.Database) control.State {
+	state, err := control.Load(ctx, db)
+	if err != nil {
+		slog.Warn("recommendation serving control unavailable; ranking disabled")
+	}
+	return state
 }
 
 func recommendationCursor(s recommendationSnapshot) uuid.UUID {
@@ -51,7 +61,7 @@ func decodeRecommendationSnapshot(payload []byte) (recommendationSnapshot, error
 		s.ID == uuid.Nil || len(s.Posts) > 200 || len(s.Receipts) > 200 ||
 		s.PostOffset < 0 || s.PostOffset > len(s.Posts) || s.ReceiptOffset < 0 || s.ReceiptOffset > len(s.Receipts) ||
 		s.Model == "" || len(s.Model) > 128 || s.Policy == "" || len(s.Policy) > 128 ||
-		(s.Serving != "ranked" && s.Serving != "shadow" && s.Serving != "fallback") {
+		s.ServingVersion < 0 || (s.Serving != "ranked" && s.Serving != "shadow" && s.Serving != "fallback") {
 		return s, errors.New("invalid recommendation snapshot")
 	}
 	seen := map[uuid.UUID]bool{}
@@ -154,8 +164,8 @@ func stickyRecommendation(viewer string, percentage int) bool {
 	bucket := (int(h[0])*256 + int(h[1])) % 10000
 	return bucket < percentage*100
 }
-func (a *App) createRecommendationSnapshot(ctx context.Context, viewer uuid.UUID, binding string, p recommendationPreference, cid uuid.UUID) (recommendationSnapshot, error) {
-	s := recommendationSnapshot{ID: uuid.New(), Posts: []recommendationRef{}, Receipts: []uuid.UUID{}, Model: "chronological-v1", Policy: "authorized-fallback-v1", Serving: "fallback"}
+func (a *App) createRecommendationSnapshot(ctx context.Context, viewer uuid.UUID, binding string, p recommendationPreference, cid uuid.UUID, serving control.State) (recommendationSnapshot, error) {
+	s := recommendationSnapshot{ID: uuid.New(), Posts: []recommendationRef{}, Receipts: []uuid.UUID{}, Model: "chronological-v1", Policy: "authorized-fallback-v1", Serving: "fallback", ServingVersion: serving.Version}
 	rows, err := a.store(ctx).Query(ctx, recommendationCandidates, viewer, p.Interests, p.Locality, cid, p.Languages, p.Generation, p.PersonalizationEnabled)
 	if err != nil {
 		return s, err
@@ -190,7 +200,7 @@ func (a *App) createRecommendationSnapshot(ctx context.Context, viewer uuid.UUID
 			break
 		}
 	}
-	if a.Ranker != nil && a.Config.RecommendationMode != "off" && a.Config.RecommendationMode != "" {
+	if !serving.Disabled && a.Ranker != nil && a.Config.RecommendationMode != "off" && a.Config.RecommendationMode != "" {
 		ctx, cancel := context.WithTimeout(ctx, 120*time.Millisecond)
 		req := &pb.RecommendRequest{ViewerContext: uuid.NewString(), Generation: p.Generation, Surface: "HOME", Languages: p.Languages, Locality: p.Locality, SnapshotId: s.ID.String(), DeadlineUnixMs: time.Now().Add(120 * time.Millisecond).UnixMilli(), Candidates: candidates, Limit: 200}
 		start := time.Now()
@@ -211,7 +221,7 @@ func (a *App) createRecommendationSnapshot(ctx context.Context, viewer uuid.UUID
 				}
 			}
 		}
-		slog.Info("recommendation", "top20Overlap", overlap, "elapsedMs", time.Since(start).Milliseconds(), "candidates", len(candidates), "success", e == nil, "mode", a.Config.RecommendationMode)
+		slog.Info("recommendation", "top20Overlap", overlap, "elapsedMs", time.Since(start).Milliseconds(), "candidates", len(candidates), "success", e == nil, "mode", a.Config.RecommendationMode, "servingVersion", serving.Version)
 		if e == nil && a.Config.RecommendationMode == "serve" && stickyRecommendation(binding, a.Config.RecommendationRollout) {
 			ranked = result.Items
 			s.Model = result.ModelVersion
@@ -318,7 +328,8 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 			readThroughRecord = snapshotcache.Record{Payload: payload, Expires: expires}
 		}
 	} else {
-		s, err = a.createRecommendationSnapshot(r.Context(), viewer, binding, p, cid)
+		serving := recommendationServingControl(r.Context(), a.store(r.Context()))
+		s, err = a.createRecommendationSnapshot(r.Context(), viewer, binding, p, cid, serving)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -340,6 +351,12 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 		}
 		if !time.Now().Before(expires) {
 			return failure(410, "CURSOR_EXPIRED", "Refresh the feed to continue")
+		}
+		if s.Serving == "ranked" {
+			serving := recommendationServingControl(r.Context(), tx)
+			if serving.Disabled || serving.Version != s.ServingVersion {
+				return failure(410, "CURSOR_EXPIRED", "Refresh the feed to continue")
+			}
 		}
 		ids := []uuid.UUID{}
 		for _, ref := range s.Posts[s.PostOffset:] {
