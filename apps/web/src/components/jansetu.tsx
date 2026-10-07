@@ -1,4 +1,5 @@
 'use client';
+import { RecommendationControl } from './recommendations';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -648,14 +649,15 @@ function Feed({
   const [localMode, setMode] = useState(params.get('mode') || 'HOME');
   const [sort, setSort] = useState('new');
   const mode = communityId || saved ? 'HOME' : localMode;
+  const effectiveSort = mode === 'FOLLOWING' || (saved && sort === 'recommended') ? 'new' : sort;
   const needsAccount = saved || mode === 'FOLLOWING';
   const path = saved ? 'me/bookmarks' : 'feed';
   const q = useInfiniteQuery({
-    queryKey: ['feed', path, mode, sort, communityId],
+    queryKey: ['feed', me?.profile.id || 'guest', path, mode, effectiveSort, communityId],
     initialPageParam: '',
     queryFn: ({ pageParam }) =>
       api<Schema['Feed']>(
-        `${path}?${new URLSearchParams({ mode, sort, ...(communityId ? { communityId } : {}), ...(pageParam ? { cursor: pageParam } : {}) })}`,
+        `${path}?${new URLSearchParams({ mode, sort: effectiveSort, ...(communityId ? { communityId } : {}), ...(pageParam ? { cursor: pageParam } : {}) })}`,
       ),
     getNextPageParam: (last) => last.nextCursor || undefined,
     enabled: !needsAccount || !!me,
@@ -744,13 +746,23 @@ function Feed({
         {!['UNRESOLVED', 'RESOLVED'].includes(mode) && (
           <label className="sort-select">
             <SlidersHorizontal size={14} />
-            <select aria-label="Sort feed" value={sort} onChange={(e) => setSort(e.target.value)}>
+            <select
+              aria-label="Sort feed"
+              value={effectiveSort}
+              onChange={(e) => setSort(e.target.value)}
+            >
               <option value="new">Latest</option>
-              <option value="top">Top posts</option>
+              {!saved && mode !== 'FOLLOWING' && <option value="recommended">Recommended</option>}
+              {mode !== 'FOLLOWING' && <option value="top">Top posts</option>}
             </select>
           </label>
         )}
       </div>
+      {q.data?.pages[0]?.recommendationMode === 'fallback' && (
+        <p className="muted" role="status">
+          Showing recent conversations while recommendations are unavailable.
+        </p>
+      )}
       {needsAccount && !me ? (
         <Empty title={saved ? 'Your bookmarks stay with you' : 'Follow what matters to you'}>
           <p>Sign in to continue.</p>
@@ -779,9 +791,18 @@ function Feed({
             .flatMap((p) => p.items)
             .map((v) =>
               v.type === 'POST' ? (
-                <PostCard key={v.post.id} post={v.post} onEdit={onEdit} />
+                <div key={v.post.id}>
+                  {v.recommendation && <RecommendationControl value={v.recommendation} />}
+                  <PostCard post={v.post} onEdit={onEdit} />
+                </div>
               ) : (
-                <ReceiptCard key={v.receipt.id} receipt={v.receipt} />
+                <div key={v.receipt.id}>
+                  {v.section === 'CIVIC_UPDATES' && (
+                    <p className="eyebrow">CIVIC UPDATES · URGENCY, THEN AGE</p>
+                  )}
+                  {v.recommendation && <RecommendationControl value={v.recommendation} />}
+                  <ReceiptCard receipt={v.receipt} />
+                </div>
               ),
             )}
           {q.hasNextPage && (

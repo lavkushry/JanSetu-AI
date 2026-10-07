@@ -711,3 +711,44 @@ SELECT * FROM ops.prerequisite_amendment WHERE task_id=$1 AND client_amendment_i
 SELECT * FROM ops.prerequisite_amendment WHERE case_id=$1 ORDER BY created_at,id;
 -- name: InsertAmendedPrerequisite :exec
 INSERT INTO ops.task_prerequisite(case_id,task_id,prerequisite_task_id,amendment_id) VALUES($1,$2,$3,$4);
+
+-- name: RecommendationPosts :many
+SELECT jsonb_build_object(
+  'id',p.id,'kind',p.kind,'state',p.state,'version',p.version,'currentRevision',p.current_revision,'publishedRevision',p.published_revision,
+  'title',CASE WHEN p.state='DELETED' THEN NULL WHEN pub.post_id IS NOT NULL THEN pub.title ELSE cur.title END,
+  'body',CASE WHEN p.state='DELETED' THEN NULL ELSE COALESCE(pub.body,'') END,
+  'languageTag',COALESCE(pub.language_tag,cur.language_tag),'createdAt',p.created_at,'publishedAt',p.published_at,
+  'author',CASE WHEN p.author_id IS NULL OR p.state='DELETED' THEN NULL ELSE jsonb_build_object('id',a.id,'handle',a.handle,'displayName',a.display_name) END,
+  'community',CASE WHEN c.id IS NULL THEN NULL ELSE jsonb_build_object('id',c.id,'slug',c.slug,'title',c.title) END,
+  'media','[]'::jsonb,
+  'selectedResponse',(SELECT jsonb_build_object('commentId',e.comment_id,'postRevision',e.post_revision,'commentRevision',e.comment_revision,
+    'body',e.body,'author',jsonb_build_object('id',e.author_id,'handle',e.handle,'displayName',e.display_name),
+    'selectedBy',CASE WHEN s.selected_by=p.author_id THEN 'AUTHOR' ELSE 'COMMUNITY_MODERATOR' END)
+    FROM social.selected_response s JOIN social.eligible_question_response e ON e.post_id=s.post_id AND e.comment_id=s.comment_id
+    AND e.post_revision=s.post_revision AND e.comment_revision=s.comment_revision WHERE s.post_id=p.id
+    AND NOT EXISTS(SELECT FROM social.profile_block b WHERE (b.blocker_id=sqlc.arg(viewer_id) AND b.blocked_id=e.author_id) OR (b.blocked_id=sqlc.arg(viewer_id) AND b.blocker_id=e.author_id))),
+  'stats',jsonb_build_object('score',COALESCE(st.up_count-st.down_count,0),'comments',COALESCE(st.comment_count,0),'reposts',COALESCE(st.repost_count,0),'asOf',COALESCE(st.as_of,p.created_at)),
+  'viewer',jsonb_build_object('vote',COALESCE((SELECT value FROM social.post_vote v WHERE v.profile_id=sqlc.arg(viewer_id) AND v.post_id=p.id),0),
+    'bookmarked',EXISTS(SELECT 1 FROM social.bookmark b WHERE b.profile_id=sqlc.arg(viewer_id) AND b.post_id=p.id),
+    'reposted',EXISTS(SELECT 1 FROM social.repost r WHERE r.profile_id=sqlc.arg(viewer_id) AND r.post_id=p.id),
+    'canEdit',p.author_id=sqlc.arg(viewer_id) AND (p.state IN ('PENDING','PUBLISHED') OR (p.state='HIDDEN' AND p.published_revision IS NULL AND cur.review_state='REJECTED')),
+    'canDelete',p.author_id=sqlc.arg(viewer_id) AND p.state NOT IN ('DELETED'),
+    'canReply',p.state='PUBLISHED' AND sqlc.arg(viewer_id)::uuid <> '00000000-0000-0000-0000-000000000000'::uuid,
+    'canSelectResponse',COALESCE(p.kind='QUESTION' AND p.state='PUBLISHED' AND (p.author_id=sqlc.arg(viewer_id)
+      OR EXISTS(SELECT FROM social.community_member m WHERE m.community_id=p.community_id AND m.profile_id=sqlc.arg(viewer_id) AND m.state='ACTIVE' AND m.role IN ('MODERATOR','OWNER'))),false),
+    'mutedAuthor',CASE WHEN p.state='DELETED' THEN false ELSE EXISTS(SELECT FROM social.mute m WHERE m.profile_id=sqlc.arg(viewer_id) AND m.muted_profile_id=p.author_id AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) END),
+  'candidate',CASE WHEN p.author_id=sqlc.arg(viewer_id) OR sqlc.arg(review_access)::boolean THEN
+    jsonb_build_object('title',cur.title,'body',cur.body,'revision',cur.revision,'reviewState',cur.review_state) ELSE NULL END
+) AS data
+FROM social.post p JOIN social.post_revision cur ON cur.post_id=p.id AND cur.revision=p.current_revision
+LEFT JOIN social.post_revision pub ON pub.post_id=p.id AND pub.revision=p.published_revision
+LEFT JOIN social.profile a ON a.id=p.author_id LEFT JOIN social.community c ON c.id=p.community_id
+LEFT JOIN social.post_stats st ON st.post_id=p.id
+WHERE (p.source_post_id IS NULL OR EXISTS(SELECT FROM social.post root JOIN social.profile root_author ON root_author.id=root.author_id LEFT JOIN social.community root_community ON root_community.id=root.community_id
+ WHERE root.id=p.source_post_id AND root.state='PUBLISHED' AND root_author.state='ACTIVE'
+ AND (root_community.id IS NULL OR (root_community.state='ACTIVE' AND root_community.visibility IN ('PUBLIC','RESTRICTED')))
+ AND NOT EXISTS(SELECT FROM social.profile_block b WHERE (b.blocker_id=sqlc.arg(viewer_id) AND b.blocked_id=root.author_id) OR (b.blocked_id=sqlc.arg(viewer_id) AND b.blocker_id=root.author_id)))) AND p.state='PUBLISHED' AND NOT EXISTS(SELECT FROM social.mute m WHERE m.profile_id=sqlc.arg(viewer_id) AND (m.muted_profile_id=p.author_id OR m.muted_community_id=p.community_id) AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) AND p.id=ANY(sqlc.arg(post_ids)::uuid[]) AND (c.id IS NULL OR c.visibility IN ('PUBLIC','RESTRICTED'))
+AND (c.id IS NULL OR c.state='ACTIVE') AND (p.state='DELETED' OR p.author_id IS NULL OR a.state='ACTIVE')
+AND (p.state IN ('PUBLISHED','DELETED') OR p.author_id=sqlc.arg(viewer_id) OR sqlc.arg(review_access)::boolean)
+AND (sqlc.arg(review_access)::boolean OR NOT EXISTS(SELECT 1 FROM social.profile_block b WHERE
+  (b.blocker_id=sqlc.arg(viewer_id) AND b.blocked_id=p.author_id) OR (b.blocked_id=sqlc.arg(viewer_id) AND b.blocker_id=p.author_id)));

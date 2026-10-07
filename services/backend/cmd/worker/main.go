@@ -26,6 +26,20 @@ func main() {
 	}
 	defer db.Close()
 	a := app.New(db, nil, c)
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			if _, err := db.Exec(ctx, "SELECT social.expire_recommendations()"); err != nil && ctx.Err() == nil {
+				slog.Error("Recommendation retention cleanup failed")
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 	slog.Info("Local projection worker ready")
 	for ctx.Err() == nil {
 		if e = a.RunWorker(ctx); e != nil {

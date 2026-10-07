@@ -1,4 +1,4 @@
-.PHONY: dev db identity vault migrate seed api worker media-worker vision-setup pothole-setup vision-test web test test-integration check generate
+.PHONY: dev db identity vault migrate seed api worker media-worker vision-setup pothole-setup vision-test web test test-integration check generate recommendation recommendation-check recommendation-benchmark recommendation-generate recommendation-browser-proof
 PYTHON ?= python3
 vision-setup:
 	$(PYTHON) -m venv services/vision/.venv
@@ -38,6 +38,7 @@ test:
 test-integration:
 	cd services/backend && JANSETU_INTEGRATION=1 go test -race ./...
 check:
+	$(MAKE) recommendation-check
 	python3 scripts/validate_specs.py
 	cd services/backend && go vet ./... && go test ./...
 	npm run typecheck
@@ -45,3 +46,18 @@ check:
 generate:
 	cd services/backend && go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
 	npm run contracts
+
+recommendation:
+	cargo run --locked --manifest-path services/recommendation/Cargo.toml --bin jansetu-recommendation
+recommendation-check:
+	cargo fmt --manifest-path services/recommendation/Cargo.toml --check
+	cargo clippy --locked --manifest-path services/recommendation/Cargo.toml --all-targets -- -D warnings
+	cargo test --locked --manifest-path services/recommendation/Cargo.toml
+	python3 -m unittest discover -s services/training -p '*_test.py'
+recommendation-benchmark:
+	cargo run --locked --release --manifest-path services/recommendation/Cargo.toml --bin benchmark -- http://127.0.0.1:50051 1000 8
+recommendation-generate:
+	bash scripts/generate_recommendation_contract.sh
+
+recommendation-browser-proof:
+	python3 scripts/recommendation_browser_proof.py

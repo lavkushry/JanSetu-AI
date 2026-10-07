@@ -3369,3 +3369,15 @@ textarea {
 .task-amendments .split-check {
   display: grid;
 }
+
+.recommendation-control {
+  padding: 0.6rem 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.recommendation-control summary {
+  cursor: pointer;
+}
+.recommendation-control p {
+  margin: 0.5rem 0;
+}

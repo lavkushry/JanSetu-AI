@@ -23,6 +23,7 @@ import (
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/authn"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/media"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/platform"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/vault"
 )
@@ -35,6 +36,7 @@ type App struct {
 	Files                                     *media.Storage
 	cursorKey                                 []byte
 	Identity                                  *authn.Provider
+	Ranker                                    recommendation.Ranker
 }
 type Actor struct {
 	PrincipalID, ProfileID, SessionID uuid.UUID
@@ -109,7 +111,15 @@ func New(db *pgxpool.Pool, vault *vault.Client, c platform.Config) *App {
 	if _, err := rand.Read(key); err != nil {
 		panic(err)
 	}
-	return &App{DB: db, Auth: db, Operations: db, Publication: db, Worker: db, Vault: vault, Config: c, cursorKey: key}
+	a := &App{DB: db, Auth: db, Operations: db, Publication: db, Worker: db, Vault: vault, Config: c, cursorKey: key}
+	if c.RecommendationTarget != "" {
+		client, err := recommendation.New(c.RecommendationTarget)
+		if err != nil {
+			panic(err)
+		}
+		a.Ranker = client
+	}
+	return a
 }
 
 type endpoint func(http.ResponseWriter, *http.Request, *Actor) (any, int, error)
@@ -423,7 +433,11 @@ func (a *App) Handler() http.Handler {
 		"POST /v1/analyses/{id}/retry": a.retryAnalysis, "DELETE /v1/analyses/{id}": a.cancelAnalysis,
 		"GET /v1/capabilities": a.capabilities, "GET /v1/communities": a.communities, "GET /v1/communities/{id}": a.community,
 		"PUT /v1/communities/{id}/membership": a.membership, "PUT /v1/communities/{id}/follow": a.communityFollow,
-		"GET /v1/feed": a.feed, "GET /v1/search": a.search, "GET /v1/me/bookmarks": a.bookmarks,
+		"GET /v1/me/recommendation-preferences":    a.recommendationPreferences,
+		"PUT /v1/me/recommendation-preferences":    a.saveRecommendationPreferences,
+		"POST /v1/me/recommendation-history/reset": a.resetRecommendationHistory,
+		"POST /v1/me/recommendation-events":        a.recommendationEvent,
+		"GET /v1/feed":                             a.feed, "GET /v1/search": a.search, "GET /v1/me/bookmarks": a.bookmarks,
 		"GET /v1/posts/{id}": a.getPost, "POST /v1/posts": a.createPost, "PATCH /v1/posts/{id}": a.editPost, "DELETE /v1/posts/{id}": a.deletePost,
 		"GET /v1/posts/{id}/comments": a.comments, "POST /v1/posts/{id}/comments": a.createComment, "PATCH /v1/comments/{id}": a.editComment, "DELETE /v1/comments/{id}": a.deleteComment,
 		"PUT /v1/posts/{id}/vote": a.vote, "PUT /v1/posts/{id}/bookmark": a.bookmark, "PUT /v1/posts/{id}/repost": a.repost,

@@ -25,17 +25,32 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
+      - name: Rust toolchain
+        run: rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy && rustup default 1.98.0
       - run: npm ci
       - run: make db
       - run: make identity
-      - run: sudo apt-get update -qq && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
+      - run: sudo apt-get update -qq && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng protobuf-compiler
       - run: make pothole-setup
       - run: make vision-test
       - run: make seed
       - run: make check
+      - name: Start Rust ranker for wire integration
+        run: |
+          cargo run --locked --manifest-path services/recommendation/Cargo.toml --bin jansetu-recommendation > /tmp/jansetu-recommendation.log 2>&1 &
+          ranker_pid=$!
+          for attempt in $(seq 1 40); do
+            if ! kill -0 "$ranker_pid" 2>/dev/null; then wait "$ranker_pid"; exit 1; fi
+            if python3 -c 'import socket; socket.create_connection(("127.0.0.1", 50051), timeout=1).close()' 2>/dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
       - run: make test-integration
+        env:
+          JANSETU_RECOMMENDATION_TEST_TARGET: 127.0.0.1:50051
       - run: make generate
-      - run: git diff --exit-code -- services/backend/internal/store/dbgen apps/web/src/lib/generated.ts
+      - run: make recommendation-generate
+      - run: git diff --exit-code -- services/backend/internal/store/dbgen services/backend/internal/recommendation/pb apps/web/src/lib/generated.ts
       - run: npx playwright install --with-deps chromium
       - name: Start vault, API, workers, and production web
         run: |

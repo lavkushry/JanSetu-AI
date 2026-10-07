@@ -18,3 +18,7 @@ services/vision/.export-venv
 services/vision/pothole-manifest.json
 services/vision/*.onnx
 services/vision/*.tmp
+
+services/recommendation/target/
+!services/recommendation/src/bin/
+!services/recommendation/src/bin/*.rs
