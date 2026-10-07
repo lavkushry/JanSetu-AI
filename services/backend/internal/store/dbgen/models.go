@@ -95,6 +95,19 @@ type OpsObligation struct {
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 }
 
+type OpsPrerequisiteAmendment struct {
+	ID                uuid.UUID          `json:"id"`
+	CaseID            uuid.UUID          `json:"case_id"`
+	TaskID            uuid.UUID          `json:"task_id"`
+	ClientAmendmentID uuid.UUID          `json:"client_amendment_id"`
+	ActorRef          uuid.UUID          `json:"actor_ref"`
+	TaskVersion       int64              `json:"task_version"`
+	AddedTaskIds      []uuid.UUID        `json:"added_task_ids"`
+	Reason            string             `json:"reason"`
+	Reviewed          bool               `json:"reviewed"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
 type OpsPublicationBinding struct {
 	CaseID              uuid.UUID          `json:"case_id"`
 	ReceiptID           uuid.UUID          `json:"receipt_id"`

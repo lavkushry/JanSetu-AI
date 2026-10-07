@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.24.0
+  version: 0.25.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -1813,6 +1813,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TaskProposalResult'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /authority/obligations/{id}/prerequisite-amendments:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      operationId: post_prerequisite_amendment
+      summary: Record reviewed prerequisite additions before agency acceptance
+      description: Coordinator only. If-Match is the current task version. Adds one to seven new same-case required prerequisites with an attributed reason and reviewed=true. Original proposal, scopes, due date and report age remain intact. No removal or bypass; cycles include approved scope replacement edges. Pending split review blocks additions. Matching original-author lifetime retries recover current task/case versions using the original If-Match without extra effects.
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrerequisiteAmendmentInput'
+      responses:
+        '201':
+          description: Recorded addition or matching lifetime retry with current versions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrerequisiteAmendmentResult'
+        '400':
+          $ref: '#/components/responses/Problem'
         '401':
           $ref: '#/components/responses/Problem'
         '403':
@@ -4389,6 +4435,64 @@ components:
           type: integer
         caseVersion:
           type: integer
+    PrerequisiteAmendmentInput:
+      type: object
+      additionalProperties: false
+      required: [clientAmendmentId, addedPrerequisiteTaskIds, reason, reviewed]
+      properties:
+        clientAmendmentId:
+          type: string
+          format: uuid
+        addedPrerequisiteTaskIds:
+          type: array
+          minItems: 1
+          maxItems: 7
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 2000
+        reviewed:
+          type: boolean
+          const: true
+    PrerequisiteAmendmentResult:
+      type: object
+      required: [id, taskId, addedPrerequisiteTaskIds, taskVersion, caseVersion]
+      properties:
+        id:
+          type: string
+        taskId:
+          type: string
+        addedPrerequisiteTaskIds:
+          type: array
+          items:
+            type: string
+        taskVersion:
+          type: integer
+        caseVersion:
+          type: integer
+    PrerequisiteAmendment:
+      type: object
+      description: Private append-only coordinator decision; no principal or client retry IDs exposed.
+      required: [id, taskId, addedPrerequisiteTaskIds, reason, createdAt, previousTaskVersion]
+      properties:
+        id:
+          type: string
+        taskId:
+          type: string
+        addedPrerequisiteTaskIds:
+          type: array
+          items:
+            type: string
+        reason:
+          type: string
+        createdAt:
+          type: string
+        previousTaskVersion:
+          type: integer
     PartialAcceptanceInput:
       type: object
       additionalProperties: false
@@ -4505,9 +4609,19 @@ components:
         - parentTaskId
         - scopeReplaced
         - canPartiallyAccept
+        - canAmendPrerequisites
+        - availablePrerequisiteTaskIds
         - prerequisiteTaskIds
         - blockedByTaskIds
       properties:
+        canAmendPrerequisites:
+          type: boolean
+          description: Live coordinator capability for proposed required restoration work in an open case with no pending split; independent of the number of compatible additional tasks.
+        availablePrerequisiteTaskIds:
+          type: array
+          description: Eligible additional prerequisites for the live coordinator before acceptance; excludes existing edges and readiness cycles. Rechecked on submission.
+          items:
+            type: string
         parentTaskId:
           type: [string, 'null']
           description: Private original task link for accepted/remainder split work.
@@ -4573,6 +4687,7 @@ components:
         - firstReportedAt
         - obligations
         - taskSplitRequests
+        - prerequisiteAmendments
         - events
         - receiptId
         - publication
@@ -4580,6 +4695,10 @@ components:
         - canProposeTask
         - publicationBlocked
       properties:
+        prerequisiteAmendments:
+          type: array
+          items:
+            $ref: '#/components/schemas/PrerequisiteAmendment'
         taskSplitRequests:
           type: array
           items:

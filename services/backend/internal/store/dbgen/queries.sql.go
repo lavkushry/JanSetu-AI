@@ -166,6 +166,33 @@ func (q *Queries) AgencyGrants(ctx context.Context, principalID uuid.UUID) ([]Ag
 	return items, nil
 }
 
+const amendmentByClientID = `-- name: AmendmentByClientID :one
+SELECT id, case_id, task_id, client_amendment_id, actor_ref, task_version, added_task_ids, reason, reviewed, created_at FROM ops.prerequisite_amendment WHERE task_id=$1 AND client_amendment_id=$2
+`
+
+type AmendmentByClientIDParams struct {
+	TaskID            uuid.UUID `json:"task_id"`
+	ClientAmendmentID uuid.UUID `json:"client_amendment_id"`
+}
+
+func (q *Queries) AmendmentByClientID(ctx context.Context, arg AmendmentByClientIDParams) (OpsPrerequisiteAmendment, error) {
+	row := q.db.QueryRow(ctx, amendmentByClientID, arg.TaskID, arg.ClientAmendmentID)
+	var i OpsPrerequisiteAmendment
+	err := row.Scan(
+		&i.ID,
+		&i.CaseID,
+		&i.TaskID,
+		&i.ClientAmendmentID,
+		&i.ActorRef,
+		&i.TaskVersion,
+		&i.AddedTaskIds,
+		&i.Reason,
+		&i.Reviewed,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const appealCount = `-- name: AppealCount :one
 SELECT count(*) FROM social.appeal WHERE appellant_ref=$1 AND created_at>statement_timestamp()-interval '1 hour'
 `
@@ -688,6 +715,41 @@ func (q *Queries) CaseObligations(ctx context.Context, caseID uuid.UUID) ([]Case
 	return items, nil
 }
 
+const casePrerequisiteAmendments = `-- name: CasePrerequisiteAmendments :many
+SELECT id, case_id, task_id, client_amendment_id, actor_ref, task_version, added_task_ids, reason, reviewed, created_at FROM ops.prerequisite_amendment WHERE case_id=$1 ORDER BY created_at,id
+`
+
+func (q *Queries) CasePrerequisiteAmendments(ctx context.Context, caseID uuid.UUID) ([]OpsPrerequisiteAmendment, error) {
+	rows, err := q.db.Query(ctx, casePrerequisiteAmendments, caseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OpsPrerequisiteAmendment{}
+	for rows.Next() {
+		var i OpsPrerequisiteAmendment
+		if err := rows.Scan(
+			&i.ID,
+			&i.CaseID,
+			&i.TaskID,
+			&i.ClientAmendmentID,
+			&i.ActorRef,
+			&i.TaskVersion,
+			&i.AddedTaskIds,
+			&i.Reason,
+			&i.Reviewed,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const caseTaskPrerequisites = `-- name: CaseTaskPrerequisites :many
 SELECT p.task_id,p.prerequisite_task_id,CASE WHEN ops.task_restored(o.id) THEN 'VERIFIED' ELSE o.state END::text AS state FROM ops.task_prerequisite p
 JOIN ops.obligation o ON o.case_id=p.case_id AND o.id=p.prerequisite_task_id
@@ -710,6 +772,37 @@ func (q *Queries) CaseTaskPrerequisites(ctx context.Context, caseID uuid.UUID) (
 	for rows.Next() {
 		var i CaseTaskPrerequisitesRow
 		if err := rows.Scan(&i.TaskID, &i.PrerequisiteTaskID, &i.State); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const caseTaskReadinessEdges = `-- name: CaseTaskReadinessEdges :many
+SELECT p.task_id AS source,p.prerequisite_task_id AS target FROM ops.task_prerequisite p WHERE p.case_id=$1
+UNION ALL SELECT s.task_id,s.accepted_task_id FROM ops.task_split_request s WHERE s.case_id=$1 AND s.state='APPROVED'
+UNION ALL SELECT s.task_id,s.remaining_task_id FROM ops.task_split_request s WHERE s.case_id=$1 AND s.state='APPROVED'
+`
+
+type CaseTaskReadinessEdgesRow struct {
+	Source uuid.UUID `json:"source"`
+	Target uuid.UUID `json:"target"`
+}
+
+func (q *Queries) CaseTaskReadinessEdges(ctx context.Context, caseID uuid.UUID) ([]CaseTaskReadinessEdgesRow, error) {
+	rows, err := q.db.Query(ctx, caseTaskReadinessEdges, caseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CaseTaskReadinessEdgesRow{}
+	for rows.Next() {
+		var i CaseTaskReadinessEdgesRow
+		if err := rows.Scan(&i.Source, &i.Target); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1776,6 +1869,27 @@ func (q *Queries) HideUnpublishedPost(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
+const insertAmendedPrerequisite = `-- name: InsertAmendedPrerequisite :exec
+INSERT INTO ops.task_prerequisite(case_id,task_id,prerequisite_task_id,amendment_id) VALUES($1,$2,$3,$4)
+`
+
+type InsertAmendedPrerequisiteParams struct {
+	CaseID             uuid.UUID  `json:"case_id"`
+	TaskID             uuid.UUID  `json:"task_id"`
+	PrerequisiteTaskID uuid.UUID  `json:"prerequisite_task_id"`
+	AmendmentID        *uuid.UUID `json:"amendment_id"`
+}
+
+func (q *Queries) InsertAmendedPrerequisite(ctx context.Context, arg InsertAmendedPrerequisiteParams) error {
+	_, err := q.db.Exec(ctx, insertAmendedPrerequisite,
+		arg.CaseID,
+		arg.TaskID,
+		arg.PrerequisiteTaskID,
+		arg.AmendmentID,
+	)
+	return err
+}
+
 const insertAppeal = `-- name: InsertAppeal :one
 INSERT INTO social.appeal(id,decision_id,appellant_ref,grounds,state) VALUES($1,$2,$3,$4,'OPEN') RETURNING id, decision_id, appellant_ref, grounds, state, reviewer_ref, version, created_at
 `
@@ -2154,6 +2268,36 @@ func (q *Queries) InsertPostRevision(ctx context.Context, arg InsertPostRevision
 		arg.Body,
 		arg.LanguageTag,
 		arg.EditorID,
+	)
+	return err
+}
+
+const insertPrerequisiteAmendment = `-- name: InsertPrerequisiteAmendment :exec
+INSERT INTO ops.prerequisite_amendment(id,case_id,task_id,client_amendment_id,actor_ref,task_version,added_task_ids,reason,reviewed)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,true)
+`
+
+type InsertPrerequisiteAmendmentParams struct {
+	ID                uuid.UUID   `json:"id"`
+	CaseID            uuid.UUID   `json:"case_id"`
+	TaskID            uuid.UUID   `json:"task_id"`
+	ClientAmendmentID uuid.UUID   `json:"client_amendment_id"`
+	ActorRef          uuid.UUID   `json:"actor_ref"`
+	TaskVersion       int64       `json:"task_version"`
+	AddedTaskIds      []uuid.UUID `json:"added_task_ids"`
+	Reason            string      `json:"reason"`
+}
+
+func (q *Queries) InsertPrerequisiteAmendment(ctx context.Context, arg InsertPrerequisiteAmendmentParams) error {
+	_, err := q.db.Exec(ctx, insertPrerequisiteAmendment,
+		arg.ID,
+		arg.CaseID,
+		arg.TaskID,
+		arg.ClientAmendmentID,
+		arg.ActorRef,
+		arg.TaskVersion,
+		arg.AddedTaskIds,
+		arg.Reason,
 	)
 	return err
 }
@@ -3166,6 +3310,30 @@ func (q *Queries) ObligationByClientID(ctx context.Context, arg ObligationByClie
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const originalTaskPrerequisites = `-- name: OriginalTaskPrerequisites :many
+SELECT prerequisite_task_id FROM ops.task_prerequisite WHERE task_id=$1 AND amendment_id IS NULL ORDER BY prerequisite_task_id
+`
+
+func (q *Queries) OriginalTaskPrerequisites(ctx context.Context, taskID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, originalTaskPrerequisites, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var prerequisite_task_id uuid.UUID
+		if err := rows.Scan(&prerequisite_task_id); err != nil {
+			return nil, err
+		}
+		items = append(items, prerequisite_task_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const ownAppealPage = `-- name: OwnAppealPage :many

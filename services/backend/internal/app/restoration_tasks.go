@@ -57,13 +57,14 @@ func (a *App) proposeObligation(w http.ResponseWriter, r *http.Request, actor *A
 		if err != nil {
 			return err
 		}
-		prerequisites, err := q.CaseTaskPrerequisites(r.Context(), cid)
-		if err != nil {
-			return err
-		}
+
 		existing, err := q.ObligationByClientID(r.Context(), dbgen.ObligationByClientIDParams{CaseID: cid, ClientTaskID: &b.ClientTaskID})
 		if err == nil {
-			if existing.AgencyID == nil || *existing.AgencyID != b.AgencyID || existing.ScopeText != b.Scope || !slices.Equal(prerequisitesFor(prerequisites, existing.ID).IDs, b.PrerequisiteTaskIDs) {
+			originalPrerequisites, err := q.OriginalTaskPrerequisites(r.Context(), existing.ID)
+			if err != nil {
+				return err
+			}
+			if existing.AgencyID == nil || *existing.AgencyID != b.AgencyID || existing.ScopeText != b.Scope || !slices.Equal(originalPrerequisites, b.PrerequisiteTaskIDs) {
 				return failure(409, "TASK_PROPOSAL_CONFLICT", "This task proposal was already saved with different content. Refresh the case")
 			}
 			result = taskResult(existing.ID, existing.State, existing.Version, c.Version)

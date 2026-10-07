@@ -37,11 +37,16 @@ prerequisite is satisfied only when all its current required descendants are
 independently verified. Splitting a dependent task preserves those IDs even when
 the prerequisite was already replaced.
 
+[Governed prerequisite additions](PREREQUISITE_AMENDMENTS.md) can now append
+requirements before acceptance. Both split children inherit the full current set;
+additions are blocked while scope review is pending.
+
 The pilot retains its eight physical task rows per case, including historical
 parents. Each approval needs two free slots. Requests do not reserve slots;
 competing proposals can consume capacity while review is pending. A coordinator
-can still reject when approval exceeds the limit. No dependency editing, removal,
-silent bypass or splitting of accepted/in-progress work is provided.
+can still reject when approval exceeds the limit. Prerequisite removal, changes
+after acceptance, silent bypass and splitting accepted/in-progress work remain
+unsupported.
 
 ## Commands and retries
 

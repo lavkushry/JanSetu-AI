@@ -1140,6 +1140,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/authority/obligations/{id}/prerequisite-amendments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record reviewed prerequisite additions before agency acceptance
+         * @description Coordinator only. If-Match is the current task version. Adds one to seven new same-case required prerequisites with an attributed reason and reviewed=true. Original proposal, scopes, due date and report age remain intact. No removal or bypass; cycles include approved scope replacement edges. Pending split review blocks additions. Matching original-author lifetime retries recover current task/case versions using the original If-Match without extra effects.
+         */
+        post: operations["post_prerequisite_amendment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/authority/obligations/{id}/partial-acceptances": {
         parameters: {
             query?: never;
@@ -2217,6 +2239,30 @@ export interface components {
             version: number;
             caseVersion: number;
         };
+        PrerequisiteAmendmentInput: {
+            /** Format: uuid */
+            clientAmendmentId: string;
+            addedPrerequisiteTaskIds: string[];
+            reason: string;
+            /** @constant */
+            reviewed: true;
+        };
+        PrerequisiteAmendmentResult: {
+            id: string;
+            taskId: string;
+            addedPrerequisiteTaskIds: string[];
+            taskVersion: number;
+            caseVersion: number;
+        };
+        /** @description Private append-only coordinator decision; no principal or client retry IDs exposed. */
+        PrerequisiteAmendment: {
+            id: string;
+            taskId: string;
+            addedPrerequisiteTaskIds: string[];
+            reason: string;
+            createdAt: string;
+            previousTaskVersion: number;
+        };
         PartialAcceptanceInput: {
             /**
              * Format: uuid
@@ -2275,6 +2321,10 @@ export interface components {
             canDecide: boolean;
         };
         Obligation: {
+            /** @description Live coordinator capability for proposed required restoration work in an open case with no pending split; independent of the number of compatible additional tasks. */
+            canAmendPrerequisites: boolean;
+            /** @description Eligible additional prerequisites for the live coordinator before acceptance; excludes existing edges and readiness cycles. Rechecked on submission. */
+            availablePrerequisiteTaskIds: string[];
             /** @description Private original task link for accepted/remainder split work. */
             parentTaskId: string | null;
             /** @description Original scope retained in history after a complete coordinator-approved split; replacement tasks determine required restoration. */
@@ -2300,6 +2350,7 @@ export interface components {
             blockedByTaskIds: string[];
         };
         CaseDetail: {
+            prerequisiteAmendments: components["schemas"]["PrerequisiteAmendment"][];
             taskSplitRequests: components["schemas"]["TaskSplitRequest"][];
             /** @description Live publisher-only sharing eligibility flag; false for other staff. Pending or approved owner withdrawal requests prevent new publication. Withdrawal remains available. */
             publicationBlocked: boolean;
@@ -4633,6 +4684,44 @@ export interface operations {
                     "application/json": components["schemas"]["TaskProposalResult"];
                 };
             };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    post_prerequisite_amendment: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["Version"];
+                "X-JanSetu-CSRF": "1";
+            };
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrerequisiteAmendmentInput"];
+            };
+        };
+        responses: {
+            /** @description Recorded addition or matching lifetime retry with current versions */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrerequisiteAmendmentResult"];
+                };
+            };
+            400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
             404: components["responses"]["Problem"];

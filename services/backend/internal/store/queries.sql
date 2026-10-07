@@ -695,3 +695,19 @@ o.renewal_id,o.renewal_state,o.renewal_version,o.renewal_publication_version,o.r
 FROM ops.publication_withdrawal_request w LEFT JOIN ops.publication_withdrawal_outcome d ON d.request_id=w.id
 LEFT JOIN ops.publication_sharing_renewal_review o ON o.request_id=w.id
 WHERE w.report_id=$1 AND w.state='APPROVED' ORDER BY w.created_at DESC,w.id DESC LIMIT 1;
+
+-- name: OriginalTaskPrerequisites :many
+SELECT prerequisite_task_id FROM ops.task_prerequisite WHERE task_id=$1 AND amendment_id IS NULL ORDER BY prerequisite_task_id;
+-- name: CaseTaskReadinessEdges :many
+SELECT p.task_id AS source,p.prerequisite_task_id AS target FROM ops.task_prerequisite p WHERE p.case_id=$1
+UNION ALL SELECT s.task_id,s.accepted_task_id FROM ops.task_split_request s WHERE s.case_id=$1 AND s.state='APPROVED'
+UNION ALL SELECT s.task_id,s.remaining_task_id FROM ops.task_split_request s WHERE s.case_id=$1 AND s.state='APPROVED';
+-- name: InsertPrerequisiteAmendment :exec
+INSERT INTO ops.prerequisite_amendment(id,case_id,task_id,client_amendment_id,actor_ref,task_version,added_task_ids,reason,reviewed)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,true);
+-- name: AmendmentByClientID :one
+SELECT * FROM ops.prerequisite_amendment WHERE task_id=$1 AND client_amendment_id=$2;
+-- name: CasePrerequisiteAmendments :many
+SELECT * FROM ops.prerequisite_amendment WHERE case_id=$1 ORDER BY created_at,id;
+-- name: InsertAmendedPrerequisite :exec
+INSERT INTO ops.task_prerequisite(case_id,task_id,prerequisite_task_id,amendment_id) VALUES($1,$2,$3,$4);

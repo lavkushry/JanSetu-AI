@@ -5124,3 +5124,355 @@ test('partial acceptance review keeps stale drafts and rejection preserves origi
     await officer.context.close();
   }
 });
+
+test('governed prerequisite additions recover acknowledgement loss and preserve verification gates', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  const coordinator = await staffPage(browser, 'Kiran Shah');
+  const officer = await staffPage(browser, 'City Works team');
+  const verifier = await staffPage(browser, 'Neha Sen');
+  const csrf = { 'x-jansetu-csrf': '1' };
+  try {
+    const { caseId, report } = await publicProgressFixture(page, coordinator.page);
+    const path = `/api/authority/cases/${caseId}`;
+    let detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    const first = detail.obligations[0].id;
+    const originalProposal = {
+      clientTaskId: crypto.randomUUID(),
+      agencyId: '30000000-0000-4000-8000-000000000001',
+      scope: 'PRIVATE finish the surface after the necessary earlier repair',
+    };
+    const proposed = await coordinator.page.request.post(`${path}/obligations`, {
+      headers: { ...csrf, 'if-match': '"1"' },
+      data: originalProposal,
+    });
+    expect(proposed.status()).toBe(201);
+    const dependent = ((await proposed.json()) as Schema['TaskProposalResult']).id;
+    await openPublicationReview(coordinator.page, caseId);
+    const panel = coordinator.page.getByTestId(`prerequisite-amendments-${dependent}`);
+    await panel.getByRole('button', { name: 'Add prerequisite tasks', exact: true }).click();
+    await panel.getByRole('checkbox', { name: /Task 1 ·/ }).check();
+    const reason =
+      'PRIVATE coordinator reviewed that surface repair must follow earlier restoration';
+    await panel.getByLabel('Prerequisite addition reason').fill(reason);
+    await panel
+      .getByRole('checkbox', { name: 'These requirements are necessary before work begins.' })
+      .check();
+    await coordinator.page.setViewportSize({ width: 320, height: 780 });
+    await panel.scrollIntoViewIfNeeded();
+    await expect
+      .poll(() =>
+        coordinator.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      )
+      .toBe(true);
+    await coordinator.page.screenshot({
+      path: 'test-results/prerequisite-amendments-mobile-light.png',
+    });
+    await coordinator.page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+    await panel.scrollIntoViewIfNeeded();
+    await expect
+      .poll(() =>
+        coordinator.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      )
+      .toBe(true);
+    await coordinator.page.screenshot({
+      path: 'test-results/prerequisite-amendments-mobile-dark.png',
+    });
+    const endpoint = `/api/authority/obligations/${dependent}/prerequisite-amendments`;
+    let loseAck = true;
+    let clientAmendmentId = '';
+    let amendmentId = '';
+    await coordinator.page.route(`**${endpoint}`, async (route) => {
+      if (!loseAck) return route.continue();
+      loseAck = false;
+      clientAmendmentId = (route.request().postDataJSON() as Schema['PrerequisiteAmendmentInput'])
+        .clientAmendmentId;
+      const saved = await route.fetch();
+      expect(saved.status()).toBe(201);
+      amendmentId = ((await saved.json()) as Schema['PrerequisiteAmendmentResult']).id;
+      await route.abort('failed');
+    });
+    await panel.getByRole('button', { name: 'Record prerequisite additions', exact: true }).click();
+    await expect(panel.getByRole('alert')).toBeVisible();
+    await expect(panel.getByLabel('Prerequisite addition reason')).toHaveValue(reason);
+    await expect(panel.getByRole('checkbox', { name: /Task 1 ·/ })).toBeChecked();
+    const retried = coordinator.page.waitForResponse(
+      (r) => r.url().endsWith(endpoint) && r.request().method() === 'POST',
+    );
+    await panel.getByRole('button', { name: 'Record prerequisite additions', exact: true }).click();
+    const retry = await retried;
+    expect(retry.status()).toBe(201);
+    expect(
+      (retry.request().postDataJSON() as Schema['PrerequisiteAmendmentInput']).clientAmendmentId,
+    ).toBe(clientAmendmentId);
+    expect(((await retry.json()) as Schema['PrerequisiteAmendmentResult']).id).toBe(amendmentId);
+    await expect(panel).toContainText('Prerequisites added by coordinator');
+    await expect(panel).toContainText(reason);
+    detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    expect(detail.prerequisiteAmendments).toHaveLength(1);
+    expect(detail.version).toBe(3);
+    expect(detail.obligations.find((o) => o.id === dependent)?.prerequisiteTaskIds).toEqual([
+      first,
+    ]);
+    expect(
+      detail.obligations.find((o) => o.id === first)?.availablePrerequisiteTaskIds,
+    ).not.toContain(dependent);
+    const originalRetry = await coordinator.page.request.post(`${path}/obligations`, {
+      headers: { ...csrf, 'if-match': '"1"' },
+      data: originalProposal,
+    });
+    expect(originalRetry.status()).toBe(201);
+    expect(((await originalRetry.json()) as Schema['TaskProposalResult']).id).toBe(dependent);
+    const staleAcceptance = await officer.page.request.post(
+      `/api/authority/obligations/${dependent}/accept`,
+      {
+        headers: { ...csrf, 'if-match': '"1"' },
+        data: { summary: 'Fictional stale agency acceptance before sequence review' },
+      },
+    );
+    expect(staleAcceptance.status()).toBe(412);
+    await officer.page.reload();
+    await officer.page.getByTestId(`staff-case-${caseId}`).click();
+    const dependentCard = officer.page.getByTestId(`obligation-${dependent}`);
+    await expect(dependentCard).toContainText(reason);
+    await expect(
+      officer.page.getByRole('button', { name: 'Add prerequisite tasks', exact: true }),
+    ).not.toBeVisible();
+    const perform = async (id: string, labels: string[]) => {
+      const card = officer.page.getByTestId(`obligation-${id}`);
+      for (const label of labels) {
+        await card
+          .getByLabel('Work or decision summary')
+          .fill('Fictional necessary restoration stage documented');
+        await card.getByRole('button', { name: label, exact: true }).click();
+        await expect(card.getByRole('button', { name: label, exact: true })).not.toBeVisible();
+      }
+    };
+    const inspect = async (id: string) => {
+      await verifier.page.reload();
+      await verifier.page.getByTestId(`staff-case-${caseId}`).click();
+      const card = verifier.page.getByTestId(`obligation-${id}`);
+      await card
+        .getByLabel('Independent inspection reason')
+        .fill('Independent fictional inspection confirms necessary work restored');
+      const response = verifier.page.waitForResponse(
+        (r) =>
+          r.url().endsWith(`${path}/verification-decisions`) && r.request().method() === 'POST',
+      );
+      await card.getByRole('button', { name: 'Record verification decision' }).click();
+      expect((await response).status()).toBe(200);
+      await officer.page.reload();
+      await officer.page.getByTestId(`staff-case-${caseId}`).click();
+    };
+    await perform(dependent, ['Accept task']);
+    await expect(
+      dependentCard.getByRole('button', { name: 'Start work', exact: true }),
+    ).toBeDisabled();
+    await perform(first, ['Accept task', 'Start work', 'Claim completion']);
+    await expect(
+      dependentCard.getByRole('button', { name: 'Start work', exact: true }),
+    ).toBeDisabled();
+    await inspect(first);
+    await expect(
+      dependentCard.getByRole('button', { name: 'Start work', exact: true }),
+    ).toBeEnabled();
+    await perform(dependent, ['Start work', 'Claim completion']);
+    await inspect(dependent);
+    detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    expect(detail.state).toBe('RESOLVED');
+    expect(detail.firstReportedAt).toBe(report.receivedAt);
+    const own = (await (
+      await page.request.get(`/api/my-reports/${report.id}`)
+    ).json()) as Schema['ReportProgress'];
+    expect(own.state).toBe('VERIFIED');
+    for (const secret of [reason, amendmentId, clientAmendmentId, first, dependent, caseId])
+      expect(JSON.stringify(own)).not.toContain(secret);
+  } finally {
+    await coordinator.context.close();
+    await officer.context.close();
+    await verifier.context.close();
+  }
+});
+
+test('governed prerequisite additions keep stale drafts and reject readiness cycles', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  const coordinator = await staffPage(browser, 'Kiran Shah');
+  const officer = await staffPage(browser, 'City Works team');
+  const csrf = { 'x-jansetu-csrf': '1' };
+  try {
+    const { caseId } = await publicProgressFixture(page, coordinator.page);
+    const path = `/api/authority/cases/${caseId}`;
+    let detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    const first = detail.obligations[0].id;
+    const propose = async (scope: string, version: number) => {
+      const response = await coordinator.page.request.post(`${path}/obligations`, {
+        headers: { ...csrf, 'if-match': `"${version}"` },
+        data: {
+          clientTaskId: crypto.randomUUID(),
+          agencyId: '30000000-0000-4000-8000-000000000001',
+          scope,
+        },
+      });
+      expect(response.status()).toBe(201);
+      return ((await response.json()) as Schema['TaskProposalResult']).id;
+    };
+    const second = await propose('PRIVATE dependent surface assessment to sequence', 1);
+    const third = await propose('PRIVATE additional prerequisite infrastructure check', 2);
+    await openPublicationReview(coordinator.page, caseId);
+    const panel = coordinator.page.getByTestId(`prerequisite-amendments-${second}`);
+    await panel.getByRole('button', { name: 'Add prerequisite tasks', exact: true }).click();
+    await panel.getByRole('checkbox', { name: /Task 1 ·/ }).check();
+    const reason = 'PRIVATE reviewed first prerequisite must precede dependent work';
+    await panel.getByLabel('Prerequisite addition reason').fill(reason);
+    await panel
+      .getByRole('checkbox', { name: 'These requirements are necessary before work begins.' })
+      .check();
+    const endpoint = `/api/authority/obligations/${second}/prerequisite-amendments`;
+    const competing = await coordinator.page.request.post(endpoint, {
+      headers: { ...csrf, 'if-match': '"1"' },
+      data: {
+        clientAmendmentId: crypto.randomUUID(),
+        addedPrerequisiteTaskIds: [third],
+        reason: 'PRIVATE separate coordinator addition requires third task',
+        reviewed: true,
+      },
+    });
+    expect(competing.status()).toBe(201);
+    const stale = coordinator.page.waitForResponse(
+      (r) => r.url().endsWith(endpoint) && r.request().method() === 'POST',
+    );
+    await panel.getByRole('button', { name: 'Record prerequisite additions', exact: true }).click();
+    expect((await stale).status()).toBe(412);
+    await expect(panel.getByRole('alert')).toContainText('Refresh');
+    await panel.getByRole('button', { name: 'Refresh case', exact: true }).click();
+    await expect(panel).toContainText('PRIVATE separate coordinator addition requires third task');
+    await expect(panel.getByLabel('Prerequisite addition reason')).toHaveValue(reason);
+    await expect(panel.getByRole('checkbox', { name: /Task 1 ·/ })).toBeChecked();
+    const saved = coordinator.page.waitForResponse(
+      (r) => r.url().endsWith(endpoint) && r.request().method() === 'POST',
+    );
+    await panel.getByRole('button', { name: 'Record prerequisite additions', exact: true }).click();
+    expect((await saved).status()).toBe(201);
+    await expect(panel).toContainText(reason);
+    detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    expect(detail.prerequisiteAmendments).toHaveLength(2);
+    expect(
+      detail.obligations
+        .find((o) => o.id === second)
+        ?.prerequisiteTaskIds.slice()
+        .sort(),
+    ).toEqual([first, third].sort());
+    // A competing coordinator records the draft's last eligible choice. Refresh
+    // must retain that visible selection and the draft even after it is unchecked.
+    const overlapPanel = coordinator.page.getByTestId(`prerequisite-amendments-${third}`);
+    await overlapPanel.getByRole('button', { name: 'Add prerequisite tasks', exact: true }).click();
+    await overlapPanel.getByRole('checkbox', { name: /Task 1 ·/ }).check();
+    const overlapReason = 'PRIVATE draft with an overlapping prerequisite must remain recoverable';
+    await overlapPanel.getByLabel('Prerequisite addition reason').fill(overlapReason);
+    const confirmation = overlapPanel.getByRole('checkbox', {
+      name: 'These requirements are necessary before work begins.',
+    });
+    await confirmation.check();
+    const overlapEndpoint = `/api/authority/obligations/${third}/prerequisite-amendments`;
+    expect(
+      (
+        await coordinator.page.request.post(overlapEndpoint, {
+          headers: { ...csrf, 'if-match': '"1"' },
+          data: {
+            clientAmendmentId: crypto.randomUUID(),
+            addedPrerequisiteTaskIds: [first],
+            reason: 'PRIVATE another coordinator recorded the last compatible choice',
+            reviewed: true,
+          },
+        })
+      ).status(),
+    ).toBe(201);
+    const overlapStale = coordinator.page.waitForResponse(
+      (r) => r.url().endsWith(overlapEndpoint) && r.request().method() === 'POST',
+    );
+    const overlapSubmit = overlapPanel.getByRole('button', {
+      name: 'Record prerequisite additions',
+      exact: true,
+    });
+    await overlapSubmit.click();
+    expect((await overlapStale).status()).toBe(412);
+    await overlapPanel.getByRole('button', { name: 'Refresh case', exact: true }).click();
+    await expect(overlapPanel).toContainText('Already recorded.');
+    await expect(overlapPanel).toContainText('No compatible additional prerequisites remain.');
+    await expect(overlapPanel.getByLabel('Prerequisite addition reason')).toHaveValue(
+      overlapReason,
+    );
+    await expect(confirmation).toBeChecked();
+    const unavailableChoice = overlapPanel.getByRole('checkbox', { name: /Task 1 ·/ });
+    await expect(unavailableChoice).toBeChecked();
+    await expect(overlapSubmit).toBeDisabled();
+    // Deselecting removes this unavailable row; assert the resulting disappearance
+    // instead of asking uncheck() to re-read an input that no longer exists.
+    await unavailableChoice.click();
+    await expect(unavailableChoice).toHaveCount(0);
+    await expect(overlapPanel.getByLabel('Prerequisite addition reason')).toHaveValue(
+      overlapReason,
+    );
+    await expect(confirmation).toBeChecked();
+    await expect(overlapSubmit).toBeDisabled();
+    const overlapToggle = overlapPanel.getByRole('button', {
+      name: 'Add prerequisite tasks',
+      exact: true,
+    });
+    await overlapToggle.click();
+    await expect(overlapPanel.getByLabel('Prerequisite addition reason')).toHaveCount(0);
+    await overlapToggle.click();
+    await expect(overlapPanel.getByLabel('Prerequisite addition reason')).toHaveValue(
+      overlapReason,
+    );
+    await expect(confirmation).toBeChecked();
+    detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    expect(detail.prerequisiteAmendments).toHaveLength(3);
+    expect(detail.obligations.find((o) => o.id === third)?.canAmendPrerequisites).toBe(true);
+    expect(detail.obligations.find((o) => o.id === third)?.availablePrerequisiteTaskIds).toEqual(
+      [],
+    );
+    const cycle = await coordinator.page.request.post(
+      `/api/authority/obligations/${first}/prerequisite-amendments`,
+      {
+        headers: { ...csrf, 'if-match': '"1"' },
+        data: {
+          clientAmendmentId: crypto.randomUUID(),
+          addedPrerequisiteTaskIds: [second],
+          reason: 'PRIVATE proposed but circular prerequisite addition',
+          reviewed: true,
+        },
+      },
+    );
+    expect(cycle.status()).toBe(422);
+    expect((await cycle.json()).code).toBe('TASK_PREREQUISITE_CYCLE');
+    expect(
+      detail.obligations.find((o) => o.id === first)?.availablePrerequisiteTaskIds,
+    ).not.toContain(second);
+    const forged = await officer.page.request.post(endpoint, {
+      headers: { ...csrf, 'if-match': '"3"' },
+      data: {
+        clientAmendmentId: crypto.randomUUID(),
+        addedPrerequisiteTaskIds: [first],
+        reason: 'PRIVATE agency cannot change the agreed sequence',
+        reviewed: true,
+      },
+    });
+    expect(forged.status()).toBe(403);
+    await expect(coordinator.page.getByTestId('restoration-summary')).toContainText(
+      '0 of 3 required tasks verified',
+    );
+  } finally {
+    await coordinator.context.close();
+    await officer.context.close();
+  }
+});
