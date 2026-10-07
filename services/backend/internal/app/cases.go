@@ -74,8 +74,9 @@ func (a *App) caseData(r *http.Request, q *dbgen.Queries, cid uuid.UUID, actor *
 			pendingSplit = pendingSplit || s.TaskID == o.ID && s.State == "PENDING"
 		}
 		canPartiallyAccept := open && o.State == "PROPOSED" && o.RequiredForRestoration && o.ObligationType == "RESTORATION" && !pendingSplit && len(obligations)+2 <= maxRestorationTasks && canWorkTask(actor, o.AgencyID)
+		canAmendPrerequisites := open && o.State == "PROPOSED" && o.RequiredForRestoration && o.ObligationType == "RESTORATION" && !pendingSplit && actor.Has("COORDINATOR")
 		availablePrerequisites := []uuid.UUID{}
-		if open && o.State == "PROPOSED" && o.RequiredForRestoration && o.ObligationType == "RESTORATION" && !pendingSplit && actor.Has("COORDINATOR") {
+		if canAmendPrerequisites {
 			for _, candidate := range obligations {
 				exists := false
 				for _, edge := range edges {
@@ -90,7 +91,7 @@ func (a *App) caseData(r *http.Request, q *dbgen.Queries, cid uuid.UUID, actor *
 		if o.AgencyID != nil && actor.Agency(*o.AgencyID, "") {
 			allowed = true
 		}
-		items = append(items, map[string]any{"id": o.ID, "agencyId": o.AgencyID, "agency": o.AgencyName, "scope": o.ScopeText, "requiredForRestoration": o.RequiredForRestoration, "scopeReplaced": o.ScopeReplaced, "parentTaskId": o.ParentObligationID, "canPartiallyAccept": canPartiallyAccept, "availablePrerequisiteTaskIds": availablePrerequisites, "prerequisiteTaskIds": prerequisite.IDs, "blockedByTaskIds": prerequisite.BlockedIDs, "state": o.State, "version": o.Version, "dueAt": timestamp(o.DueAt), "workSummary": o.WorkSummary, "acceptedAt": timestamp(o.AcceptedAt), "completedAt": timestamp(o.CompletedAt), "canVerify": o.AgencyID != nil && actor.Agency(*o.AgencyID, "VERIFIER") && (o.CompletionActorRef == nil || *o.CompletionActorRef != actor.PrincipalID)})
+		items = append(items, map[string]any{"id": o.ID, "agencyId": o.AgencyID, "agency": o.AgencyName, "scope": o.ScopeText, "requiredForRestoration": o.RequiredForRestoration, "scopeReplaced": o.ScopeReplaced, "parentTaskId": o.ParentObligationID, "canPartiallyAccept": canPartiallyAccept, "canAmendPrerequisites": canAmendPrerequisites, "availablePrerequisiteTaskIds": availablePrerequisites, "prerequisiteTaskIds": prerequisite.IDs, "blockedByTaskIds": prerequisite.BlockedIDs, "state": o.State, "version": o.Version, "dueAt": timestamp(o.DueAt), "workSummary": o.WorkSummary, "acceptedAt": timestamp(o.AcceptedAt), "completedAt": timestamp(o.CompletedAt), "canVerify": o.AgencyID != nil && actor.Agency(*o.AgencyID, "VERIFIER") && (o.CompletionActorRef == nil || *o.CompletionActorRef != actor.PrincipalID)})
 	}
 	if !allowed {
 		return nil, forbidden()

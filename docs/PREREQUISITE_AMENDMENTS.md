@@ -80,7 +80,10 @@ history and readiness without amendment controls.
 Failed requests retain the selection, reason, confirmation and client identity
 while the form remains mounted. Matching retries recover lost acknowledgements.
 **Refresh case** preserves a pending draft through version conflicts; a saved
-amendment appears in history. Drafts do not persist across reloads/devices. The
+amendment appears in history. Selections that another coordinator already recorded
+remain visible with an explanation and can be deselected. The draft stays open
+even when no compatible additions remain; submission requires current authority
+and compatible selections. Drafts do not persist across reloads/devices. The
 interface uses native labels/checkboxes, disabled saving controls, existing
 light/dark themes and a 320px layout without horizontal overflow.
 

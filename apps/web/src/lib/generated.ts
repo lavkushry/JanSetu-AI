@@ -2321,6 +2321,8 @@ export interface components {
             canDecide: boolean;
         };
         Obligation: {
+            /** @description Live coordinator capability for proposed required restoration work in an open case with no pending split; independent of the number of compatible additional tasks. */
+            canAmendPrerequisites: boolean;
             /** @description Eligible additional prerequisites for the live coordinator before acceptance; excludes existing edges and readiness cycles. Rechecked on submission. */
             availablePrerequisiteTaskIds: string[];
             /** @description Private original task link for accepted/remainder split work. */

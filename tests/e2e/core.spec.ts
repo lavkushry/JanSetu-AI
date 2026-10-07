@@ -5371,6 +5371,76 @@ test('governed prerequisite additions keep stale drafts and reject readiness cyc
         ?.prerequisiteTaskIds.slice()
         .sort(),
     ).toEqual([first, third].sort());
+    // A competing coordinator records the draft's last eligible choice. Refresh
+    // must retain that visible selection and the draft even after it is unchecked.
+    const overlapPanel = coordinator.page.getByTestId(`prerequisite-amendments-${third}`);
+    await overlapPanel.getByRole('button', { name: 'Add prerequisite tasks', exact: true }).click();
+    await overlapPanel.getByRole('checkbox', { name: /Task 1 ·/ }).check();
+    const overlapReason = 'PRIVATE draft with an overlapping prerequisite must remain recoverable';
+    await overlapPanel.getByLabel('Prerequisite addition reason').fill(overlapReason);
+    const confirmation = overlapPanel.getByRole('checkbox', {
+      name: 'These requirements are necessary before work begins.',
+    });
+    await confirmation.check();
+    const overlapEndpoint = `/api/authority/obligations/${third}/prerequisite-amendments`;
+    expect(
+      (
+        await coordinator.page.request.post(overlapEndpoint, {
+          headers: { ...csrf, 'if-match': '"1"' },
+          data: {
+            clientAmendmentId: crypto.randomUUID(),
+            addedPrerequisiteTaskIds: [first],
+            reason: 'PRIVATE another coordinator recorded the last compatible choice',
+            reviewed: true,
+          },
+        })
+      ).status(),
+    ).toBe(201);
+    const overlapStale = coordinator.page.waitForResponse(
+      (r) => r.url().endsWith(overlapEndpoint) && r.request().method() === 'POST',
+    );
+    const overlapSubmit = overlapPanel.getByRole('button', {
+      name: 'Record prerequisite additions',
+      exact: true,
+    });
+    await overlapSubmit.click();
+    expect((await overlapStale).status()).toBe(412);
+    await overlapPanel.getByRole('button', { name: 'Refresh case', exact: true }).click();
+    await expect(overlapPanel).toContainText('Already recorded.');
+    await expect(overlapPanel).toContainText('No compatible additional prerequisites remain.');
+    await expect(overlapPanel.getByLabel('Prerequisite addition reason')).toHaveValue(
+      overlapReason,
+    );
+    await expect(confirmation).toBeChecked();
+    const unavailableChoice = overlapPanel.getByRole('checkbox', { name: /Task 1 ·/ });
+    await expect(unavailableChoice).toBeChecked();
+    await expect(overlapSubmit).toBeDisabled();
+    // Deselecting removes this unavailable row; assert the resulting disappearance
+    // instead of asking uncheck() to re-read an input that no longer exists.
+    await unavailableChoice.click();
+    await expect(unavailableChoice).toHaveCount(0);
+    await expect(overlapPanel.getByLabel('Prerequisite addition reason')).toHaveValue(
+      overlapReason,
+    );
+    await expect(confirmation).toBeChecked();
+    await expect(overlapSubmit).toBeDisabled();
+    const overlapToggle = overlapPanel.getByRole('button', {
+      name: 'Add prerequisite tasks',
+      exact: true,
+    });
+    await overlapToggle.click();
+    await expect(overlapPanel.getByLabel('Prerequisite addition reason')).toHaveCount(0);
+    await overlapToggle.click();
+    await expect(overlapPanel.getByLabel('Prerequisite addition reason')).toHaveValue(
+      overlapReason,
+    );
+    await expect(confirmation).toBeChecked();
+    detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    expect(detail.prerequisiteAmendments).toHaveLength(3);
+    expect(detail.obligations.find((o) => o.id === third)?.canAmendPrerequisites).toBe(true);
+    expect(detail.obligations.find((o) => o.id === third)?.availablePrerequisiteTaskIds).toEqual(
+      [],
+    );
     const cycle = await coordinator.page.request.post(
       `/api/authority/obligations/${first}/prerequisite-amendments`,
       {

@@ -4609,10 +4609,14 @@ components:
         - parentTaskId
         - scopeReplaced
         - canPartiallyAccept
+        - canAmendPrerequisites
         - availablePrerequisiteTaskIds
         - prerequisiteTaskIds
         - blockedByTaskIds
       properties:
+        canAmendPrerequisites:
+          type: boolean
+          description: Live coordinator capability for proposed required restoration work in an open case with no pending split; independent of the number of compatible additional tasks.
         availablePrerequisiteTaskIds:
           type: array
           description: Eligible additional prerequisites for the live coordinator before acceptance; excludes existing edges and readiness cycles. Rechecked on submission.

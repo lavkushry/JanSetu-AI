@@ -33,6 +33,7 @@ export function PrerequisiteAmendments({
       setSelected([]);
       setReason('');
       setReviewed(false);
+      setExpanded(false);
       setClientAmendmentId(crypto.randomUUID());
       qc.invalidateQueries();
       notify(
@@ -42,6 +43,10 @@ export function PrerequisiteAmendments({
   });
   const history = c.prerequisiteAmendments.filter((s) => s.taskId === o.id);
   const eligible = c.obligations.filter((task) => o.availablePrerequisiteTaskIds.includes(task.id));
+  const unavailable = selected.filter((id) => !o.availablePrerequisiteTaskIds.includes(id));
+  const missing = selected.filter((id) => !c.obligations.some((task) => task.id === id));
+  const hasDraft = selected.length > 0 || reason.length > 0 || reviewed;
+  const canSubmit = o.canAmendPrerequisites && selected.length > 0 && unavailable.length === 0;
   return (
     <div className="task-amendments" data-testid={`prerequisite-amendments-${o.id}`}>
       {history.map((s) => (
@@ -62,7 +67,7 @@ export function PrerequisiteAmendments({
           </ul>
         </div>
       ))}
-      {eligible.length > 0 && (
+      {(expanded || hasDraft || (o.canAmendPrerequisites && eligible.length > 0)) && (
         <>
           <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
             Add prerequisite tasks
@@ -71,7 +76,7 @@ export function PrerequisiteAmendments({
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                action.mutate();
+                if (canSubmit && !action.isPending) action.mutate();
               }}
             >
               <fieldset disabled={action.isPending}>
@@ -81,8 +86,17 @@ export function PrerequisiteAmendments({
                     Choose required work that must be independently verified before this task
                     begins.
                   </p>
+                  {!o.canAmendPrerequisites ? (
+                    <p>
+                      Prerequisite additions are unavailable for this task. Your draft is kept
+                      below.
+                    </p>
+                  ) : eligible.length === 0 ? (
+                    <p>No compatible additional prerequisites remain. Your draft is kept below.</p>
+                  ) : null}
                   {c.obligations.map((task, index) =>
-                    o.availablePrerequisiteTaskIds.includes(task.id) ? (
+                    o.availablePrerequisiteTaskIds.includes(task.id) ||
+                    selected.includes(task.id) ? (
                       <label key={task.id}>
                         <input
                           type="checkbox"
@@ -98,10 +112,32 @@ export function PrerequisiteAmendments({
                         <span>
                           Task {index + 1} · {task.agency} ·{' '}
                           {task.scope || 'Restoration task assessed at intake'}
+                          {unavailable.includes(task.id) && (
+                            <small>
+                              {o.prerequisiteTaskIds.includes(task.id)
+                                ? 'Already recorded.'
+                                : 'No longer eligible.'}{' '}
+                              Deselect this task to review remaining choices.
+                            </small>
+                          )}
                         </span>
                       </label>
                     ) : null,
                   )}
+                  {missing.map((id) => (
+                    <label key={id}>
+                      <input
+                        type="checkbox"
+                        checked
+                        onChange={() =>
+                          setSelected((ids) => ids.filter((selectedId) => selectedId !== id))
+                        }
+                      />
+                      <span>
+                        Previously selected task unavailable. Deselect to review remaining choices.
+                      </span>
+                    </label>
+                  ))}
                 </fieldset>
                 <label>
                   Prerequisite addition reason
@@ -134,7 +170,7 @@ export function PrerequisiteAmendments({
                   </button>
                 )}
                 <div className="form-actions">
-                  <button className="primary" disabled={!selected.length}>
+                  <button className="primary" disabled={!canSubmit}>
                     {action.isPending ? 'Saving…' : 'Record prerequisite additions'}
                   </button>
                 </div>
