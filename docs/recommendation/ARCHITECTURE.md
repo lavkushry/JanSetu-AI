@@ -39,6 +39,8 @@ Recommendation commands use reviewed principal → profile → recommendation ag
 
 Stream consumers must deduplicate explicit event IDs, reject older entity versions, acknowledge only after durable projection and support checkpoint replay. Consent revocation/reset increments a generation synchronously, then invalidates/removes old generation keys and datasets under retention rules. Generation must be checked against current authority at serving time; cached consent never permits continued use. Deletion tombstones must outlive stream replay and backup retention. Avoid identity-vault and operations schemas entirely; do not connect recommendation consumers to the mixed existing private/civic outbox.
 
+The first [stage-3 stream slice](STREAMS.md) implements a separate transactional outbox, restricted Go Kafka publisher and a Redis projection consumer. It is isolated from serving dependencies and the pilot Compose. Redis serving/snapshot adapters and analytical exports remain future work.
+
 Use separate adapters and credentials for retrieval, features, snapshots and analytics. Add Qdrant/Redis/Kafka only after their isolated replay/outage tests pass. Model serving should load immutable ONNX artifacts, verify digest/feature-schema/runtime compatibility at startup and atomically swap validated versions. A failed model promotion retains the prior baseline. An experiment flag never bypasses eligibility.
 
 ## Rollout

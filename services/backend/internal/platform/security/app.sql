@@ -115,3 +115,10 @@ GRANT SELECT,INSERT,UPDATE,DELETE ON social.recommendation_preference TO js_soci
 GRANT SELECT,INSERT,DELETE ON social.recommendation_snapshot,social.recommendation_exposure,social.recommendation_event TO js_social;
 
 GRANT EXECUTE ON FUNCTION social.expire_recommendations() TO js_worker;
+
+REVOKE ALL ON ALL TABLES IN SCHEMA identity,ops,infra,social,rec_stream FROM js_recommendation_stream;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA authz,rec_stream FROM js_recommendation_stream;
+GRANT USAGE ON SCHEMA rec_stream TO js_recommendation_stream;
+GRANT EXECUTE ON FUNCTION rec_stream.claim(uuid,integer),rec_stream.ack(uuid,uuid),rec_stream.retry(uuid,uuid),rec_stream.current_authority(uuid),rec_stream.expire() TO js_recommendation_stream;
+GRANT USAGE ON SCHEMA rec_stream TO js_worker;
+GRANT EXECUTE ON FUNCTION rec_stream.expire() TO js_worker;

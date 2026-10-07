@@ -13,6 +13,14 @@
 - Container SIGTERM shutdown after live RPC requests: clean exit code 0 within the three-second stop budget.
 - Rust Docker image build; read-only nonroot container with capabilities dropped, two-CPU limit and 512 MiB memory limit exercised through the Go client.
 
+## Stage-3 stream slice
+
+- Full Go vet/unit checks and the PostgreSQL integration suite with the race detector passed after the stream migration and role changes.
+- `make recommendation-stream-proof` passed against pinned Apache Kafka 4.2.2 and Redis 8.2.3, with isolated PostgreSQL databases. Its final proof includes transactional event/outbox rollback, identical event deduplication, publisher outage/retry, expired lease fencing, consent reset, hard-deletion tombstones, a real consumer group, Redis outage with uncommitted Kafka offsets, consumer restart/replay, late withdrawal events, loss/rebuild of Redis state, independent field retention and bigint ordering beyond the float64 integer range.
+- The dedicated worker cannot read the mixed private/civic outbox, private tables, personal event ledger, raw published text or the stream outbox itself. Unknown/private envelope fields stop projection.
+- The proof removes its Kafka/Redis containers/network on exit. PostgreSQL fixtures are removed by the integration harness. The active pilot database is unchanged.
+- This is a correctness proof. No sustained event-throughput/cost benchmark, Redis serving integration, analytics export or replicated deployment has been measured. [Remaining stage-3 work](STREAMS.md#remaining-stage-3-work) stays explicit.
+
 ## Measured limits
 
 The [transport smoke result](benchmark-local.json) uses 2,000 synthetic candidates/request and 200 ranked references, 1,000 requests at concurrency eight. It measured p95 14.893 ms, p99 17.071 ms, 718.87 requests/second and zero errors on a four-vCPU ARM host with a two-CPU container limit. This is a short transport test, not a steady-state complete-feed benchmark. Hardware/build/budget metadata is in the JSON artifact. Serving/event costs are unavailable.
