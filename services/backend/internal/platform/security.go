@@ -33,10 +33,10 @@ func InstallPrivileges(ctx context.Context, conn *pgx.Conn, kind string, signing
 			return err
 		}
 		// No PUBLIC CONNECT/TEMP and no cross-database runtime access.
-		if _, err := tx.Exec(ctx, "REVOKE ALL ON DATABASE "+pgx.Identifier{database}.Sanitize()+" FROM PUBLIC,js_auth,js_social,js_ops,js_publication,js_worker,js_vault,js_vault_auth,js_media,js_media_worker,js_recommendation_stream"); err != nil {
+		if _, err := tx.Exec(ctx, "REVOKE ALL ON DATABASE "+pgx.Identifier{database}.Sanitize()+" FROM PUBLIC,js_auth,js_social,js_ops,js_publication,js_worker,js_vault,js_vault_auth,js_media,js_media_worker,js_recommendation_stream,js_recommendation_control"); err != nil {
 			return err
 		}
-		roles := "js_auth,js_social,js_ops,js_publication,js_worker,js_vault_auth,js_media,js_media_worker,js_recommendation_stream"
+		roles := "js_auth,js_social,js_ops,js_publication,js_worker,js_vault_auth,js_media,js_media_worker,js_recommendation_stream,js_recommendation_control"
 		if kind == "vault" {
 			roles = "js_vault"
 		}

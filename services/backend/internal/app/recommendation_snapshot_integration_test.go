@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/control"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/pb"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/snapshotcache"
 	"github.com/redis/go-redis/v9"
@@ -240,6 +241,29 @@ func TestRecommendationRedisSnapshotReplayFallbackAndFencing(t *testing.T) {
 		t.Fatal("withdrawal proof needs a stale cache entry", err)
 	}
 	mustStatus(t, owner.request("GET", "feed?sort=recommended&cursor="+*refreshed.NextCursor, nil, 0, ""), 410)
+	// Shared rollback invalidates ranked references even on a Redis hit.
+	ranked := recommendedPage(t, owner, "")
+	if ranked.NextCursor == nil {
+		t.Fatal("missing ranked cursor for shared rollback")
+	}
+	rollbackScope := cache.scope
+	operator := servingControlPool(t)
+	state, err := control.Load(ctx, operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabled, err := control.Set(ctx, operator, true, state.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cache.Store.Load(ctx, rollbackScope); err != nil {
+		t.Fatal("rollback proof needs a cached ranked snapshot", err)
+	}
+	mustStatus(t, owner.request("GET", "feed?sort=recommended&cursor="+*ranked.NextCursor, nil, 0, ""), 410)
+	if _, err := control.Set(ctx, operator, false, disabled.Version); err != nil {
+		t.Fatal(err)
+	}
+	mustStatus(t, owner.request("GET", "feed?sort=recommended&cursor="+*ranked.NextCursor, nil, 0, ""), 410)
 	// Anonymous cursors also bind to the browser cookie when fetched from Redis.
 	request := httptest.NewRequest("GET", "/v1/feed?sort=recommended", nil)
 	response := httptest.NewRecorder()

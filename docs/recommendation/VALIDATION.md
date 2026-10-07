@@ -29,6 +29,13 @@
 - The unresponsive Redis socket test passes with enlarged URL timeout/retry settings, confirming the adapter's bounded optional dependency. The cache is disabled by default; no pilot database or public service binding changed. [Snapshot contract](SNAPSHOTS.md) documents subsequent parity, deployment and load-measurement gates.
 - Full isolated PostgreSQL Go regression tests passed with the race detector (66.635 seconds for the application package); `go vet ./...` and documentation validation passed.
 
+## Shared serving rollback
+
+- The actual `recommendation-control` binary was built and executed against an isolated database. Get/disable/enable work with the restricted operator role; missing/stale expected versions fail. The API cannot change control, and the operator cannot read private/application/stream/control tables or connect to the vault.
+- The race-detector integration proof verifies transition audit records, live behavior across two API instances, skipped ranker calls while disabled, permanent invalidation of old ranked cursors after re-enabling, stable chronological cursors, no-op versions, competing compare-and-set writers, control-read failure and a disable during ranking before final hydration.
+- Full isolated PostgreSQL Go tests passed with the race detector (72.139 seconds for the application package). Real Redis/Kafka stream/snapshot proof passed (17.100 seconds), including rollback and re-enable while the old ranked entry remains cached. Go vet and documentation validation passed.
+- The switch defaults to enabled authority over the existing shadow/0 deployment settings; it does not expand rollout. [Operator and serving contract](ROLLOUT.md) records in-flight behavior and the requirement to upgrade every replica before relying on fleet-wide rollback. Production transport/credential/deployment/load gates remain explicit.
+
 ## First aggregate concurrency migration
 
 - Full Go vet and PostgreSQL integration suite with the race detector passed after moving vote/repost count projections onto their post aggregate lock.

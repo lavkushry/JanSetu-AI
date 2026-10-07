@@ -9,6 +9,7 @@ RUN CGO_ENABLED=0 go build -trimpath -o /out/public-api ./cmd/public-api && \
     CGO_ENABLED=0 go build -trimpath -o /out/vault ./cmd/vault && \
     CGO_ENABLED=0 go build -trimpath -o /out/media-worker ./cmd/media-worker && \
     CGO_ENABLED=0 go build -trimpath -o /out/recommendation-stream ./cmd/recommendation-stream && \
+    CGO_ENABLED=0 go build -trimpath -o /out/recommendation-control ./cmd/recommendation-control && \
     mkdir -p /private-media
 
 FROM python:3.12-slim-bookworm AS pothole-export
