@@ -18,13 +18,22 @@ type restorationDetail struct {
 	State, FirstReportedAt string
 	Version                int64
 	CanProposeTask         bool
-	Obligations            []struct {
-		ID, AgencyID                          uuid.UUID
-		State, Scope                          string
-		Version                               int64
-		RequiredForRestoration, CanVerify     bool
-		PrerequisiteTaskIDs, BlockedByTaskIDs []uuid.UUID
+	Obligations            []restorationTask
+	TaskSplitRequests      []struct {
+		ID, TaskID                                                   uuid.UUID
+		State, AcceptedScope, RemainingScope, Reason, DecisionReason string
+		CanDecide                                                    bool
 	}
+}
+type restorationTask struct {
+	ID, AgencyID                          uuid.UUID
+	State, Scope                          string
+	Version                               int64
+	RequiredForRestoration, CanVerify     bool
+	PrerequisiteTaskIDs, BlockedByTaskIDs []uuid.UUID
+	ScopeReplaced, CanPartiallyAccept     bool
+	ParentTaskID                          *uuid.UUID
+	DueAt                                 *string
 }
 type proposalResult struct {
 	ID                   uuid.UUID

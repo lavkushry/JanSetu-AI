@@ -331,7 +331,7 @@ SELECT * FROM ops.obligation WHERE case_id=$1 AND client_task_id=$2;
 -- name: InsertTaskPrerequisite :exec
 INSERT INTO ops.task_prerequisite(case_id,task_id,prerequisite_task_id) VALUES($1,$2,$3);
 -- name: CaseTaskPrerequisites :many
-SELECT p.task_id,p.prerequisite_task_id,o.state FROM ops.task_prerequisite p
+SELECT p.task_id,p.prerequisite_task_id,CASE WHEN ops.task_restored(o.id) THEN 'VERIFIED' ELSE o.state END::text AS state FROM ops.task_prerequisite p
 JOIN ops.obligation o ON o.case_id=p.case_id AND o.id=p.prerequisite_task_id
 WHERE p.case_id=$1 ORDER BY p.task_id,p.prerequisite_task_id;
 -- name: AssignCoordinator :exec
@@ -344,9 +344,31 @@ ORDER BY c.urgency_tier DESC,c.first_valid_report_at LIMIT 100;
 -- name: LockCase :one
 SELECT * FROM ops.case_record WHERE id=$1 FOR UPDATE;
 -- name: CaseObligations :many
-SELECT o.*,a.name AS agency_name FROM ops.obligation o LEFT JOIN ops.agency a ON a.id=o.agency_id WHERE o.case_id=$1 ORDER BY o.created_at,o.id;
+SELECT o.id,o.case_id,o.agency_id,o.obligation_type,o.state,o.authority_basis_ref,o.due_at,o.accepted_at,o.completed_at,o.version,
+ COALESCE(o.required_for_restoration AND NOT EXISTS(SELECT FROM ops.task_split_request s WHERE s.task_id=o.id AND s.state='APPROVED'),false)::boolean AS required_for_restoration,
+ o.parent_obligation_id,o.work_summary,o.completion_actor_ref,o.scope_text,o.client_task_id,o.created_at,a.name AS agency_name,
+ EXISTS(SELECT FROM ops.task_split_request s WHERE s.task_id=o.id AND s.state='APPROVED') AS scope_replaced
+FROM ops.obligation o LEFT JOIN ops.agency a ON a.id=o.agency_id WHERE o.case_id=$1 ORDER BY o.created_at,o.id;
 -- name: LockObligation :one
 SELECT * FROM ops.obligation WHERE id=$1 FOR UPDATE;
+-- name: TouchObligation :exec
+UPDATE ops.obligation SET version=version+1 WHERE id=$1;
+-- name: InsertSplitObligation :exec
+INSERT INTO ops.obligation(id,case_id,agency_id,obligation_type,state,authority_basis_ref,scope_text,client_task_id,parent_obligation_id,due_at)
+VALUES($1,$2,$3,'RESTORATION','PROPOSED','synthetic-local-mandate-v1',$4,$5,$6,$7);
+-- name: InsertTaskSplitRequest :exec
+INSERT INTO ops.task_split_request(id,case_id,task_id,client_request_id,proposer_ref,task_version,accepted_scope,remaining_scope,authority_basis_ref,reason)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,'synthetic-local-mandate-v1',$9);
+-- name: TaskSplitByClientID :one
+SELECT * FROM ops.task_split_request WHERE task_id=$1 AND client_request_id=$2;
+-- name: CaseTaskSplits :many
+SELECT * FROM ops.task_split_request WHERE case_id=$1 ORDER BY created_at,id;
+-- name: LockTaskSplit :one
+SELECT * FROM ops.task_split_request WHERE case_id=$1 AND id=$2 FOR UPDATE;
+-- name: TaskHasPendingSplit :one
+SELECT EXISTS(SELECT FROM ops.task_split_request WHERE task_id=$1 AND state='PENDING');
+-- name: DecideTaskSplit :exec
+UPDATE ops.task_split_request SET state=$2,reviewer_ref=$3,decision_reason=$4,accepted_task_id=$5,remaining_task_id=$6,remaining_agency_id=$7,reviewed_at=now() WHERE id=$1;
 -- name: ChangeObligation :exec
 UPDATE ops.obligation SET state=$2,version=version+1,work_summary=$3,
  accepted_at=CASE WHEN $2='ACCEPTED' THEN now() ELSE accepted_at END,

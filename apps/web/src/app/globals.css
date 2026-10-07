@@ -1955,6 +1955,47 @@ textarea {
 .task-sequence li + li {
   margin-top: 8px;
 }
+.task-partial-acceptance,
+.task-split-review {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 16px 0;
+  overflow-wrap: anywhere;
+}
+.task-partial-acceptance fieldset,
+.task-split-review fieldset {
+  border: 0;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+}
+.task-split-review h4,
+.task-split-review dt {
+  font-size: 12px;
+  font-weight: 650;
+}
+.task-split-review dt {
+  margin-top: 12px;
+}
+.task-split-review dd {
+  font-size: 12px;
+  margin: 4px 0;
+}
+.split-check {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.split-check input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  margin: 3px 0 0;
+}
+.split-links a {
+  color: var(--blue);
+}
 .obligation > strong {
   font-size: 12px;
   display: block;

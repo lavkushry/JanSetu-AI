@@ -4809,3 +4809,318 @@ test('dependent work waits for every prerequisite and insufficient evidence keep
     await verifier.context.close();
   }
 });
+
+test('reviewed partial acceptance recovers lost acknowledgements and preserves required work', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  const coordinator = await staffPage(browser, 'Kiran Shah');
+  const officer = await staffPage(browser, 'City Works team');
+  const verifier = await staffPage(browser, 'Neha Sen');
+  const csrf = { 'x-jansetu-csrf': '1' };
+  try {
+    const { caseId, report, statement } = await publicProgressFixture(page, coordinator.page);
+    const path = `/api/authority/cases/${caseId}`;
+    let detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    const original = detail.obligations[0].id;
+    const initialPublication = await coordinator.page.request.post(`${path}/publications`, {
+      headers: { ...csrf, 'if-match': '"1"' },
+      data: {
+        title: 'Fictional partial restoration assessment',
+        summary: 'Local work remains subject to independent verification.',
+        area: 'Fictional broad area',
+        reviewed: true,
+        publicationVersion: 0,
+        reason: 'Private initial progress review',
+      },
+    });
+    expect(initialPublication.status()).toBe(200);
+    const receiptId = ((await initialPublication.json()) as Schema['PublicationResult']).receiptId;
+    await officer.page.reload();
+    await officer.page.getByTestId(`staff-case-${caseId}`).click();
+    const partial = officer.page.getByTestId(`partial-acceptance-${original}`);
+    await partial.getByRole('button', { name: 'Accept part of this task', exact: true }).click();
+    const acceptedScope = 'PRIVATE restore the north pavement portion — फुटपाथ';
+    const remainingScope = 'PRIVATE restore the separate south pavement portion';
+    const reason = 'PRIVATE agency can commit to the north portion initially';
+    await partial.getByLabel('Scope your agency can accept').fill(acceptedScope);
+    await partial.getByLabel('Remaining required scope').fill(remainingScope);
+    await partial.getByLabel('Partial acceptance reason').fill(reason);
+    let loseProposal = true;
+    let clientRequestId = '';
+    let requestId = '';
+    const proposalPath = `/api/authority/obligations/${original}/partial-acceptances`;
+    await officer.page.route(`**${proposalPath}`, async (route) => {
+      if (!loseProposal) return route.continue();
+      loseProposal = false;
+      clientRequestId = (route.request().postDataJSON() as Schema['PartialAcceptanceInput'])
+        .clientRequestId;
+      const saved = await route.fetch();
+      expect(saved.status()).toBe(201);
+      requestId = ((await saved.json()) as Schema['TaskSplitResult']).id;
+      await route.abort('failed');
+    });
+    await partial.getByRole('button', { name: 'Request partial acceptance', exact: true }).click();
+    await expect(partial.getByRole('alert')).toBeVisible();
+    await expect(partial.getByLabel('Scope your agency can accept')).toHaveValue(acceptedScope);
+    await expect(partial.getByLabel('Remaining required scope')).toHaveValue(remainingScope);
+    const retried = officer.page.waitForResponse(
+      (r) => r.url().endsWith(proposalPath) && r.request().method() === 'POST',
+    );
+    await partial.getByRole('button', { name: 'Request partial acceptance', exact: true }).click();
+    const retry = await retried;
+    expect(retry.status()).toBe(201);
+    expect(
+      (retry.request().postDataJSON() as Schema['PartialAcceptanceInput']).clientRequestId,
+    ).toBe(clientRequestId);
+    expect(((await retry.json()) as Schema['TaskSplitResult']).id).toBe(requestId);
+    const pending = officer.page.getByTestId(`task-split-${requestId}`);
+    await expect(pending).toContainText('Whole-task acceptance is paused');
+    await expect(
+      pending.getByRole('button', { name: 'Confirm scope split', exact: true }),
+    ).not.toBeVisible();
+    detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    expect(detail.obligations).toHaveLength(1);
+    expect(detail.taskSplitRequests).toHaveLength(1);
+    const fullAcceptance = await officer.page.request.post(
+      `/api/authority/obligations/${original}/accept`,
+      {
+        headers: { ...csrf, 'if-match': `"${detail.obligations[0].version}"` },
+        data: { summary: 'Attempt whole acceptance while scope review is pending' },
+      },
+    );
+    expect(fullAcceptance.status()).toBe(409);
+    await openPublicationReview(coordinator.page, caseId);
+    const review = coordinator.page.getByTestId(`task-split-${requestId}`);
+    await review
+      .getByLabel('Agency for remaining required work')
+      .selectOption('30000000-0000-4000-8000-000000000001');
+    await review
+      .getByRole('checkbox', { name: 'Both scopes fully cover the original work without overlap.' })
+      .check();
+    await review
+      .getByLabel('Scope split review reason')
+      .fill('PRIVATE independent review confirms complete scope coverage');
+    await coordinator.page.setViewportSize({ width: 320, height: 780 });
+    await review.scrollIntoViewIfNeeded();
+    await expect
+      .poll(() =>
+        coordinator.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      )
+      .toBe(true);
+    await coordinator.page.screenshot({ path: 'test-results/partial-acceptance-mobile-light.png' });
+    await coordinator.page.getByRole('button', { name: 'Use dark theme', exact: true }).click();
+    await review.scrollIntoViewIfNeeded();
+    await expect
+      .poll(() =>
+        coordinator.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      )
+      .toBe(true);
+    await coordinator.page.screenshot({ path: 'test-results/partial-acceptance-mobile-dark.png' });
+    let loseDecision = true;
+    let approved: Schema['TaskSplitResult'] | undefined;
+    await coordinator.page.route(`**${path}/task-split-decisions`, async (route) => {
+      if (!loseDecision) return route.continue();
+      loseDecision = false;
+      const saved = await route.fetch();
+      expect(saved.status()).toBe(200);
+      approved = (await saved.json()) as Schema['TaskSplitResult'];
+      await route.abort('failed');
+    });
+    await review.getByRole('button', { name: 'Confirm scope split', exact: true }).click();
+    await expect(review.getByRole('alert')).toBeVisible();
+    await expect(review.getByRole('checkbox')).toBeChecked();
+    const confirmed = coordinator.page.waitForResponse(
+      (r) => r.url().endsWith(`${path}/task-split-decisions`) && r.request().method() === 'POST',
+    );
+    await review.getByRole('button', { name: 'Confirm scope split', exact: true }).click();
+    const confirmedResponse = await confirmed;
+    expect(confirmedResponse.status()).toBe(200);
+    expect(((await confirmedResponse.json()) as Schema['TaskSplitResult']).acceptedTaskId).toBe(
+      approved?.acceptedTaskId,
+    );
+    await expect(review).toContainText('Original scope replaced by two required tasks.');
+    detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    expect(detail.obligations).toHaveLength(3);
+    expect(detail.obligations.find((o) => o.id === original)?.scopeReplaced).toBe(true);
+    const accepted = approved!.acceptedTaskId!;
+    const remaining = approved!.remainingTaskId!;
+    await officer.page.reload();
+    await officer.page.getByTestId(`staff-case-${caseId}`).click();
+    const perform = async (id: string, labels: string[]) => {
+      const card = officer.page.getByTestId(`obligation-${id}`);
+      for (const label of labels) {
+        await card
+          .getByLabel('Work or decision summary')
+          .fill('Fictional defined scope work recorded independently');
+        await card.getByRole('button', { name: label, exact: true }).click();
+        await expect(card.getByRole('button', { name: label, exact: true })).not.toBeVisible();
+      }
+    };
+    const inspect = async (id: string) => {
+      await verifier.page.reload();
+      await verifier.page.getByTestId(`staff-case-${caseId}`).click();
+      const card = verifier.page.getByTestId(`obligation-${id}`);
+      await card
+        .getByLabel('Independent inspection reason')
+        .fill('Independent fictional inspection confirms this complete scope');
+      const response = verifier.page.waitForResponse(
+        (r) =>
+          r.url().endsWith(`${path}/verification-decisions`) && r.request().method() === 'POST',
+      );
+      await card.getByRole('button', { name: 'Record verification decision' }).click();
+      expect((await response).status()).toBe(200);
+      await officer.page.reload();
+      await officer.page.getByTestId(`staff-case-${caseId}`).click();
+    };
+    await perform(accepted, ['Start work', 'Claim completion']);
+    await inspect(accepted);
+    await expect(officer.page.getByTestId('restoration-summary')).toContainText(
+      '1 of 2 required tasks verified',
+    );
+    let ownerProgress = (await (
+      await page.request.get(`/api/my-reports/${report.id}`)
+    ).json()) as Schema['ReportProgress'];
+    expect(ownerProgress.state).not.toBe('VERIFIED');
+    expect(ownerProgress.responsibilities).toHaveLength(2);
+    await perform(remaining, ['Accept task', 'Start work', 'Claim completion']);
+    await inspect(remaining);
+    detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    expect(detail.state).toBe('RESOLVED');
+    expect(detail.firstReportedAt).toBe(report.receivedAt);
+    ownerProgress = (await (
+      await page.request.get(`/api/my-reports/${report.id}`)
+    ).json()) as Schema['ReportProgress'];
+    expect(ownerProgress.state).toBe('VERIFIED');
+    const before = (await (
+      await page.request.get(`/api/case-receipts/${receiptId}`)
+    ).json()) as Schema['Receipt'];
+    expect(before.state).toBe('OPEN');
+    expect(before.responsibilities).toHaveLength(1);
+    const publication = await coordinator.page.request.post(`${path}/publications`, {
+      headers: { ...csrf, 'if-match': `"${detail.version}"` },
+      data: {
+        title: 'Fictional split scopes independently verified',
+        summary: 'All required work received independent fictional review.',
+        area: 'Fictional broad area',
+        reviewed: true,
+        publicationVersion: 1,
+        reason: 'Private final progress review',
+      },
+    });
+    expect(publication.status()).toBe(200);
+    const after = (await (
+      await page.request.get(`/api/case-receipts/${receiptId}`)
+    ).json()) as Schema['Receipt'];
+    expect(after.state).toBe('RESOLVED');
+    expect(after.responsibilities).toHaveLength(2);
+    for (const secret of [
+      acceptedScope,
+      remainingScope,
+      reason,
+      statement,
+      caseId,
+      report.id,
+      requestId,
+      original,
+      accepted,
+      remaining,
+      clientRequestId,
+    ]) {
+      expect(JSON.stringify(after)).not.toContain(secret);
+      if (secret !== statement && secret !== report.id)
+        expect(JSON.stringify(ownerProgress)).not.toContain(secret);
+    }
+  } finally {
+    await coordinator.context.close();
+    await officer.context.close();
+    await verifier.context.close();
+  }
+});
+
+test('partial acceptance review keeps stale drafts and rejection preserves original work', async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(90_000);
+  await page.goto('/');
+  await signIn(page, 'Rohan Mehta');
+  const coordinator = await staffPage(browser, 'Kiran Shah');
+  const officer = await staffPage(browser, 'City Works team');
+  const csrf = { 'x-jansetu-csrf': '1' };
+  try {
+    const { caseId } = await publicProgressFixture(page, coordinator.page);
+    const path = `/api/authority/cases/${caseId}`;
+    let detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    const original = detail.obligations[0].id;
+    const proposal = await officer.page.request.post(
+      `/api/authority/obligations/${original}/partial-acceptances`,
+      {
+        headers: { ...csrf, 'if-match': '"1"' },
+        data: {
+          clientRequestId: crypto.randomUUID(),
+          acceptedScope: 'PRIVATE original accepted scope proposal',
+          remainingScope: 'PRIVATE original remaining scope proposal',
+          reason: 'PRIVATE agency commitment needs coordinator review',
+          authorityBasisRef: 'synthetic-local-mandate-v1',
+        },
+      },
+    );
+    expect(proposal.status()).toBe(201);
+    const requestId = ((await proposal.json()) as Schema['TaskSplitResult']).id;
+    await openPublicationReview(coordinator.page, caseId);
+    const review = coordinator.page.getByTestId(`task-split-${requestId}`);
+    const reason = 'PRIVATE coordinator requests clearer complete scope accounting';
+    await review.getByLabel('Scope split decision').selectOption('REJECT');
+    await review.getByLabel('Scope split review reason').fill(reason);
+    const competing = await coordinator.page.request.post(`${path}/obligations`, {
+      headers: { ...csrf, 'if-match': '"2"' },
+      data: {
+        clientTaskId: crypto.randomUUID(),
+        agencyId: '30000000-0000-4000-8000-000000000001',
+        scope: 'PRIVATE separate inspection work added during scope review',
+      },
+    });
+    expect(competing.status()).toBe(201);
+    const stale = coordinator.page.waitForResponse(
+      (r) => r.url().endsWith(`${path}/task-split-decisions`) && r.request().method() === 'POST',
+    );
+    await review.getByRole('button', { name: 'Reject scope split', exact: true }).click();
+    expect((await stale).status()).toBe(412);
+    await expect(review.getByRole('alert')).toContainText('Refresh');
+    await review.getByRole('button', { name: 'Refresh case', exact: true }).click();
+    await expect(coordinator.page.getByTestId('restoration-summary')).toContainText(
+      '0 of 2 required tasks verified',
+    );
+    await expect(review.getByLabel('Scope split decision')).toHaveValue('REJECT');
+    await expect(review.getByLabel('Scope split review reason')).toHaveValue(reason);
+    const rejected = coordinator.page.waitForResponse(
+      (r) => r.url().endsWith(`${path}/task-split-decisions`) && r.request().method() === 'POST',
+    );
+    await review.getByRole('button', { name: 'Reject scope split', exact: true }).click();
+    expect((await rejected).status()).toBe(200);
+    await expect(review).toContainText('rejected');
+    detail = (await (await coordinator.page.request.get(path)).json()) as Schema['CaseDetail'];
+    expect(detail.obligations).toHaveLength(2);
+    expect(detail.obligations.find((o) => o.id === original)?.scopeReplaced).toBe(false);
+    expect(detail.obligations.find((o) => o.id === original)?.requiredForRestoration).toBe(true);
+    await officer.page.reload();
+    await officer.page.getByTestId(`staff-case-${caseId}`).click();
+    const card = officer.page.getByTestId(`obligation-${original}`);
+    await expect(
+      card.getByRole('button', { name: 'Accept part of this task', exact: true }),
+    ).toBeVisible();
+    await card
+      .getByLabel('Work or decision summary')
+      .fill('Fictional agency accepts the complete original work after rejection');
+    await card.getByRole('button', { name: 'Accept task', exact: true }).click();
+    await expect(card.getByRole('button', { name: 'Start work', exact: true })).toBeEnabled();
+    await expect(card.getByTestId(`task-split-${requestId}`)).toContainText(reason);
+  } finally {
+    await coordinator.context.close();
+    await officer.context.close();
+  }
+});

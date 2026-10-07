@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.23.0
+  version: 0.24.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -1829,13 +1829,108 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
+  /authority/obligations/{id}/partial-acceptances:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      operationId: post_partial_acceptance
+      summary: Request review of a defined partial acceptance
+      description: Original agency agent or lead only. If-Match is the original task version. A stable clientRequestId identifies immutable accepted/remaining scopes, reason and the synthetic local authority basis. Matching proposer retries recover current state with the original version; changed content conflicts. Only proposed required restoration tasks with capacity for two children are eligible. Pending review blocks whole-task acceptance. No work, split or public publication occurs until coordinator approval.
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartialAcceptanceInput'
+      responses:
+        '201':
+          description: New or matching lifetime retry with current task and case versions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskSplitResult'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /authority/cases/{id}/task-split-decisions:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      operationId: post_task_split_decision
+      summary: Review complete accepted and remaining required scopes
+      description: Coordinator distinct from proposer; If-Match is the case version. APPROVE requires reviewed=true confirming complete non-overlapping coverage and an active remainingAgencyId. Creates an ACCEPTED original-agency child and a PROPOSED remainder, both required and inheriting prerequisites/due date; retains cancelled original scope as history. Existing dependents require all replacement leaves verified. REJECT preserves original proposed work. Same-reviewer identical retries recover the decision after other progress or resolution. Changed decisions conflict. Public progress requires separate review.
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - name: X-JanSetu-CSRF
+          in: header
+          required: true
+          schema:
+            type: string
+            const: '1'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskSplitDecisionInput'
+      responses:
+        '200':
+          description: New or matching lifetime retry with current task and case versions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskSplitResult'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
   /authority/obligations/{id}/accept:
     parameters:
       - $ref: '#/components/parameters/ID'
     post:
+      description: Whole-task acceptance is paused while a partial acceptance awaits coordinator review; returns 409 TASK_SPLIT_PENDING.
       responses:
         '200':
           $ref: '#/components/responses/Command'
+        '409':
+          $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
         '422':
@@ -4294,6 +4389,104 @@ components:
           type: integer
         caseVersion:
           type: integer
+    PartialAcceptanceInput:
+      type: object
+      additionalProperties: false
+      required: [clientRequestId, acceptedScope, remainingScope, authorityBasisRef, reason]
+      properties:
+        clientRequestId:
+          type: string
+          format: uuid
+          description: Lifetime retry identity scoped to the original task and proposer.
+        acceptedScope:
+          type: string
+          minLength: 10
+          maxLength: 1000
+        remainingScope:
+          type: string
+          minLength: 10
+          maxLength: 1000
+        authorityBasisRef:
+          type: string
+          const: synthetic-local-mandate-v1
+          description: Fictional local authority only; does not establish a real mandate.
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 2000
+    TaskSplitDecisionInput:
+      type: object
+      additionalProperties: false
+      required: [requestId, result, reason]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        result:
+          type: string
+          enum: [APPROVE, REJECT]
+        remainingAgencyId:
+          type: string
+          format: uuid
+          description: Required active agency on APPROVE; omit on REJECT.
+        reviewed:
+          type: boolean
+          description: Must be true on APPROVE to confirm that both scopes cover the original work completely without overlap.
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 2000
+    TaskSplitResult:
+      type: object
+      required: [id, state, taskVersion, caseVersion, acceptedTaskId, remainingTaskId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED]
+        taskVersion:
+          type: integer
+        caseVersion:
+          type: integer
+        acceptedTaskId:
+          type: [string, 'null']
+        remainingTaskId:
+          type: [string, 'null']
+    TaskSplitRequest:
+      type: object
+      description: Private staff-only original scope proposal and immutable coordinator review; no principal IDs are exposed.
+      required: [id, taskId, acceptedScope, remainingScope, reason, authorityBasisRef, state, createdAt, acceptedTaskId, remainingTaskId, remainingAgencyId, decisionReason, canDecide]
+      properties:
+        id:
+          type: string
+        taskId:
+          type: string
+        acceptedScope:
+          type: string
+        remainingScope:
+          type: string
+        reason:
+          type: string
+        authorityBasisRef:
+          type: string
+        state:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED]
+        createdAt:
+          type: string
+        acceptedTaskId:
+          type: [string, 'null']
+        remainingTaskId:
+          type: [string, 'null']
+        remainingAgencyId:
+          type: [string, 'null']
+        decisionReason:
+          type: string
+        canDecide:
+          type: boolean
+          description: Live independent coordinator capability on pending requests in open cases. Capacity and versions are rechecked on approval.
     Obligation:
       type: object
       required:
@@ -4309,9 +4502,21 @@ components:
         - acceptedAt
         - completedAt
         - canVerify
+        - parentTaskId
+        - scopeReplaced
+        - canPartiallyAccept
         - prerequisiteTaskIds
         - blockedByTaskIds
       properties:
+        parentTaskId:
+          type: [string, 'null']
+          description: Private original task link for accepted/remainder split work.
+        scopeReplaced:
+          type: boolean
+          description: Original scope retained in history after a complete coordinator-approved split; replacement tasks determine required restoration.
+        canPartiallyAccept:
+          type: boolean
+          description: Live original agency agent/lead capability for proposed required work with no pending split and room for two child tasks.
         id:
           type: string
         agencyId:
@@ -4367,6 +4572,7 @@ components:
         - version
         - firstReportedAt
         - obligations
+        - taskSplitRequests
         - events
         - receiptId
         - publication
@@ -4374,6 +4580,10 @@ components:
         - canProposeTask
         - publicationBlocked
       properties:
+        taskSplitRequests:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskSplitRequest'
         publicationBlocked:
           description: Live publisher-only sharing eligibility flag; false for other staff. Pending or approved owner withdrawal requests prevent new publication. Withdrawal remains available.
           type: boolean

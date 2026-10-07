@@ -111,6 +111,9 @@ func (a *App) publishReceipt(w http.ResponseWriter, r *http.Request, actor *Acto
 		}
 		responsibilities := []any{}
 		for _, o := range obligations {
+			if o.ScopeReplaced {
+				continue
+			}
 			responsibilities = append(responsibilities, map[string]any{"agency": o.AgencyName, "state": o.State, "dueAt": timestamp(o.DueAt)})
 		}
 		decision := uuid.New()
@@ -134,7 +137,7 @@ func (a *App) publishReceipt(w http.ResponseWriter, r *http.Request, actor *Acto
 			return e
 		}
 		sequence := int64(2)
-		safeTexts := map[string]string{"INTAKE_REVIEWED": "A coordinator assessed the issue and proposed an agency task.", "TASK_PROPOSED": "A coordinator proposed another required restoration task.", "ACCEPTED": "The agency accepted responsibility for this task.", "IN_PROGRESS": "The agency reported work in progress.", "COMPLETION_CLAIMED": "The agency claimed completion. Independent verification is pending.", "VERIFIED": "An independent reviewer recorded restoration as verified.", "NOT_RESTORED": "An independent reviewer found the service was not restored.", "INSUFFICIENT": "The reviewer needs more evidence to verify restoration."}
+		safeTexts := map[string]string{"INTAKE_REVIEWED": "A coordinator assessed the issue and proposed an agency task.", "TASK_PROPOSED": "A coordinator proposed another required restoration task.", "TASK_SPLIT_REQUESTED": "An agency requested review of a partial acceptance.", "TASK_SPLIT_APPROVED": "A coordinator confirmed separate accepted and remaining required tasks.", "TASK_SPLIT_REJECTED": "A coordinator rejected the proposed scope split.", "ACCEPTED": "The agency accepted responsibility for this task.", "IN_PROGRESS": "The agency reported work in progress.", "COMPLETION_CLAIMED": "The agency claimed completion. Independent verification is pending.", "VERIFIED": "An independent reviewer recorded restoration as verified.", "NOT_RESTORED": "An independent reviewer found the service was not restored.", "INSUFFICIENT": "The reviewer needs more evidence to verify restoration."}
 		for _, v := range events {
 			safe, ok := safeTexts[v.EventType]
 			if !ok {

@@ -163,6 +163,27 @@ type OpsReport struct {
 	Version               int64              `json:"version"`
 }
 
+type OpsTaskSplitRequest struct {
+	ID                uuid.UUID          `json:"id"`
+	CaseID            uuid.UUID          `json:"case_id"`
+	TaskID            uuid.UUID          `json:"task_id"`
+	ClientRequestID   uuid.UUID          `json:"client_request_id"`
+	ProposerRef       uuid.UUID          `json:"proposer_ref"`
+	TaskVersion       int64              `json:"task_version"`
+	AcceptedScope     string             `json:"accepted_scope"`
+	RemainingScope    string             `json:"remaining_scope"`
+	AuthorityBasisRef string             `json:"authority_basis_ref"`
+	Reason            string             `json:"reason"`
+	State             string             `json:"state"`
+	ReviewerRef       *uuid.UUID         `json:"reviewer_ref"`
+	DecisionReason    pgtype.Text        `json:"decision_reason"`
+	AcceptedTaskID    *uuid.UUID         `json:"accepted_task_id"`
+	RemainingTaskID   *uuid.UUID         `json:"remaining_task_id"`
+	RemainingAgencyID *uuid.UUID         `json:"remaining_agency_id"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	ReviewedAt        pgtype.Timestamptz `json:"reviewed_at"`
+}
+
 type SocialActivityVisible struct {
 	ID                   uuid.UUID          `json:"id"`
 	RecipientID          uuid.UUID          `json:"recipient_id"`

@@ -30,6 +30,7 @@ sql:
       - ../../db/migrations/00026_pothole_analysis.sql
       - ../../db/migrations/00027_multiple_restoration_tasks.sql
       - ../../db/migrations/00028_restoration_task_prerequisites.sql
+      - ../../db/migrations/00029_reviewed_task_splits.sql
     queries: internal/store/queries.sql
     gen:
       go:

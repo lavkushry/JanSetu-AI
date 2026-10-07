@@ -1140,6 +1140,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/authority/obligations/{id}/partial-acceptances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request review of a defined partial acceptance
+         * @description Original agency agent or lead only. If-Match is the original task version. A stable clientRequestId identifies immutable accepted/remaining scopes, reason and the synthetic local authority basis. Matching proposer retries recover current state with the original version; changed content conflicts. Only proposed required restoration tasks with capacity for two children are eligible. Pending review blocks whole-task acceptance. No work, split or public publication occurs until coordinator approval.
+         */
+        post: operations["post_partial_acceptance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/authority/cases/{id}/task-split-decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review complete accepted and remaining required scopes
+         * @description Coordinator distinct from proposer; If-Match is the case version. APPROVE requires reviewed=true confirming complete non-overlapping coverage and an active remainingAgencyId. Creates an ACCEPTED original-agency child and a PROPOSED remainder, both required and inheriting prerequisites/due date; retains cancelled original scope as history. Existing dependents require all replacement leaves verified. REJECT preserves original proposed work. Same-reviewer identical retries recover the decision after other progress or resolution. Changed decisions conflict. Public progress requires separate review.
+         */
+        post: operations["post_task_split_decision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/authority/obligations/{id}/accept": {
         parameters: {
             query?: never;
@@ -1151,6 +1195,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Whole-task acceptance is paused while a partial acceptance awaits coordinator review; returns 409 TASK_SPLIT_PENDING. */
         post: operations["post_authority_obligations_by_id_accept"];
         delete?: never;
         options?: never;
@@ -2172,7 +2217,70 @@ export interface components {
             version: number;
             caseVersion: number;
         };
+        PartialAcceptanceInput: {
+            /**
+             * Format: uuid
+             * @description Lifetime retry identity scoped to the original task and proposer.
+             */
+            clientRequestId: string;
+            acceptedScope: string;
+            remainingScope: string;
+            /**
+             * @description Fictional local authority only; does not establish a real mandate.
+             * @constant
+             */
+            authorityBasisRef: "synthetic-local-mandate-v1";
+            reason: string;
+        };
+        TaskSplitDecisionInput: {
+            /** Format: uuid */
+            requestId: string;
+            /** @enum {string} */
+            result: "APPROVE" | "REJECT";
+            /**
+             * Format: uuid
+             * @description Required active agency on APPROVE; omit on REJECT.
+             */
+            remainingAgencyId?: string;
+            /** @description Must be true on APPROVE to confirm that both scopes cover the original work completely without overlap. */
+            reviewed?: boolean;
+            reason: string;
+        };
+        TaskSplitResult: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            state: "PENDING" | "APPROVED" | "REJECTED";
+            taskVersion: number;
+            caseVersion: number;
+            acceptedTaskId: string | null;
+            remainingTaskId: string | null;
+        };
+        /** @description Private staff-only original scope proposal and immutable coordinator review; no principal IDs are exposed. */
+        TaskSplitRequest: {
+            id: string;
+            taskId: string;
+            acceptedScope: string;
+            remainingScope: string;
+            reason: string;
+            authorityBasisRef: string;
+            /** @enum {string} */
+            state: "PENDING" | "APPROVED" | "REJECTED";
+            createdAt: string;
+            acceptedTaskId: string | null;
+            remainingTaskId: string | null;
+            remainingAgencyId: string | null;
+            decisionReason: string;
+            /** @description Live independent coordinator capability on pending requests in open cases. Capacity and versions are rechecked on approval. */
+            canDecide: boolean;
+        };
         Obligation: {
+            /** @description Private original task link for accepted/remainder split work. */
+            parentTaskId: string | null;
+            /** @description Original scope retained in history after a complete coordinator-approved split; replacement tasks determine required restoration. */
+            scopeReplaced: boolean;
+            /** @description Live original agency agent/lead capability for proposed required work with no pending split and room for two child tasks. */
+            canPartiallyAccept: boolean;
             id: string;
             agencyId: string | null;
             agency: string;
@@ -2192,6 +2300,7 @@ export interface components {
             blockedByTaskIds: string[];
         };
         CaseDetail: {
+            taskSplitRequests: components["schemas"]["TaskSplitRequest"][];
             /** @description Live publisher-only sharing eligibility flag; false for other staff. Pending or approved owner withdrawal requests prevent new publication. Withdrawal remains available. */
             publicationBlocked: boolean;
             /** @description Live coordinator capability, false on closed cases or at the eight-task cap. Every proposal rechecks authorization and version. */
@@ -4534,6 +4643,82 @@ export interface operations {
             503: components["responses"]["Problem"];
         };
     };
+    post_partial_acceptance: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["Version"];
+                "X-JanSetu-CSRF": "1";
+            };
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartialAcceptanceInput"];
+            };
+        };
+        responses: {
+            /** @description New or matching lifetime retry with current task and case versions */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSplitResult"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    post_task_split_decision: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["Version"];
+                "X-JanSetu-CSRF": "1";
+            };
+            path: {
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskSplitDecisionInput"];
+            };
+        };
+        responses: {
+            /** @description New or matching lifetime retry with current task and case versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSplitResult"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            428: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
     post_authority_obligations_by_id_accept: {
         parameters: {
             query?: never;
@@ -4554,6 +4739,7 @@ export interface operations {
         responses: {
             200: components["responses"]["Command"];
             403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
             412: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
