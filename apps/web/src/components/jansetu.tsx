@@ -649,14 +649,15 @@ function Feed({
   const [localMode, setMode] = useState(params.get('mode') || 'HOME');
   const [sort, setSort] = useState('new');
   const mode = communityId || saved ? 'HOME' : localMode;
+  const effectiveSort = mode === 'FOLLOWING' || (saved && sort === 'recommended') ? 'new' : sort;
   const needsAccount = saved || mode === 'FOLLOWING';
   const path = saved ? 'me/bookmarks' : 'feed';
   const q = useInfiniteQuery({
-    queryKey: ['feed', me?.profile.id || 'guest', path, mode, sort, communityId],
+    queryKey: ['feed', me?.profile.id || 'guest', path, mode, effectiveSort, communityId],
     initialPageParam: '',
     queryFn: ({ pageParam }) =>
       api<Schema['Feed']>(
-        `${path}?${new URLSearchParams({ mode, sort: mode === 'FOLLOWING' ? 'new' : sort, ...(communityId ? { communityId } : {}), ...(pageParam ? { cursor: pageParam } : {}) })}`,
+        `${path}?${new URLSearchParams({ mode, sort: effectiveSort, ...(communityId ? { communityId } : {}), ...(pageParam ? { cursor: pageParam } : {}) })}`,
       ),
     getNextPageParam: (last) => last.nextCursor || undefined,
     enabled: !needsAccount || !!me,
@@ -747,7 +748,7 @@ function Feed({
             <SlidersHorizontal size={14} />
             <select
               aria-label="Sort feed"
-              value={mode === 'FOLLOWING' ? 'new' : sort}
+              value={effectiveSort}
               onChange={(e) => setSort(e.target.value)}
             >
               <option value="new">Latest</option>

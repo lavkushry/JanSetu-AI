@@ -4379,6 +4379,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                "X-JanSetu-CSRF": components["parameters"]["CSRF"];
                 "If-Match": components["parameters"]["Version"];
             };
             path?: never;
@@ -4407,6 +4408,7 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
+                "X-JanSetu-CSRF": components["parameters"]["CSRF"];
                 "If-Match": components["parameters"]["Version"];
             };
             path?: never;
@@ -4429,7 +4431,9 @@ export interface operations {
     record_recommendation_event: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "X-JanSetu-CSRF": components["parameters"]["CSRF"];
+            };
             path?: never;
             cookie?: never;
         };

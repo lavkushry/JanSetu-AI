@@ -6,7 +6,7 @@ randomly sampled session study; content text and private records are rejected.
 """
 import argparse
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import math
@@ -19,7 +19,10 @@ FIELDS = {'userRef', 'sessionId', 'experimentId', 'arm', 'assignmentProbability'
 METRICS = ('satisfaction', 'negativeFeedback', 'retention7', 'retention28')
 
 
-def load(path):
+def load(path, as_of=None):
+    as_of = as_of or datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    if as_of.tzinfo is None or as_of.utcoffset() is None:
+        raise ValueError('Evaluation cutoff requires a timezone')
     rows, sessions, users = [], set(), {}
     for line in Path(path).read_text().splitlines():
         row = json.loads(line)
@@ -39,7 +42,9 @@ def load(path):
         for key in FIELDS - set(METRICS) - {'assignmentProbability'}:
             if not isinstance(row[key], str) or not row[key] or len(row[key]) > 160:
                 raise ValueError('Invalid dimension or identity')
-        datetime.fromisoformat(row['occurredAt'].replace('Z', '+00:00'))
+        occurred = datetime.fromisoformat(row['occurredAt'].replace('Z', '+00:00'))
+        if occurred.tzinfo is None or occurred.utcoffset() is None or occurred + timedelta(days=28) > as_of:
+            raise ValueError('Session requires a timezone and mature 28-day retention')
         if row['sessionId'] in sessions:
             raise ValueError('Duplicate session')
         sessions.add(row['sessionId'])
@@ -92,10 +97,11 @@ def compare(rows, seed=20261007, replicates=2000):
     return result
 
 
-def evaluate(path, seed=20261007, replicates=2000):
-    rows = load(path)
+def evaluate(path, seed=20261007, replicates=2000, as_of=None):
+    as_of = as_of or datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    rows = load(path, as_of)
     report = {'schemaVersion': 1, 'datasetSha256': hashlib.sha256(Path(path).read_bytes()).hexdigest(),
-              'seed': seed, 'bootstrapReplicates': replicates, 'overall': compare(rows, seed, replicates),
+              'evaluationAsOf': as_of.isoformat(), 'seed': seed, 'bootstrapReplicates': replicates, 'overall': compare(rows, seed, replicates),
               'cohorts': {}}
     for dimension in ('userCohort', 'language', 'locality', 'creatorBucket'):
         report['cohorts'][dimension] = {value: compare([r for r in rows if r[dimension] == value], seed, replicates)
@@ -111,5 +117,6 @@ if __name__ == '__main__':
     parser.add_argument('dataset', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--seed', type=int, default=20261007)
+    parser.add_argument('--as-of', type=datetime.fromisoformat, help='Timezone-aware evaluation cutoff for reproducible retention maturity')
     args = parser.parse_args()
-    args.output.write_text(json.dumps(evaluate(args.dataset, args.seed), indent=2) + '\n')
+    args.output.write_text(json.dumps(evaluate(args.dataset, args.seed, as_of=args.as_of), indent=2) + '\n')

@@ -368,6 +368,32 @@ func TestRecommendationCivicAllocationGuestBindingAndRetention(t *testing.T) {
 	}
 }
 
+func TestRecommendationAcceptedRetryAfterExposureRevocation(t *testing.T) {
+	a := testApp(t)
+	owner := login(t, a, 0)
+	recommendationFixture(t, a)
+	consentRecommendation(t, owner, true)
+	t.Cleanup(func() { consentRecommendation(t, owner, false) })
+	page := recommendedPage(t, owner, "")
+	for _, item := range page.Items {
+		if item.Type != "POST" || item.Recommendation.ExposureID == uuid.Nil {
+			continue
+		}
+		event := map[string]any{"eventId": uuid.NewString(), "exposureId": item.Recommendation.ExposureID, "kind": "MORE"}
+		mustStatus(t, owner.request("POST", "me/recommendation-events", event, 0, ""), 200)
+		if _, err := integrationAdmin.Exec(context.Background(), `UPDATE social.recommendation_exposure SET expires_at=statement_timestamp()-interval '1 second' WHERE id=$1`, item.Recommendation.ExposureID); err != nil {
+			t.Fatal(err)
+		}
+		mustStatus(t, owner.request("POST", "me/recommendation-events", event, 0, ""), 200)
+		event["kind"] = "LESS"
+		mustStatus(t, owner.request("POST", "me/recommendation-events", event, 0, ""), 409)
+		event["eventId"] = uuid.NewString()
+		mustStatus(t, owner.request("POST", "me/recommendation-events", event, 0, ""), 404)
+		return
+	}
+	t.Fatal("missing consenting post exposure")
+}
+
 func TestRecommendationRustWireAndFallback(t *testing.T) {
 	base := testApp(t)
 	cfg := base.Config

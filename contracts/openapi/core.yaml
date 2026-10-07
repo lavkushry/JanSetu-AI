@@ -1410,6 +1410,7 @@ paths:
     put:
       operationId: save_recommendation_preferences
       parameters:
+        - $ref: '#/components/parameters/CSRF'
         - $ref: '#/components/parameters/Version'
       requestBody:
         required: true
@@ -1432,6 +1433,7 @@ paths:
     post:
       operationId: reset_recommendation_history
       parameters:
+        - $ref: '#/components/parameters/CSRF'
         - $ref: '#/components/parameters/Version'
       responses:
         '200':
@@ -1445,6 +1447,8 @@ paths:
   /me/recommendation-events:
     post:
       operationId: record_recommendation_event
+      parameters:
+        - $ref: '#/components/parameters/CSRF'
       description: Requires current behavioral consent and a viewer-bound served published revision. Stable eventId deduplicates retries; one event per exposure and kind. Video actions are unavailable. READ duration must be foreground active time.
       requestBody:
         required: true

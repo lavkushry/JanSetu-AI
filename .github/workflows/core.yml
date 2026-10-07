@@ -36,7 +36,15 @@ jobs:
       - run: make seed
       - run: make check
       - name: Start Rust ranker for wire integration
-        run: cargo run --locked --manifest-path services/recommendation/Cargo.toml --bin jansetu-recommendation > /tmp/jansetu-recommendation.log 2>&1 &
+        run: |
+          cargo run --locked --manifest-path services/recommendation/Cargo.toml --bin jansetu-recommendation > /tmp/jansetu-recommendation.log 2>&1 &
+          ranker_pid=$!
+          for attempt in $(seq 1 40); do
+            if ! kill -0 "$ranker_pid" 2>/dev/null; then wait "$ranker_pid"; exit 1; fi
+            if python3 -c 'import socket; socket.create_connection(("127.0.0.1", 50051), timeout=1).close()' 2>/dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
       - run: make test-integration
         env:
           JANSETU_RECOMMENDATION_TEST_TARGET: 127.0.0.1:50051

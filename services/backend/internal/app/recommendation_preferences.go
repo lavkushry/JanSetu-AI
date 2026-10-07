@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -106,6 +107,10 @@ func (a *App) saveRecommendationPreferences(w http.ResponseWriter, r *http.Reque
 		}
 		b.Languages[i] = tag.String()
 	}
+	slices.Sort(b.Interests)
+	b.Interests = slices.Compact(b.Interests)
+	slices.Sort(b.Languages)
+	b.Languages = slices.Compact(b.Languages)
 	var result recommendationPreference
 	err = a.recommendationTransaction(r.Context(), actor, func(tx pgx.Tx) error {
 		old, e := readRecommendationPreference(r.Context(), tx, actor.ProfileID)
@@ -197,6 +202,20 @@ func (a *App) recommendationEvent(w http.ResponseWriter, r *http.Request, actor 
 		if !p.PersonalizationEnabled {
 			return forbidden()
 		}
+		// A retry acknowledges the existing write without recording new behavior.
+		// It remains owner/generation scoped even if the exposure has since expired
+		// or the public revision is no longer eligible.
+		var existing []byte
+		e = tx.QueryRow(r.Context(), `SELECT request_hash FROM social.recommendation_event WHERE id=$1 AND profile_id=$2 AND generation=$3`, b.EventID, actor.ProfileID, p.Generation).Scan(&existing)
+		if e == nil {
+			if string(existing) != string(hash[:]) {
+				return failure(409, "EVENT_CONFLICT", "This event or exposure action was already submitted")
+			}
+			return nil
+		}
+		if !errors.Is(e, pgx.ErrNoRows) {
+			return e
+		}
 		var post uuid.UUID
 		var revision int32
 		var elapsed int64
@@ -239,6 +258,9 @@ func (a *App) recommendationEvent(w http.ResponseWriter, r *http.Request, actor 
 		if tag.RowsAffected() == 0 {
 			var existing []byte
 			e = tx.QueryRow(r.Context(), `SELECT request_hash FROM social.recommendation_event WHERE id=$1 AND profile_id=$2`, b.EventID, actor.ProfileID).Scan(&existing)
+			if e != nil && !errors.Is(e, pgx.ErrNoRows) {
+				return e
+			}
 			if e != nil || string(existing) != string(hash[:]) {
 				return failure(409, "EVENT_CONFLICT", "This event or exposure action was already submitted")
 			}
