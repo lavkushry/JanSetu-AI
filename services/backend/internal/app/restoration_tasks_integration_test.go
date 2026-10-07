@@ -19,7 +19,12 @@ type restorationDetail struct {
 	Version                int64
 	CanProposeTask         bool
 	Obligations            []restorationTask
-	TaskSplitRequests      []struct {
+	PrerequisiteAmendments []struct {
+		ID, TaskID               uuid.UUID
+		AddedPrerequisiteTaskIDs []uuid.UUID
+		Reason                   string
+	}
+	TaskSplitRequests []struct {
 		ID, TaskID                                                   uuid.UUID
 		State, AcceptedScope, RemainingScope, Reason, DecisionReason string
 		CanDecide                                                    bool
@@ -30,6 +35,7 @@ type restorationTask struct {
 	State, Scope                          string
 	Version                               int64
 	RequiredForRestoration, CanVerify     bool
+	AvailablePrerequisiteTaskIDs          []uuid.UUID
 	PrerequisiteTaskIDs, BlockedByTaskIDs []uuid.UUID
 	ScopeReplaced, CanPartiallyAccept     bool
 	ParentTaskID                          *uuid.UUID

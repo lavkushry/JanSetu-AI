@@ -44,6 +44,8 @@ GRANT SELECT,INSERT ON ops.report TO js_ops;
 GRANT UPDATE(id) ON ops.report TO js_ops;
 GRANT SELECT,INSERT,UPDATE ON ops.intake_review,ops.case_record,ops.obligation TO js_ops;
 GRANT SELECT,INSERT ON ops.task_prerequisite TO js_ops;
+GRANT SELECT ON ops.prerequisite_amendment TO js_ops,js_publication;
+GRANT INSERT ON ops.prerequisite_amendment TO js_ops;
 GRANT SELECT ON ops.task_prerequisite TO js_publication;
 GRANT SELECT ON ops.task_split_request TO js_ops,js_publication;
 GRANT INSERT(id,case_id,task_id,client_request_id,proposer_ref,task_version,accepted_scope,remaining_scope,authority_basis_ref,reason) ON ops.task_split_request TO js_ops;

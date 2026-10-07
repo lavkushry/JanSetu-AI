@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, dateLabel, type Me, type Schema } from '@/lib/api';
 import { Badge, ErrorState, FormError, Loading, useSession } from './ui';
 import { PartialAcceptance, TaskSplitReview } from './task-splits';
+import { PrerequisiteAmendments } from './prerequisite-amendments';
 
 export function TaskProposal({ caseDetail: c }: { caseDetail: Schema['CaseDetail'] }) {
   const qc = useQueryClient();
@@ -102,8 +103,8 @@ export function TaskProposal({ caseDetail: c }: { caseDetail: Schema['CaseDetail
               ) : null,
             )}
             <small>
-              Prerequisites are fixed with this proposal. Acceptance is allowed while verification
-              is pending.
+              These initial prerequisites stay recorded. Reviewed additions are available before
+              acceptance; agency commitment is allowed while verification is pending.
             </small>
           </fieldset>
           <small>
@@ -255,6 +256,7 @@ export function ObligationCard({
             </div>
           </form>
         )}
+      <PrerequisiteAmendments obligation={o} caseDetail={c} />
       {o.canPartiallyAccept && <PartialAcceptance obligation={o} />}
       {splits.map((s) => (
         <TaskSplitReview key={s.id} request={s} caseDetail={c} />

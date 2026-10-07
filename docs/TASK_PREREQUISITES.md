@@ -10,11 +10,12 @@ it does not authorize dependent work to start before verification.
 - Select zero to seven distinct existing required restoration tasks when proposing
   a task. Every prerequisite must belong to the same case. Cancelled, optional and
   non-restoration scaffold tasks are ineligible. Already verified work is eligible.
-- The proposal's agency, scope and unordered prerequisite set are immutable. This
-  milestone has no dependency editing, removal, bypass or reassignment command.
-- New tasks only reference existing tasks, so API-created sequences are acyclic.
-  Database guards also reject cycles and self references. Chains and several
-  prerequisites are supported within the existing eight-task case limit.
+- The original proposal's agency, scope and unordered prerequisite set are
+  immutable. [Governed additions](PREREQUISITE_AMENDMENTS.md) can now append reviewed prerequisites before acceptance; removal, bypass and
+  reassignment remain unavailable.
+- Initial proposals reference existing tasks. Reviewed additions recheck the
+  complete readiness graph; database guards reject cycles and self references.
+  Chains and several prerequisites are supported within the existing eight-task case limit.
 - Agencies can accept responsibility while prerequisites are pending. Starting
   work, claiming completion and verification require every prerequisite to be
   `VERIFIED`. Acceptance, work and completion claims do not satisfy this gate.
@@ -107,7 +108,9 @@ choices, blocked acceptance/start, independent verification release, scoped agen
 actions and mobile light/dark layout.
 
 [Reviewed partial acceptance](PARTIAL_ACCEPTANCE.md) now inherits prerequisites
-for both replacement scopes. Dependency changes, responsibility disputes,
+for both replacement scopes. [Governed additions](PREREQUISITE_AMENDMENTS.md) are
+now available before acceptance.
+Dependency removal, changes after acceptance, responsibility disputes,
 SLA clocks, escalation and reopening already verified work remain pending. A
 cancelled or permanently unavailable prerequisite requires future governed repair;
 there is no silent bypass. This synthetic workflow does not establish actual

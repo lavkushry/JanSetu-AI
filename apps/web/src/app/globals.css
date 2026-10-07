@@ -3336,3 +3336,36 @@ textarea {
   padding-left: 1rem;
   margin-block: 1rem;
 }
+
+.task-amendments {
+  margin-top: 1rem;
+  overflow-wrap: anywhere;
+}
+.task-amendments form,
+.task-amendment-history {
+  margin-top: 0.8rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.task-amendment-history h4 {
+  margin: 0 0 0.5rem;
+}
+.task-amendment-history li {
+  margin: 0.4rem 0;
+}
+.task-amendments fieldset {
+  border: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+.task-amendments .task-prerequisites {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 12px 0;
+}
+.task-amendments .split-check {
+  display: grid;
+}
