@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: JanSetu local core API
-  version: 0.25.0
+  version: 0.26.0
   description:
     Synthetic local milestone. Sessions are HttpOnly cookies. Mutations require X-JanSetu-CSRF;
     social/report creations require Idempotency-Key; versioned changes require If-Match. OIDC login uses PKCE and an
@@ -297,6 +297,7 @@ paths:
             enum:
               - new
               - top
+              - recommended
         - name: communityId
           in: query
           schema:
@@ -1393,6 +1394,80 @@ paths:
         '428':
           $ref: '#/components/responses/Problem'
         '503':
+          $ref: '#/components/responses/Problem'
+  /me/recommendation-preferences:
+    get:
+      operationId: get_recommendation_preferences
+      responses:
+        '200':
+          description: Explicit preferences and behavioral consent, off by default
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationPreference'
+        '401':
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: save_recommendation_preferences
+      parameters:
+        - $ref: '#/components/parameters/Version'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendationPreferenceInput'
+      responses:
+        '200':
+          description: Saved preferences; changes invalidate prior snapshots and history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationPreference'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /me/recommendation-history/reset:
+    post:
+      operationId: reset_recommendation_history
+      parameters:
+        - $ref: '#/components/parameters/Version'
+      responses:
+        '200':
+          description: New history generation; explicit preferences retained
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationPreference'
+        '412':
+          $ref: '#/components/responses/Problem'
+  /me/recommendation-events:
+    post:
+      operationId: record_recommendation_event
+      description: Requires current behavioral consent and a viewer-bound served published revision. Stable eventId deduplicates retries; one event per exposure and kind. Video actions are unavailable. READ duration must be foreground active time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendationEvent'
+      responses:
+        '200':
+          description: Accepted or identical retry
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted]
+                properties:
+                  accepted:
+                    type: boolean
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
           $ref: '#/components/responses/Problem'
   /me/notification-preferences:
     get:
@@ -3195,6 +3270,64 @@ components:
         expiresAt:
           type: string
           format: date-time
+    RecommendationPreferenceInput:
+      type: object
+      additionalProperties: false
+      required: [personalizationEnabled, interests, languages, locality]
+      properties:
+        personalizationEnabled:
+          type: boolean
+        interests:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 80
+        languages:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 40
+        locality:
+          type: string
+          maxLength: 80
+    RecommendationPreference:
+      allOf:
+        - $ref: '#/components/schemas/RecommendationPreferenceInput'
+        - type: object
+          required: [generation, version]
+          properties:
+            generation:
+              type: integer
+            version:
+              type: integer
+    RecommendationEvent:
+      type: object
+      additionalProperties: false
+      required: [eventId, exposureId, kind]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        exposureId:
+          type: string
+          format: uuid
+        kind:
+          enum: [READ, SKIP, MORE, LESS, SATISFIED, DISSATISFIED]
+        activeMilliseconds:
+          type: integer
+          minimum: 0
+          maximum: 600000
+    RecommendationExplanation:
+      type: object
+      required: [explanation]
+      properties:
+        explanation:
+          enum: [EXPLICIT_INTEREST, CHOSEN_LOCALITY, FOLLOWING, RECENT_PUBLIC_POST, CIVIC_URGENCY]
+        exposureId:
+          type: string
+          format: uuid
     NotificationPreference:
       type: object
       additionalProperties: false
@@ -4057,6 +4190,8 @@ components:
           properties:
             type:
               const: POST
+            recommendation:
+              $ref: '#/components/schemas/RecommendationExplanation'
             post:
               $ref: '#/components/schemas/Post'
         - type: object
@@ -4066,6 +4201,10 @@ components:
           properties:
             type:
               const: CASE_RECEIPT
+            section:
+              const: CIVIC_UPDATES
+            recommendation:
+              $ref: '#/components/schemas/RecommendationExplanation'
             receipt:
               $ref: '#/components/schemas/Receipt'
     Feed:
@@ -4086,6 +4225,8 @@ components:
             - 'null'
         expiresAt:
           type: string
+        recommendationMode:
+          enum: [ranked, shadow, fallback]
         mode:
           type: string
     Search:

@@ -1,0 +1,41 @@
+syntax = "proto3";
+package jansetu.recommendation.v1;
+option go_package = "github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/pb";
+
+// Internal only. Go supplies eligible published-social features, never private text.
+service RecommendationService {
+  rpc Recommend(RecommendRequest) returns (RecommendResponse);
+}
+message Candidate {
+  string id = 1;
+  int32 revision = 2;
+  string author_id = 3;
+  string dedup_key = 4;
+  double explicit_interest = 5;
+  double locality = 6;
+  double relationship = 7;
+  double freshness = 8;
+  double bounded_usefulness = 9;
+  string conversation_key = 10; // canonical published root; empty for older clients
+}
+message RecommendRequest {
+  string viewer_context = 1; // request-scoped pseudonym, not an identity-vault ID
+  int64 generation = 2;
+  string surface = 3;
+  repeated string languages = 4;
+  string locality = 5;
+  string snapshot_id = 6;
+  int64 deadline_unix_ms = 7;
+  repeated Candidate candidates = 8;
+  uint32 limit = 9; // <=200; page composition remains authoritative in Go
+}
+message RankedReference {
+  string id = 1;
+  int32 revision = 2;
+  string explanation = 3;
+}
+message RecommendResponse {
+  repeated RankedReference items = 1;
+  string model_version = 2;
+  string policy_version = 3;
+}

@@ -171,6 +171,9 @@ func (a *App) decodeCursor(raw string, viewer uuid.UUID, query string) (feedCurs
 	return c, nil
 }
 func (a *App) feed(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
+	if r.URL.Query().Get("sort") == "recommended" {
+		return a.recommendedFeed(w, r, actor)
+	}
 	return a.feedPage(r, actor, false)
 }
 func (a *App) bookmarks(w http.ResponseWriter, r *http.Request, actor *Actor) (any, int, error) {
@@ -195,6 +198,9 @@ func (a *App) feedPage(r *http.Request, actor *Actor, saved bool) (any, int, err
 	sortMode := r.URL.Query().Get("sort")
 	if sortMode != "" && sortMode != "new" && sortMode != "top" {
 		return nil, 0, invalid("Choose a supported order")
+	}
+	if mode == "FOLLOWING" {
+		sortMode = "new"
 	}
 	cid := uuid.Nil
 	var e error

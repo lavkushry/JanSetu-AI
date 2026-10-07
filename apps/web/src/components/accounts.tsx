@@ -8,6 +8,7 @@ import { api, type Schema, type Me } from '@/lib/api';
 import { Avatar, Modal, Loading, ErrorState, Empty, FormError, useSession } from './ui';
 import { BlockedPeopleSettings } from './profiles';
 import { NotificationSettings, MutedItemsSettings } from './preferences';
+import { RecommendationSettings } from './recommendations';
 import { MyContentReports } from './content-reports';
 import { MyModerationDecisions } from './moderation-decisions';
 import { MyAppeals } from './appeals';
@@ -208,6 +209,7 @@ export function AccountSecurity() {
       <ProfileEditor key={me.profile.version} me={me} />
       <BlockedPeopleSettings />
       <NotificationSettings />
+      <RecommendationSettings />
       <MutedItemsSettings />
       <MyModerationDecisions />
       <MyAppeals />

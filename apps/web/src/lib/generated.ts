@@ -906,6 +906,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/recommendation-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_recommendation_preferences"];
+        put: operations["save_recommendation_preferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/recommendation-history/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reset_recommendation_history"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/recommendation-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Requires current behavioral consent and a viewer-bound served published revision. Stable eventId deduplicates retries; one event per exposure and kind. Video actions are unavailable. READ duration must be foreground active time. */
+        post: operations["record_recommendation_event"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/notification-preferences": {
         parameters: {
             query?: never;
@@ -1756,6 +1805,31 @@ export interface components {
             /** Format: date-time */
             expiresAt: string;
         };
+        RecommendationPreferenceInput: {
+            personalizationEnabled: boolean;
+            interests: string[];
+            languages: string[];
+            locality: string;
+        };
+        RecommendationPreference: components["schemas"]["RecommendationPreferenceInput"] & {
+            generation: number;
+            version: number;
+        };
+        RecommendationEvent: {
+            /** Format: uuid */
+            eventId: string;
+            /** Format: uuid */
+            exposureId: string;
+            /** @enum {unknown} */
+            kind: "READ" | "SKIP" | "MORE" | "LESS" | "SATISFIED" | "DISSATISFIED";
+            activeMilliseconds?: number;
+        };
+        RecommendationExplanation: {
+            /** @enum {unknown} */
+            explanation: "EXPLICIT_INTEREST" | "CHOSEN_LOCALITY" | "FOLLOWING" | "RECENT_PUBLIC_POST" | "CIVIC_URGENCY";
+            /** Format: uuid */
+            exposureId?: string;
+        };
         NotificationPreference: {
             inApp: boolean;
             /** Format: int64 */
@@ -2095,16 +2169,22 @@ export interface components {
         FeedItem: {
             /** @constant */
             type: "POST";
+            recommendation?: components["schemas"]["RecommendationExplanation"];
             post: components["schemas"]["Post"];
         } | {
             /** @constant */
             type: "CASE_RECEIPT";
+            /** @constant */
+            section?: "CIVIC_UPDATES";
+            recommendation?: components["schemas"]["RecommendationExplanation"];
             receipt: components["schemas"]["Receipt"];
         };
         Feed: {
             items: components["schemas"]["FeedItem"][];
             nextCursor: string | null;
             expiresAt: string;
+            /** @enum {unknown} */
+            recommendationMode?: "ranked" | "shadow" | "fallback";
             mode: string;
         };
         Search: {
@@ -3172,7 +3252,7 @@ export interface operations {
         parameters: {
             query?: {
                 mode?: "HOME" | "FOLLOWING" | "NEARBY" | "UNRESOLVED" | "RESOLVED";
-                sort?: "new" | "top";
+                sort?: "new" | "top" | "recommended";
                 communityId?: string;
                 cursor?: string;
             };
@@ -4272,6 +4352,107 @@ export interface operations {
             422: components["responses"]["Problem"];
             428: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
+        };
+    };
+    get_recommendation_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Explicit preferences and behavioral consent, off by default */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommendationPreference"];
+                };
+            };
+            401: components["responses"]["Problem"];
+        };
+    };
+    save_recommendation_preferences: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["Version"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecommendationPreferenceInput"];
+            };
+        };
+        responses: {
+            /** @description Saved preferences; changes invalidate prior snapshots and history */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommendationPreference"];
+                };
+            };
+            412: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    reset_recommendation_history: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["Version"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description New history generation; explicit preferences retained */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommendationPreference"];
+                };
+            };
+            412: components["responses"]["Problem"];
+        };
+    };
+    record_recommendation_event: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecommendationEvent"];
+            };
+        };
+        responses: {
+            /** @description Accepted or identical retry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        accepted: boolean;
+                    };
+                };
+            };
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
         };
     };
     get_notification_preferences: {

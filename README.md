@@ -46,3 +46,7 @@ The first pilot is a city/district. The full product ships in phases. Indian-lan
 OCR means reading text from images. The [private photo/OCR guide](docs/PRIVATE_MEDIA_OCR.md) describes local uploads and experimental English text review. The [resumable upload guide](docs/RESUMABLE_PHOTO_UPLOADS.md) covers progress, retry and recovery after reload. The [recognition guide](docs/PRIVATE_IMAGE_RECOGNITION.md) describes opt-in CPU object candidates and private overlays. Experimental pothole candidates are also available; evaluated civic-hazard accuracy, cloud storage and multilingual OCR remain pending.
 
 Run `python3 scripts/validate_specs.py` to check local Markdown links/anchors, JSON examples, requirement coverage and selected cross-document invariants. See [documentation validation](docs/spec/TRACEABILITY_AND_DELIVERY.md#documentation-validation) for the additional SQL and Mermaid checks. These checks validate the specifications, not application readiness.
+
+## Rust recommendations
+
+The [recommendation delivery guide](docs/recommendation/README.md) describes the new Rust/Tonic baseline, recommendation controls, privacy contracts, evaluation gates and benchmarks. Start the ranker with `make recommendation`; Compose includes it on a dedicated internal network. `sort=recommended` uses viewer-bound server snapshots and final Go visibility checks. Deployment defaults to shadow mode with zero serving rollout.

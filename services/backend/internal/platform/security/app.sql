@@ -110,3 +110,8 @@ GRANT SELECT ON ops.publication_sharing_renewal,ops.publication_sharing_renewal_
 GRANT INSERT(id,request_id,report_id,client_request_id,publication_version) ON ops.publication_sharing_renewal TO js_ops;
 GRANT UPDATE(state,version) ON ops.publication_sharing_renewal TO js_ops;
 GRANT EXECUTE ON FUNCTION authz.sharing_renewal_target(uuid,uuid,bigint),authz.sharing_renewal_allowed(uuid,uuid,bigint) TO js_ops;
+
+GRANT SELECT,INSERT,UPDATE,DELETE ON social.recommendation_preference TO js_social;
+GRANT SELECT,INSERT,DELETE ON social.recommendation_snapshot,social.recommendation_exposure,social.recommendation_event TO js_social;
+
+GRANT EXECUTE ON FUNCTION social.expire_recommendations() TO js_worker;

@@ -19,3 +19,5 @@ services/vision/*.onnx
 services/vision/*.tmp
 **/__pycache__
 **/*.pyc
+
+services/recommendation/target
