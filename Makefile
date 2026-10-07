@@ -1,4 +1,4 @@
-.PHONY: dev db identity vault migrate seed api worker media-worker vision-setup pothole-setup vision-test web test test-integration check generate recommendation recommendation-check recommendation-benchmark recommendation-generate recommendation-browser-proof
+.PHONY: dev db identity vault migrate seed api worker media-worker vision-setup pothole-setup vision-test web test test-integration check generate recommendation recommendation-check recommendation-benchmark recommendation-generate recommendation-browser-proof recommendation-stream-proof
 PYTHON ?= python3
 vision-setup:
 	$(PYTHON) -m venv services/vision/.venv
@@ -61,3 +61,8 @@ recommendation-generate:
 
 recommendation-browser-proof:
 	python3 scripts/recommendation_browser_proof.py
+
+recommendation-stream-proof:
+	@set -eu; trap 'docker compose -f "$(CURDIR)/infra/recommendation/compose.proof.yaml" down -v' EXIT; \
+	 docker compose -f infra/recommendation/compose.proof.yaml up -d --wait; \
+	 cd services/backend && JANSETU_INTEGRATION=1 JANSETU_RECOMMENDATION_STREAM_PROOF=1 go test -race ./internal/app -run TestRecommendationStream -count=1

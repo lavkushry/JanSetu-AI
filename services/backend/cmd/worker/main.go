@@ -33,6 +33,9 @@ func main() {
 			if _, err := db.Exec(ctx, "SELECT social.expire_recommendations()"); err != nil && ctx.Err() == nil {
 				slog.Error("Recommendation retention cleanup failed")
 			}
+			if _, err := db.Exec(ctx, "SELECT rec_stream.expire()"); err != nil && ctx.Err() == nil {
+				slog.Error("Recommendation stream retention cleanup failed")
+			}
 			select {
 			case <-ctx.Done():
 				return

@@ -48,6 +48,7 @@ jobs:
       - run: make test-integration
         env:
           JANSETU_RECOMMENDATION_TEST_TARGET: 127.0.0.1:50051
+      - run: make recommendation-stream-proof
       - run: make generate
       - run: make recommendation-generate
       - run: git diff --exit-code -- services/backend/internal/store/dbgen services/backend/internal/recommendation/pb apps/web/src/lib/generated.ts

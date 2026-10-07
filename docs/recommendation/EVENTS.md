@@ -20,9 +20,9 @@ Server exposures are minted only for consented authenticated viewers and only in
 
 Snapshot tokens expire after five minutes; a worker janitor runs each minute to delete expired snapshots. Recommendation exposures and their cascade-linked events are retained for at most 30 days plus the janitor interval. Exposure submission expires with the snapshot, even though diagnostic events remain longer. Preference changes/reset delete old exposures/events and snapshots synchronously. Account deactivation clears behavioral consent/history and advances generation in a database trigger. Foreign keys remove personal rows on actual profile deletion; logical deactivation is covered by the trigger. Snapshot removal on deactivation is explicit because anonymous snapshot ownership permits the nil viewer ID.
 
-No asynchronous personal feature store or dataset exists yet, so there is no hidden downstream copy of current events. Distributed expansion must add versioned revocation/deletion tombstones and acknowledgement tracking before exporting behavior. Backups and any future analytics retention require their own documented deletion process.
+The optional stage-3 publisher now exports allowlisted envelopes into Kafka and Redis projections. [Stream delivery and retention](STREAMS.md) documents live authority checks, revocation/deletion fences, usable feature expiry and the separate broker retention window. No analytics/training dataset export exists yet. Backups and future analytics retention require their own documented deletion process.
 
-## Future stream envelope
+## Stream envelope and future extensions
 
 Use a separate recommendation stream with this allowlisted envelope, not the mixed existing operational outbox:
 
@@ -32,4 +32,4 @@ Use a separate recommendation stream with this allowlisted envelope, not the mix
 - Exposure policy: model/policy versions, candidate source, exploration flag, conditional selection probability, experiment assignment/probability.
 - Consumer state: consumer name, event ID and last applied entity/generation version. Replay applies no duplicate deltas and cannot resurrect prior consent generations.
 
-Publish content understanding only from eligible approved social revisions. Exclude reports, private evidence/media, identity-vault data, raw OCR, internal moderator report grounds and operational case stores. Only sanitized, published civic receipt projections can appear in serving, and urgency remains independent of behavior. No stream export is implemented by the baseline; Kafka and analytics consumers remain gated on this contract.
+Publish content understanding only from eligible approved social revisions. Exclude reports, private evidence/media, identity-vault data, raw OCR, internal moderator report grounds and operational case stores. Only sanitized, published civic receipt projections can appear in serving, and urgency remains independent of behavior. The current stream implements controls, normalized interactions and public content references. Retrieval-source, exploration and experiment probabilities require their own serving instrumentation before future model/dataset consumers can use them.
