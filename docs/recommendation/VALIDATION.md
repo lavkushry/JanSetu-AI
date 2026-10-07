@@ -19,7 +19,15 @@
 - `make recommendation-stream-proof` passed against pinned Apache Kafka 4.2.2 and Redis 8.2.3, with isolated PostgreSQL databases. Its final proof includes transactional event/outbox rollback, identical event deduplication, publisher outage/retry, expired lease fencing, consent reset, hard-deletion tombstones, a real consumer group, Redis outage with uncommitted Kafka offsets, consumer restart/replay, late withdrawal events, loss/rebuild of Redis state, independent field retention and bigint ordering beyond the float64 integer range.
 - The dedicated worker cannot read the mixed private/civic outbox, private tables, personal event ledger, raw published text or the stream outbox itself. Unknown/private envelope fields stop projection.
 - The proof removes its Kafka/Redis containers/network on exit. PostgreSQL fixtures are removed by the integration harness. The active pilot database is unchanged.
-- This is a correctness proof. No sustained event-throughput/cost benchmark, Redis serving integration, analytics export or replicated deployment has been measured. [Remaining stage-3 work](STREAMS.md#remaining-stage-3-work) stays explicit.
+- This is a correctness proof. No sustained event-throughput/cost benchmark, online feature serving, analytics export or replicated deployment has been measured. [Remaining stage-3 work](STREAMS.md#remaining-stage-3-work) stays explicit.
+
+## Redis snapshots
+
+- `make recommendation-stream-proof` passed with the real Redis snapshot adapter and race detector (16.605 seconds for the final stream/snapshot tests). Snapshot cache writes were checked from an independent database connection after commit.
+- Identical pages/exposure IDs replay across API instances. A cached cursor continues after removing its durable row in the isolated fixture, proving the hit skips the snapshot read; the fixture then restores that row. Cache loss and read/write outages recover through PostgreSQL with stable cursors.
+- Corrupt scope, schema, expiry, root/offset and explanation entries fall back safely. Authenticated/anonymous bindings, publication revocation, changed revisions, blocks, mutes and immediate Less feedback remain authoritative. Reset and withdrawal reject cursors while their old-generation entries still exist.
+- The unresponsive Redis socket test passes with enlarged URL timeout/retry settings, confirming the adapter's bounded optional dependency. The cache is disabled by default; no pilot database or public service binding changed. [Snapshot contract](SNAPSHOTS.md) documents subsequent parity, deployment and load-measurement gates.
+- Full isolated PostgreSQL Go regression tests passed with the race detector (66.635 seconds for the application package); `go vet ./...` and documentation validation passed.
 
 ## First aggregate concurrency migration
 

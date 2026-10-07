@@ -24,6 +24,7 @@ import (
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/media"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/platform"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/snapshotcache"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/vault"
 )
@@ -37,6 +38,7 @@ type App struct {
 	cursorKey                                 []byte
 	Identity                                  *authn.Provider
 	Ranker                                    recommendation.Ranker
+	Snapshots                                 snapshotcache.Store
 }
 type Actor struct {
 	PrincipalID, ProfileID, SessionID uuid.UUID
@@ -118,6 +120,13 @@ func New(db *pgxpool.Pool, vault *vault.Client, c platform.Config) *App {
 			panic(err)
 		}
 		a.Ranker = client
+	}
+	if c.RecommendationSnapshotRedisURL != "" {
+		cache, err := snapshotcache.New(c.RecommendationSnapshotRedisURL)
+		if err != nil {
+			panic(err)
+		}
+		a.Snapshots = cache
 	}
 	return a
 }

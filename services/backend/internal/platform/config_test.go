@@ -16,6 +16,7 @@ func TestIdentityConfigurationFailsClosed(t *testing.T) {
 		"origin trailing slash":  func(c *Config) { c.WebOrigin += "/" },
 		"origin path":            func(c *Config) { c.WebOrigin += "/anything" },
 		"missing client":         func(c *Config) { c.OIDCClientID = "" },
+		"invalid snapshot cache": func(c *Config) { c.RecommendationSnapshotRedisURL = "http://localhost:16379" },
 		"HTTPS rewrite": func(c *Config) {
 			c.OIDCIssuer = "https://identity.example.test"
 			c.OIDCBackchannel = "http://identity:8080"

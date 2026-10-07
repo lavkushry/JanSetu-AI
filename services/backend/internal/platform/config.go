@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 type Config struct {
-	RecommendationTarget  string
-	RecommendationMode    string
-	RecommendationRollout int
+	RecommendationTarget           string
+	RecommendationMode             string
+	RecommendationRollout          int
+	RecommendationSnapshotRedisURL string
 
 	VisionBinary, PotholeBinary                                                                                          string
 	MediaURL, MediaWorkerURL, MediaDir, OCRBinary                                                                        string
@@ -31,29 +33,30 @@ func env(key, fallback string) string {
 
 func Load() (Config, error) {
 	c := Config{
-		RecommendationTarget: env("JANSETU_RECOMMENDATION_TARGET", "127.0.0.1:50051"),
-		RecommendationMode:   env("JANSETU_RECOMMENDATION_MODE", "shadow"),
-		VisionBinary:         os.Getenv("JANSETU_VISION_BINARY"),
-		PotholeBinary:        os.Getenv("JANSETU_POTHOLE_BINARY"),
-		MediaURL:             env("JANSETU_MEDIA_DATABASE_URL", "postgres://js_media:js_media-local@localhost:5438/jansetu?sslmode=disable"),
-		MediaWorkerURL:       env("JANSETU_MEDIA_WORKER_DATABASE_URL", "postgres://js_media_worker:js_media_worker-local@localhost:5438/jansetu?sslmode=disable"),
-		MediaDir:             env("JANSETU_MEDIA_DIR", "/tmp/jansetu-media"),
-		OCRBinary:            env("JANSETU_OCR_BINARY", "tesseract"),
-		Environment:          env("JANSETU_ENV", "local"),
-		DatabaseURL:          env("JANSETU_DATABASE_URL", "postgres://js_auth:js_auth-local@localhost:5438/jansetu?sslmode=disable"),
-		SocialURL:            env("JANSETU_SOCIAL_DATABASE_URL", "postgres://js_social:js_social-local@localhost:5438/jansetu?sslmode=disable"),
-		OperationsURL:        env("JANSETU_OPERATIONS_DATABASE_URL", "postgres://js_ops:js_ops-local@localhost:5438/jansetu?sslmode=disable"),
-		PublicationURL:       env("JANSETU_PUBLICATION_DATABASE_URL", "postgres://js_publication:js_publication-local@localhost:5438/jansetu?sslmode=disable"),
-		WorkerURL:            env("JANSETU_WORKER_DATABASE_URL", "postgres://js_worker:js_worker-local@localhost:5438/jansetu?sslmode=disable"),
-		VaultURL:             env("JANSETU_VAULT_SERVICE_URL", "http://127.0.0.1:8082"),
-		VaultToken:           env("JANSETU_VAULT_SERVICE_TOKEN", "local-vault-service-token-fictional-2026"),
-		Addr:                 env("JANSETU_HTTP_ADDR", "127.0.0.1:8081"),
-		WebOrigin:            env("JANSETU_WEB_ORIGIN", "http://localhost:3100"),
-		AuthMode:             env("JANSETU_AUTH_MODE", "oidc"),
-		OIDCIssuer:           env("JANSETU_OIDC_ISSUER", "http://localhost:8180/realms/jansetu"),
-		OIDCClientID:         env("JANSETU_OIDC_CLIENT_ID", "jansetu-web"),
-		OIDCClientSecret:     os.Getenv("JANSETU_OIDC_CLIENT_SECRET"),
-		OIDCBackchannel:      os.Getenv("JANSETU_OIDC_BACKCHANNEL"),
+		RecommendationTarget:           env("JANSETU_RECOMMENDATION_TARGET", "127.0.0.1:50051"),
+		RecommendationMode:             env("JANSETU_RECOMMENDATION_MODE", "shadow"),
+		RecommendationSnapshotRedisURL: os.Getenv("JANSETU_RECOMMENDATION_SNAPSHOT_REDIS_URL"),
+		VisionBinary:                   os.Getenv("JANSETU_VISION_BINARY"),
+		PotholeBinary:                  os.Getenv("JANSETU_POTHOLE_BINARY"),
+		MediaURL:                       env("JANSETU_MEDIA_DATABASE_URL", "postgres://js_media:js_media-local@localhost:5438/jansetu?sslmode=disable"),
+		MediaWorkerURL:                 env("JANSETU_MEDIA_WORKER_DATABASE_URL", "postgres://js_media_worker:js_media_worker-local@localhost:5438/jansetu?sslmode=disable"),
+		MediaDir:                       env("JANSETU_MEDIA_DIR", "/tmp/jansetu-media"),
+		OCRBinary:                      env("JANSETU_OCR_BINARY", "tesseract"),
+		Environment:                    env("JANSETU_ENV", "local"),
+		DatabaseURL:                    env("JANSETU_DATABASE_URL", "postgres://js_auth:js_auth-local@localhost:5438/jansetu?sslmode=disable"),
+		SocialURL:                      env("JANSETU_SOCIAL_DATABASE_URL", "postgres://js_social:js_social-local@localhost:5438/jansetu?sslmode=disable"),
+		OperationsURL:                  env("JANSETU_OPERATIONS_DATABASE_URL", "postgres://js_ops:js_ops-local@localhost:5438/jansetu?sslmode=disable"),
+		PublicationURL:                 env("JANSETU_PUBLICATION_DATABASE_URL", "postgres://js_publication:js_publication-local@localhost:5438/jansetu?sslmode=disable"),
+		WorkerURL:                      env("JANSETU_WORKER_DATABASE_URL", "postgres://js_worker:js_worker-local@localhost:5438/jansetu?sslmode=disable"),
+		VaultURL:                       env("JANSETU_VAULT_SERVICE_URL", "http://127.0.0.1:8082"),
+		VaultToken:                     env("JANSETU_VAULT_SERVICE_TOKEN", "local-vault-service-token-fictional-2026"),
+		Addr:                           env("JANSETU_HTTP_ADDR", "127.0.0.1:8081"),
+		WebOrigin:                      env("JANSETU_WEB_ORIGIN", "http://localhost:3100"),
+		AuthMode:                       env("JANSETU_AUTH_MODE", "oidc"),
+		OIDCIssuer:                     env("JANSETU_OIDC_ISSUER", "http://localhost:8180/realms/jansetu"),
+		OIDCClientID:                   env("JANSETU_OIDC_CLIENT_ID", "jansetu-web"),
+		OIDCClientSecret:               os.Getenv("JANSETU_OIDC_CLIENT_SECRET"),
+		OIDCBackchannel:                os.Getenv("JANSETU_OIDC_BACKCHANNEL"),
 	}
 	rollout, err := strconv.Atoi(env("JANSETU_RECOMMENDATION_ROLLOUT", "0"))
 	if err != nil {
@@ -64,6 +67,11 @@ func Load() (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.RecommendationSnapshotRedisURL != "" {
+		if _, err := redis.ParseURL(c.RecommendationSnapshotRedisURL); err != nil {
+			return errors.New("invalid recommendation snapshot Redis URL")
+		}
+	}
 	if c.RecommendationMode != "" && c.RecommendationMode != "off" && c.RecommendationMode != "shadow" && c.RecommendationMode != "serve" {
 		return errors.New("recommendation mode must be off, shadow, or serve")
 	}

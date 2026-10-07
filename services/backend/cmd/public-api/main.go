@@ -84,6 +84,9 @@ func main() {
 		os.Exit(1)
 	}
 	application := app.New(social, vaultClient, c)
+	if application.Snapshots != nil {
+		defer application.Snapshots.Close()
+	}
 	application.Media = mediaDB
 	application.Files = files
 	application.Auth = auth
