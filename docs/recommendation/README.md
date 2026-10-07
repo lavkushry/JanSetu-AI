@@ -12,7 +12,7 @@ JanSetu optimizes discovery for useful local conversations and creators, with sa
 - [Benchmark protocol](BENCHMARKS.md): reproducible workloads and capacity/cost reporting.
 - [Internal protobuf](../../contracts/proto/recommendation/v1/recommendation.proto): versioned Go/Rust contract.
 
-Run `make recommendation-browser-proof` for the isolated end-to-end browser proof (local PostgreSQL and Chromium required). Use `make recommendation-generate` to regenerate Go protobuf code with pinned generators and protoc 3.21+.
+Run `make recommendation-browser-proof` for the isolated end-to-end browser proof (local PostgreSQL and Chromium required). Use `make recommendation-generate` to regenerate Go protobuf code with pinned generators and protoc 3.21.12 (Ubuntu 24.04's `protobuf-compiler`).
 
 Run `make recommendation` for the Rust service, `make recommendation-check` for Rust and Python checks, and `make test-integration` for isolated PostgreSQL checks. `JANSETU_RECOMMENDATION_TEST_TARGET=127.0.0.1:50051` also exercises the real Rust gRPC service in the integration suite. Compose includes the recommendation service on a dedicated internal network shared only with the API. Rust receives no database, media, operations or vault credentials.
 

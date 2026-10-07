@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Requires protoc 3.21+ on PATH and pinned generators. Rust uses vendored protoc.
+# Go contract generation pins protoc and plugins. Rust uses vendored protoc.
+if [[ "$(protoc --version)" != 'libprotoc 3.21.12' ]]; then
+  echo 'Go protobuf generation requires protoc 3.21.12 (Ubuntu 24.04 protobuf-compiler).' >&2
+  exit 1
+fi
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tool_dir="$(mktemp -d)"
 trap 'rm -rf "$tool_dir"' EXIT
