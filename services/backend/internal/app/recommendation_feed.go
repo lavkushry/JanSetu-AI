@@ -516,7 +516,7 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 		a.saveRecommendationSnapshot(r.Context(), pendingScope, pendingRecord)
 	}
 	if a.FeatureShadow != nil && actor != nil && p.PersonalizationEnabled && len(parityRefs) > 0 {
-		a.observeRecommendationFeatures(r.Context(), viewer, p.Generation, parityRefs)
+		a.scheduleRecommendationFeatures(r.Context(), viewer, p.Generation, parityRefs)
 	}
 	return map[string]any{"items": items, "nextCursor": next, "expiresAt": expires.UTC().Format(time.RFC3339), "mode": mode, "recommendationMode": s.Serving}, 200, nil
 }

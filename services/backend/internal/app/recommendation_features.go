@@ -22,8 +22,12 @@ type featureParityResult struct {
 // The shadow sample is taken after feed commit. It cannot change ranked scores,
 // permissions, exclusions, exposures or cursor order, and holds no locks in Redis.
 func (a *App) recommendationFeatureParity(ctx context.Context, viewer uuid.UUID, generation int64, refs []features.Reference) featureParityResult {
+	return a.compareRecommendationFeatures(ctx, a.FeatureShadow, viewer, generation, refs)
+}
+
+func (a *App) compareRecommendationFeatures(ctx context.Context, reader features.Reader, viewer uuid.UUID, generation int64, refs []features.Reference) featureParityResult {
 	result := featureParityResult{Status: "skipped"}
-	if a.FeatureShadow == nil || viewer == uuid.Nil || len(refs) == 0 || len(refs) > features.MaxReferences {
+	if reader == nil || viewer == uuid.Nil || len(refs) == 0 || len(refs) > features.MaxReferences {
 		return result
 	}
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Millisecond)
@@ -100,7 +104,7 @@ func (a *App) recommendationFeatureParity(ctx context.Context, viewer uuid.UUID,
 		result.Status = "ledger_unavailable"
 		return result
 	}
-	actual, cacheErr := a.FeatureShadow.Load(ctx, features.Scope{Subject: subject, Generation: generation, Enabled: true, AsOf: asOf}, eligible)
+	actual, cacheErr := reader.Load(ctx, features.Scope{Subject: subject, Generation: generation, Enabled: true, AsOf: asOf}, eligible)
 	// Discard the comparison if consent/reset/deactivation changed while Redis ran.
 	var current bool
 	err = a.store(ctx).QueryRow(ctx, `SELECT EXISTS(SELECT FROM social.recommendation_preference p JOIN social.profile v ON v.id=p.profile_id WHERE p.profile_id=$1 AND p.generation=$2 AND p.personalization_enabled AND v.state='ACTIVE')`, viewer, generation).Scan(&current)
@@ -123,9 +127,45 @@ func (a *App) recommendationFeatureParity(ctx context.Context, viewer uuid.UUID,
 	return result
 }
 
-func (a *App) observeRecommendationFeatures(ctx context.Context, viewer uuid.UUID, generation int64, refs []features.Reference) {
+func (a *App) observeRecommendationFeatures(ctx context.Context, reader features.Reader, viewer uuid.UUID, generation int64, refs []features.Reference) {
 	start := time.Now()
-	r := a.recommendationFeatureParity(ctx, viewer, generation, refs)
+	r := a.compareRecommendationFeatures(ctx, reader, viewer, generation, refs)
 	slog.Info("recommendation feature parity", "status", r.Status, "expected", r.Expected, "actual", r.Actual,
 		"matched", r.Matched, "missing", r.Missing, "extra", r.Extra, "different", r.Different, "elapsedMs", time.Since(start).Milliseconds())
+}
+
+// Optional shadow work never waits for capacity or extends the feed response.
+// Capture immutable input and preserve signed scope across request cancellation.
+func (a *App) scheduleRecommendationFeatures(ctx context.Context, viewer uuid.UUID, generation int64, refs []features.Reference) {
+	a.featureParityMu.Lock()
+	defer a.featureParityMu.Unlock()
+	reader := a.FeatureShadow
+	if a.featureParityClosing || reader == nil || viewer == uuid.Nil || len(refs) == 0 || len(refs) > features.MaxReferences {
+		return
+	}
+	select {
+	case a.featureParitySlots <- struct{}{}:
+		refs = append([]features.Reference{}, refs...)
+		a.featureParityJobs.Add(1)
+		go func() {
+			defer a.featureParityJobs.Done()
+			defer func() { <-a.featureParitySlots }()
+			a.observeRecommendationFeatures(context.WithoutCancel(ctx), reader, viewer, generation, refs)
+		}()
+	default:
+		slog.Info("recommendation feature parity", "status", "sample_dropped")
+	}
+}
+
+// CloseFeatureShadow stops admission, drains bounded jobs, then closes Redis.
+func (a *App) CloseFeatureShadow() error {
+	a.featureParityMu.Lock()
+	a.featureParityClosing = true
+	reader := a.FeatureShadow
+	a.featureParityMu.Unlock()
+	a.featureParityJobs.Wait()
+	if reader != nil {
+		return reader.Close()
+	}
+	return nil
 }

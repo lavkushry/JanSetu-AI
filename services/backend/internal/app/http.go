@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,6 +42,10 @@ type App struct {
 	Ranker                                    recommendation.Ranker
 	Snapshots                                 snapshotcache.Store
 	FeatureShadow                             features.Reader
+	featureParitySlots                        chan struct{}
+	featureParityMu                           sync.Mutex
+	featureParityJobs                         sync.WaitGroup
+	featureParityClosing                      bool
 }
 type Actor struct {
 	PrincipalID, ProfileID, SessionID uuid.UUID
@@ -115,7 +120,7 @@ func New(db *pgxpool.Pool, vault *vault.Client, c platform.Config) *App {
 	if _, err := rand.Read(key); err != nil {
 		panic(err)
 	}
-	a := &App{DB: db, Auth: db, Operations: db, Publication: db, Worker: db, Vault: vault, Config: c, cursorKey: key}
+	a := &App{DB: db, Auth: db, Operations: db, Publication: db, Worker: db, Vault: vault, Config: c, cursorKey: key, featureParitySlots: make(chan struct{}, 2)}
 	if c.RecommendationTarget != "" {
 		client, err := recommendation.New(c.RecommendationTarget, c.RecommendationTLS)
 		if err != nil {

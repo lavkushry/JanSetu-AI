@@ -40,7 +40,7 @@ func featureProofApp(t *testing.T) (*App, *redis.Client) {
 	cfg.RecommendationMode = "off"
 	cfg.RecommendationFeatureShadowRedisURL = rawURL
 	a := cloneTestApp(t, cfg)
-	t.Cleanup(func() { a.FeatureShadow.Close() })
+	t.Cleanup(func() { a.CloseFeatureShadow() })
 	opts, err := redis.ParseURL(rawURL)
 	if err != nil {
 		t.Fatal(err)
