@@ -124,7 +124,7 @@ services:
       context: .
       dockerfile: services/recommendation/Dockerfile
     environment:
-      JANSETU_RECOMMENDATION_MAX_IN_FLIGHT: ${JANSETU_RECOMMENDATION_MAX_IN_FLIGHT:-8}
+      JANSETU_RECOMMENDATION_MAX_IN_FLIGHT: ${JANSETU_RECOMMENDATION_MAX_IN_FLIGHT-8}
     networks:
       - recommendation_rpc
     read_only: true
