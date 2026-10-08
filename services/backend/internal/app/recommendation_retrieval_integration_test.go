@@ -36,7 +36,7 @@ func TestRecommendationRetrievalViewerHistoryAndMutes(t *testing.T) {
 	})
 	for _, id := range communities {
 		exec(`INSERT INTO social.community(id,slug,title,scope_kind,visibility,rules_body,state)
- VALUES($1,$2,'Retrieval fixture','TOPIC','PUBLIC','Fixture rules','ACTIVE')`, id, "retrieval_"+id.String())
+ VALUES($1,$2,'Retrieval fixture','TOPIC','PUBLIC','Fixture rules','ACTIVE')`, id, "retrieval-"+id.String())
 	}
 	exec(`UPDATE social.post SET community_id=$1 WHERE id=ANY($2)`, communities[0], []uuid.UUID{ids[2], ids[4]})
 	exec(`UPDATE social.post SET community_id=$1 WHERE id=$2`, communities[1], ids[18])
@@ -48,6 +48,11 @@ func TestRecommendationRetrievalViewerHistoryAndMutes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	w := owner.request("PUT", "me/recommendation-preferences", map[string]any{
+		"personalizationEnabled": true, "interests": []string{"retrieval-" + communities[1].String()}, "languages": []string{}, "locality": "",
+	}, p.Version, "")
+	mustStatus(t, w, 200)
+	p = parsed[recommendationPreference](t, w)
 	event := func(profile, post uuid.UUID, generation int64, revision int, kind string, ageDays int) {
 		t.Helper()
 		exposure := uuid.New()
@@ -70,7 +75,6 @@ func TestRecommendationRetrievalViewerHistoryAndMutes(t *testing.T) {
  VALUES($1,$2,$3,statement_timestamp()-interval '1 day')`, uuid.New(), viewer, authors[22])
 	exec(`INSERT INTO social.mute(id,profile_id,muted_community_id) VALUES($1,$2,$3)`, uuid.New(), viewer, communities[2])
 	exec(`INSERT INTO social.mute(id,profile_id,muted_profile_id) VALUES($1,$2,$3)`, uuid.New(), foreign, authors[28])
-	p.Interests = []string{"retrieval_" + communities[1].String()}
 
 	read := func(c client, pref recommendationPreference, requestedViewer uuid.UUID) map[uuid.UUID]float64 {
 		t.Helper()
@@ -105,10 +109,14 @@ func TestRecommendationRetrievalViewerHistoryAndMutes(t *testing.T) {
 		}
 		for i, id := range ids {
 			interest, present := result[id]
-			if present == wantExcluded[i] {
+			if present != !wantExcluded[i] {
 				t.Fatalf("fixture %d eligibility: present=%v", i, present)
 			}
-			if present && (interest == 1) != wantBoost[i] {
+			wantInterest := 0.0
+			if wantBoost[i] {
+				wantInterest = 1
+			}
+			if present && interest != wantInterest {
 				t.Fatalf("fixture %d interest: got %v", i, interest)
 			}
 		}
@@ -120,6 +128,7 @@ func TestRecommendationRetrievalViewerHistoryAndMutes(t *testing.T) {
 	check(read(owner, disabled, viewer), []int{18}, []int{12, 20, 21, 24, 26})
 	// Supplying another user's ID cannot transfer RLS-protected history or mutes.
 	check(read(other, p, viewer), []int{18}, []int{12})
+	check(read(client{app: a}, p, viewer), []int{18}, []int{12})
 	// A later generation cannot use old events, even before asynchronous deletion.
 	next := p
 	next.Generation++
@@ -127,6 +136,5 @@ func TestRecommendationRetrievalViewerHistoryAndMutes(t *testing.T) {
 	// Live resets preserve explicit controls and stop old behavioral interests.
 	mustStatus(t, owner.request("POST", "me/recommendation-history/reset", nil, p.Version, ""), 200)
 	next = recommendationPrefs(t, owner)
-	next.Interests = p.Interests
 	check(read(owner, next, viewer), []int{18}, []int{12, 20, 21, 24, 26})
 }

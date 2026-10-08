@@ -121,6 +121,8 @@ func (a *App) saveRecommendationSnapshot(ctx context.Context, scope snapshotcach
 	slog.Info("recommendation snapshot cache", "operation", "save", "status", status)
 }
 
+// Assemble viewer-scoped history and active mutes once per statement. Their
+// restricted-role reads retain RLS and the same generation/revision/time fences.
 const recommendationCandidates = `
 WITH recent_interests AS MATERIALIZED (
  SELECT DISTINCT previous.community_id,previous.author_id
