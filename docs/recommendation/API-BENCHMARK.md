@@ -43,3 +43,5 @@ Both runs use the default 1,024 generated posts (956 eligible, 68 hidden/blocked
 | [Concurrency 8](benchmark-api-eight-local.json) | 18.41 | 682.632 ms | 688.909 ms | 204.593 ms | 6.674 ms |
 
 The concurrency-eight API p95 exceeds the 500 ms engineering target in this fixture. First-page work and shared-viewer/database contention need further profiling; the low RPC latency alone does not establish their cause. These short runs neither locate saturation nor validate the representative capacity gate.
+
+The subsequent [viewer-retrieval experiment](RETRIEVAL.md) compares statement-local history/mute assembly against a fresh baseline. Its artifacts and per-path results are recorded separately from these earlier runs.

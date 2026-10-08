@@ -78,7 +78,10 @@ func TestRecommendationRetrievalViewerHistoryAndMutes(t *testing.T) {
 
 	read := func(c client, pref recommendationPreference, requestedViewer uuid.UUID) map[uuid.UUID]float64 {
 		t.Helper()
-		scope := scopedContext(c, a.DB, vault.Grant{})
+		scope := context.WithValue(ctx, databaseScopeKey{}, &databaseScope{Pool: a.DB})
+		if c.cookie != nil {
+			scope = scopedContext(c, a.DB, vault.Grant{})
+		}
 		rows, err := a.store(scope).Query(scope, recommendationCandidates, requestedViewer, pref.Interests, pref.Locality, uuid.Nil, pref.Languages, pref.Generation, pref.PersonalizationEnabled)
 		if err != nil {
 			t.Fatal(err)
