@@ -74,6 +74,8 @@
 
 ## Measured limits
 
+The [isolated complete-feed workload](API-BENCHMARK.md) passed at concurrency one and eight, each with 500 requests, 100 continuations, 150 nonconsenting requests and no HTTP/content/RPC errors. The checked-in artifacts record complete API p95 of 224.465 ms and 682.632 ms, respectively, alongside first-page/continuation and RPC measurements, source/fixture/binary hashes and hardware/runtime configuration. The concurrency-eight result exceeds the 500 ms target for this three-viewer smoke fixture; profiling and representative load validation remain necessary. CI's smaller 50-request/four-worker harness also passed locally. The workload uses isolated databases and a temporary release Rust process; the pilot was not rebuilt or mutated.
+
 The [transport smoke result](benchmark-local.json) uses 2,000 synthetic candidates/request and 200 ranked references, 1,000 requests at concurrency eight. It measured p95 14.893 ms, p99 17.071 ms, 718.87 requests/second and zero errors on a four-vCPU ARM host with a two-CPU container limit. This is a short transport test, not a steady-state complete-feed benchmark. Hardware/build/budget metadata is in the JSON artifact. Serving/event costs are unavailable.
 
 No real session-satisfaction study, learned-model promotion, complete-feed 10,000-RPS test or million-DAU capacity claim is included. [Delivery status](README.md#delivery-status-and-gates) records those dependencies. Deployment remains local/test, with the recommendation rollout defaulting to shadow/0.
