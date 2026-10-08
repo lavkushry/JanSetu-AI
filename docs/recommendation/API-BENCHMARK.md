@@ -30,3 +30,14 @@ This is a fixed-concurrency closed-loop smoke workload. It shares one host with 
 Shared-viewer locking can constrain throughput differently from a deployment with many independent viewers. A larger fixture alone does not remove that limitation. A host process without explicit CPU/memory limits is not equivalent to the earlier constrained Rust-container result. The script reports these settings instead of extrapolating to a million users.
 
 The [full release protocol](BENCHMARKS.md#full-api-release-workload) still requires realistic million-post inventory, long-tail graphs, independent viewers, steady-state arrival-rate sweeps, authorization changes under load, dependency failures, resource saturation and cost accounting on a published deployment configuration. `completeFeedCapacityValidated` and `qualityValidated` remain false. Use measured first-page/continuation and RPC differences to choose the next profiling experiment; they do not by themselves identify a database or lock bottleneck.
+
+## Local smoke results — 2026-10-08
+
+Both runs use the default 1,024 generated posts (956 eligible, 68 hidden/blocked sentinels), 500 measured requests, 100 continuations and 150 nonconsenting requests. All responses are valid ranked feeds; HTTP, content and RPC error counts are zero. The artifact records the common dataset/generator and binary hashes and clean source revision. The host has four logical ARM CPUs and PostgreSQL 18.6; the Rust release process and Go test process have no explicit resource limit. The local pilot is also running on that host.
+
+| Run | Successful feeds/s | Complete API p95 | First page p95 | Continuation p95 | Recommendation RPC p95 |
+| --- | --- | --- | --- | --- | --- |
+| [Concurrency 1](benchmark-api-single-local.json) | 5.70 | 224.465 ms | 224.727 ms | 36.632 ms | 2.846 ms |
+| [Concurrency 8](benchmark-api-eight-local.json) | 18.41 | 682.632 ms | 688.909 ms | 204.593 ms | 6.674 ms |
+
+The concurrency-eight API p95 exceeds the 500 ms engineering target in this fixture. First-page work and shared-viewer/database contention need further profiling; the low RPC latency alone does not establish their cause. These short runs neither locate saturation nor validate the representative capacity gate.

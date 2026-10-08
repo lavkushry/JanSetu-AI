@@ -1,0 +1,87 @@
+{
+  "allResponseLatency": {
+    "p50Ms": 478.06,
+    "p95Ms": 682.632,
+    "p99Ms": 758.735
+  },
+  "apiReplicas": 1,
+  "authors": 128,
+  "behavioralShadow": false,
+  "completeFeedCapacityValidated": false,
+  "concurrency": 8,
+  "consentedLatency": {
+    "p50Ms": 500.88,
+    "p95Ms": 700.651,
+    "p99Ms": 789.526
+  },
+  "continuationLatency": {
+    "p50Ms": 94.03,
+    "p95Ms": 204.593,
+    "p99Ms": 247.015
+  },
+  "continuations": 100,
+  "costPerMillionEvents": null,
+  "costPerThousandFeeds": null,
+  "datasetSHA256": "db49e8bd9f67fd28913e2ff84c8327318dac62065a4018bb640f8aee05021577",
+  "elapsedSeconds": 27.15677978,
+  "errorCounts": {},
+  "errors": 0,
+  "firstPageLatency": {
+    "p50Ms": 506.954,
+    "p95Ms": 688.909,
+    "p99Ms": 786.393
+  },
+  "fixture": "api-smoke-v1",
+  "fixtureEligiblePosts": 956,
+  "fixtureExcludedPosts": 68,
+  "generatorSHA256": "938374bf87a41c58250ef003cb6a114f724f80c8266f43221b4b333083a199ed",
+  "gitRevision": "c6c62f2ba7213c833d0a5f2b25a7514644852cd8",
+  "goMaxProcs": 4,
+  "goRaceDetector": false,
+  "goVersion": "go1.26.0",
+  "hostArchitecture": "aarch64",
+  "hostLogicalCPUs": 4,
+  "hostMemoryBytes": 25136467968,
+  "measuredAt": "2026-10-08T14:27:56.731042691Z",
+  "modeCounts": {
+    "ranked": 500
+  },
+  "nonconsentingLatency": {
+    "p50Ms": 413.878,
+    "p95Ms": 595.358,
+    "p99Ms": 653.828
+  },
+  "nonconsentingRequests": 150,
+  "postgresVersion": "PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+  "postsPerAuthor": 8,
+  "qualityValidated": false,
+  "recommendationRPC": {
+    "calls": 400,
+    "errors": 0,
+    "latency": {
+      "p50Ms": 2.476,
+      "p95Ms": 6.674,
+      "p99Ms": 16.533
+    },
+    "maximumCandidates": 960
+  },
+  "requests": 500,
+  "responseBytes": 9160090,
+  "runtimeRole": "js_social",
+  "rustBinarySHA256": "e4dae36b6853d2c8e203ca82ece4db22b45230f6dc3e8fe5e22676bc8d2bfafc",
+  "rustBuild": "cargo build --locked --release, host process without a CPU or memory limit",
+  "rustReplicas": 1,
+  "rustVersion": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "scope": "closed-loop loopback HTTP Go API / restricted PostgreSQL / Rust RPC, synthetic three-viewer smoke; excludes BFF, production TLS, cache and background event workers",
+  "seededViewers": 3,
+  "snapshotCache": false,
+  "socialPoolMaxConns": 15,
+  "statusCounts": {
+    "200": 500
+  },
+  "successfulFeeds": 500,
+  "successfulRequestsPerSecond": 18.411608594632863,
+  "tls": false,
+  "warmupRequests": 3,
+  "worktreeDirty": false
+}
