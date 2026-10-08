@@ -50,6 +50,13 @@
 - Full Go vet and isolated PostgreSQL integration tests passed with the race detector (64.406 seconds for the application package). The optional TLS Compose overlay and Markdown/whitespace validation passed. Public bindings, pilot data and rollout settings are unchanged.
 - [Transport operations](TRANSPORT.md) describe the dedicated client trust domain, secret mounts and restart-based rotation. Certificate provisioning, revocation/rotation drills, container deployment and sustained TLS throughput are not claimed by the process-level proof.
 
+## Initial public-content backfill
+
+- Full Go vet and isolated PostgreSQL integration tests passed with the race detector (71.630 seconds for the application package). Coverage includes restricted-role denial, private/hidden/unapproved content exclusion, atomic rollback, concurrent callers, lock timeout without skipped rows, resumed checkpoints, completed-pass idempotency and the actual command without Kafka/Redis availability.
+- A new publication above the frozen scan bound produces its live event exactly once while the historical command finishes. Historical behavioral events are not copied.
+- The real Kafka/Redis stream proof passed (18.967 seconds). One historical fixture has no live publication envelope and enters the projection through backfill; a later hide wins over replay of its older backfill envelope.
+- Markdown and whitespace checks passed. The [backfill guide](BACKFILL.md) records the single-pass scope, cursor privacy, timeout/rate bounds, delivery distinction and future reconciliation/capacity gates. The active pilot database was not migrated or backfilled.
+
 ## Measured limits
 
 The [transport smoke result](benchmark-local.json) uses 2,000 synthetic candidates/request and 200 ranked references, 1,000 requests at concurrency eight. It measured p95 14.893 ms, p99 17.071 ms, 718.87 requests/second and zero errors on a four-vCPU ARM host with a two-CPU container limit. This is a short transport test, not a steady-state complete-feed benchmark. Hardware/build/budget metadata is in the JSON artifact. Serving/event costs are unavailable.
