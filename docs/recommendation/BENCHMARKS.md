@@ -8,6 +8,8 @@ Run a release server for representative latency. Sweep concurrency 1, 8, 32, 128
 
 ## Full API release workload
 
+The [isolated complete-feed smoke runner](API-BENCHMARK.md) now measures real loopback HTTP Go/PostgreSQL/Rust feeds with a published synthetic generator and structured artifact. `make recommendation-api-benchmark` creates fresh test databases and its own ranker. It validates authorization sentinels, author caps and consent-bound exposures while recording all-response and RPC latency, errors and fallback modes. Its three-viewer closed-loop fixture is a diagnostic starting point; the larger release workload below remains required.
+
 An isolated environment must contain realistic active authors, follow/community graphs, language/locality distributions and post revisions: at least a million eligible posts, public civic receipts and current preference/consent generations. Include a long-tail creator distribution, 30% cold/nonconsenting viewers and 80/20 first-page/continuation requests. Include concurrent blocks, revocations and resets. Use restricted runtime database roles and preserve row-level authorization. Do not migrate or load-test an active user database.
 
 One million DAU, twenty feed requests/day and a 20× peak multiplier imply 4,629.63 peak requests/s. Target 10,000 complete-feed requests/s for headroom, Rust p95 <150 ms and complete-feed p95 <500 ms. Verify authorization under load, not just latency. Publish dataset generator/seed and hardware/replica/database/storage configuration with each result. A local microbenchmark cannot prove these targets.

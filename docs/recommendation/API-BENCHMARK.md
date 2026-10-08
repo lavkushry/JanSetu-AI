@@ -1,0 +1,32 @@
+# Isolated complete-feed smoke workload
+
+`make recommendation-api-benchmark` runs a synthetic loopback HTTP workload through the real Go feed handler, restricted PostgreSQL roles and a release Rust process. The integration harness creates and removes fresh application and vault databases. The script owns its temporary loopback ranker; it cannot send workload requests to the deployed pilot API. Docker's existing local PostgreSQL service and the installed Go/Rust toolchains are required.
+
+```sh
+make recommendation-api-benchmark BENCHMARK_REQUESTS=500 BENCHMARK_CONCURRENCY=8 BENCHMARK_OUTPUT=/tmp/jansetu-api-result.json
+python3 scripts/recommendation_api_benchmark.py --requests 500 --concurrency 1 --output /tmp/jansetu-api-single.json
+```
+
+The script builds with the locked Cargo dependencies, starts Rust on a temporary loopback port, and runs the Go fixture without the race detector for measurement. Rust terminates after the workload exits. CI runs 50 requests at concurrency four on a smaller fixture to verify the harness and feed invariants, without applying latency thresholds. Use `make test-integration` separately for race-detector regression coverage.
+
+## Dataset and request mix
+
+[The fixture generator](../../services/backend/internal/app/recommendation_benchmark_integration_test.go) uses deterministic UUIDs, bodies, language distribution, publication state, follow/block edges and relative publication ages. The default adds 128 authors with eight posts each to the versioned local seed. Every seventeenth post is hidden; all three seeded viewers block the last author and follow every eighth remaining author. The artifact distinguishes eligible fixture posts from excluded sentinels. Two thirds of generated revisions use en-IN, the remainder hi-IN. The three seeded viewers use two enabled-consent generations and one disabled generation. Chosen interests/language/locality are empty for this smoke fixture.
+
+Three excluded first-page warmup requests establish the actual RPC path and initial continuation cursors. Measurement uses a deterministic 70/30 consenting/nonconsenting mix and requests a continuation every fifth request. The artifact records the actual mix, since an exhausted cursor can require a first page. Every worker keeps viewer-bound cursor state. The two consenting viewers receive exposures; the nonconsenting viewer receives none.
+
+The harness reads each HTTP body before stopping its latency timer. Validation then checks nonempty 20-item bounds, fixture-hidden/blocked exclusion, unique posts, the two-per-author cap and consent-bound exposures. Any HTTP, transport, read or content validation error remains in the latency population and fails the command after writing its result. Successful ranked, shadow and fallback modes are counted separately; a fallback is a successful authorized feed with degraded ranking, not an invisible success of the Rust path. An initial fallback fails warmup rather than benchmarking an unavailable ranker accidentally.
+
+## Result contract
+
+The JSON artifact records all-response p50/p95/p99, separate first/continuation and consenting/nonconsenting latency, elapsed wall time, successful feeds/second, HTTP statuses, error categories, response bytes and feed modes. The ranker wrapper records RPC calls, errors, maximum candidate count and RPC latency including transport/client validation. These RPC samples cover first-page ranking only; they are distinct from complete-feed measurements. CPU scheduling and instrumentation overhead are included.
+
+Dataset and generator hashes, source revision/dirty state, Rust binary digest, toolchain versions, PostgreSQL version, runtime role/pool limit, host architecture/logical CPUs/memory and replica/cache/TLS settings accompany the result. Source and binary hashes permit auditing a run from a dirty worktree. Results omit session cookies, database URLs, viewer/post IDs and response bodies. Serving/event costs stay `null` until actual allocations are available.
+
+## Interpretation and remaining capacity gate
+
+This is a fixed-concurrency closed-loop smoke workload. It shares one host with local services, has only three synthetic viewers, uses uniform creator sizes and omits realistic communities/localities, broad viewer diversity, public civic inventory, concurrent revocations/resets, background event workers, cache dependencies, production TLS and the web BFF/proxy. API logs are discarded during timing; Rust logs go to a temporary local file. Repeat runs can vary with host load. Closed-loop latency does not correct for coordinated omission under a prescribed arrival rate.
+
+Shared-viewer locking can constrain throughput differently from a deployment with many independent viewers. A larger fixture alone does not remove that limitation. A host process without explicit CPU/memory limits is not equivalent to the earlier constrained Rust-container result. The script reports these settings instead of extrapolating to a million users.
+
+The [full release protocol](BENCHMARKS.md#full-api-release-workload) still requires realistic million-post inventory, long-tail graphs, independent viewers, steady-state arrival-rate sweeps, authorization changes under load, dependency failures, resource saturation and cost accounting on a published deployment configuration. `completeFeedCapacityValidated` and `qualityValidated` remain false. Use measured first-page/continuation and RPC differences to choose the next profiling experiment; they do not by themselves identify a database or lock bottleneck.

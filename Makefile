@@ -75,3 +75,10 @@ recommendation-stream-proof:
 .PHONY: recommendation-feature-proof
 recommendation-feature-proof:
 	python3 scripts/recommendation_feature_proof.py
+
+.PHONY: recommendation-api-benchmark
+BENCHMARK_OUTPUT ?= /tmp/jansetu-recommendation-api-smoke.json
+BENCHMARK_REQUESTS ?= 500
+BENCHMARK_CONCURRENCY ?= 8
+recommendation-api-benchmark:
+	python3 scripts/recommendation_api_benchmark.py --output "$(BENCHMARK_OUTPUT)" --requests "$(BENCHMARK_REQUESTS)" --concurrency "$(BENCHMARK_CONCURRENCY)"
