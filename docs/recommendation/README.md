@@ -10,6 +10,7 @@ JanSetu optimizes discovery for useful local conversations and creators, with sa
 - [Replayable event and feature foundation](STREAMS.md): dedicated outbox, Kafka delivery, Redis projections and isolated replay proof.
 - [Initial content backfill](BACKFILL.md): bounded public-reference bootstrap with durable checkpoints and ordered live updates.
 - [Redis snapshot cache](SNAPSHOTS.md): optional frozen pagination reads, commit boundaries, consent fencing and PostgreSQL fallback.
+- [Bounded ranking work](ADMISSION.md): process-wide concurrency, prompt overload fallback and cancellation-safe worker accounting.
 - [Authenticated transport](TRANSPORT.md): mutual TLS, dedicated service trust, startup validation and a real Go/Rust certificate proof.
 - [Shared rollback](ROLLOUT.md): restricted operator command, versioned switch, replica-wide ranking override and stale ranked cursor rejection.
 - [First aggregate concurrency migration](CONCURRENCY.md): independent post count projection and the remaining lock-order audit.
