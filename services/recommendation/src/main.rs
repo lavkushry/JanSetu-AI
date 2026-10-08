@@ -1,14 +1,15 @@
 use jansetu_recommendation::{
+    admission::{AdmittedRanker, DEFAULT_MAX_IN_FLIGHT},
     pb::{
         recommendation_service_server::{RecommendationService, RecommendationServiceServer},
         RecommendRequest, RecommendResponse,
     },
-    rank,
 };
 use tonic::{transport::Server, Request, Response, Status};
 mod transport;
-#[derive(Default)]
-struct Service;
+struct Service {
+    ranker: AdmittedRanker,
+}
 #[tonic::async_trait]
 impl RecommendationService for Service {
     async fn recommend(
@@ -16,11 +17,12 @@ impl RecommendationService for Service {
         request: Request<RecommendRequest>,
     ) -> Result<Response<RecommendResponse>, Status> {
         let start = std::time::Instant::now();
-        let result = rank(request.into_inner());
+        let result = self.ranker.recommend(request.into_inner()).await;
         eprintln!(
-            "recommend elapsed_us={} success={}",
+            "recommend elapsed_us={} success={} status={:?}",
             start.elapsed().as_micros(),
-            result.is_ok()
+            result.is_ok(),
+            result.as_ref().err().map_or(tonic::Code::Ok, Status::code)
         );
         result.map(Response::new)
     }
@@ -30,6 +32,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = std::env::var("JANSETU_RECOMMENDATION_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:50051".into())
         .parse()?;
+    let limit = match std::env::var("JANSETU_RECOMMENDATION_MAX_IN_FLIGHT") {
+        Ok(value) => value.parse::<usize>()?,
+        Err(std::env::VarError::NotPresent) => DEFAULT_MAX_IN_FLIGHT,
+        Err(err) => return Err(err.into()),
+    };
+    let ranker = AdmittedRanker::new(limit)?;
     let mut server = Server::builder();
     if let Some(tls) = transport::from_env()? {
         server = server.tls_config(tls)?;
@@ -38,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .concurrency_limit_per_connection(128)
         .timeout(std::time::Duration::from_millis(120))
         .add_service(
-            RecommendationServiceServer::new(Service)
+            RecommendationServiceServer::new(Service { ranker })
                 .max_decoding_message_size(1024 * 1024)
                 .max_encoding_message_size(128 * 1024),
         )

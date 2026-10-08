@@ -11,6 +11,7 @@ JanSetu optimizes discovery for useful local conversations and creators, with sa
 - [Behavioral feature shadow parity](FEATURES.md): bounded revision-aware Redis observations compared with the consented ledger, live authority and isolated parity proof.
 - [Initial content backfill](BACKFILL.md): bounded public-reference bootstrap with durable checkpoints and ordered live updates.
 - [Redis snapshot cache](SNAPSHOTS.md): optional frozen pagination reads, commit boundaries, consent fencing and PostgreSQL fallback.
+- [Bounded ranking work](ADMISSION.md): process-wide concurrency, prompt overload fallback and cancellation-safe worker accounting.
 - [Authenticated transport](TRANSPORT.md): mutual TLS, dedicated service trust, startup validation and a real Go/Rust certificate proof.
 - [Shared rollback](ROLLOUT.md): restricted operator command, versioned switch, replica-wide ranking override and stale ranked cursor rejection.
 - [First aggregate concurrency migration](CONCURRENCY.md): independent post count projection and the remaining lock-order audit.

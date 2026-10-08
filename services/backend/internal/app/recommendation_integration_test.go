@@ -16,6 +16,8 @@ import (
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/pb"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/vault"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type testRanker func(context.Context, *pb.RecommendRequest) (*pb.RecommendResponse, error)
@@ -413,6 +415,16 @@ func TestRecommendationRustWireAndFallback(t *testing.T) {
 		if recommendedPage(t, owner, "").RecommendationMode != "ranked" {
 			t.Fatal("Rust gRPC boundary failed")
 		}
+	}
+	// Overload is a dependency failure, never an empty successful feed or retry loop.
+	calls := 0
+	a.Ranker = testRanker(func(context.Context, *pb.RecommendRequest) (*pb.RecommendResponse, error) {
+		calls++
+		return nil, status.Error(codes.ResourceExhausted, "ranking capacity exhausted")
+	})
+	page := recommendedPage(t, owner, "")
+	if page.RecommendationMode != "fallback" || len(page.Items) == 0 || calls != 1 {
+		t.Fatal("overload did not return a nonempty fallback after one call", page.RecommendationMode, len(page.Items), calls)
 	}
 	// Unknown IDs/revisions must cause fallback, never a hydrated injected result.
 	a.Ranker = testRanker(func(context.Context, *pb.RecommendRequest) (*pb.RecommendResponse, error) {

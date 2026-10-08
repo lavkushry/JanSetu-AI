@@ -66,6 +66,12 @@
 - The real Kafka/Redis stream proof passed (18.967 seconds). One historical fixture has no live publication envelope and enters the projection through backfill; a later hide wins over replay of its older backfill envelope.
 - Markdown and whitespace checks passed. The [backfill guide](BACKFILL.md) records the single-pass scope, cursor privacy, timeout/rate bounds, delivery distinction and future reconciliation/capacity gates. The active pilot database was not migrated or backfilled.
 
+## Bounded ranking work
+
+- Rust formatting, Clippy with warnings denied, eight Rust tests and three Python evaluation tests passed. New deterministic admission tests cover shared saturation, prompt rejection, capacity retained during caller cancellation, recovery, panic, expired input and configuration bounds.
+- The actual Go/Rust mutual-TLS proof passed under the race detector (1.307 seconds), including an explicit single-worker limit and startup rejection of invalid limits.
+- The targeted PostgreSQL fallback test passed with the race detector (4.242 seconds). Overload returns a nonempty fallback page after exactly one ranker call. [Admission scope](ADMISSION.md) records the per-process work bound, network and fleet limits, and blocking-work cancellation semantics.
+
 ## Measured limits
 
 The [isolated complete-feed workload](API-BENCHMARK.md) passed at concurrency one and eight, each with 500 requests, 100 continuations, 150 nonconsenting requests and no HTTP/content/RPC errors. The checked-in artifacts record complete API p95 of 224.465 ms and 682.632 ms, respectively, alongside first-page/continuation and RPC measurements, source/fixture/binary hashes and hardware/runtime configuration. The concurrency-eight result exceeds the 500 ms target for this three-viewer smoke fixture; profiling and representative load validation remain necessary. CI's smaller 50-request/four-worker harness also passed locally. The workload uses isolated databases and a temporary release Rust process; the pilot was not rebuilt or mutated.
