@@ -30,7 +30,7 @@ BEGIN
   -- Post locks serialize event sequencing with concurrent edits/deletion.
   FOR target_id IN SELECT p.id FROM social.post p
    WHERE p.id<=checkpoint.upper_id AND (checkpoint.last_id IS NULL OR p.id>checkpoint.last_id)
-   ORDER BY p.id LIMIT batch_size FOR UPDATE OF p
+   ORDER BY p.id LIMIT batch_size FOR NO KEY UPDATE OF p
   LOOP
    scanned:=scanned+1; checkpoint.last_id:=target_id;
    -- A separate statement observes edits committed before acquiring the row lock.

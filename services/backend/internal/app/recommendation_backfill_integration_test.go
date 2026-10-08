@@ -229,8 +229,20 @@ func TestRecommendationStreamContentBackfillContentionAndCommand(t *testing.T) {
 	if err = blocker.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Ordinary FK checks (votes/replies) must not conflict with backfill locks.
+	reader, err := integrationAdmin.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Rollback(ctx)
+	if _, err = reader.Exec(ctx, "SELECT id FROM social.post WHERE id=$1 FOR KEY SHARE", first); err != nil {
+		t.Fatal(err)
+	}
 	if p := readBackfill(t, db, 1); p.Scanned != 1 {
 		t.Fatal("restart failed", p)
+	}
+	if err = reader.Rollback(ctx); err != nil {
+		t.Fatal(err)
 	}
 	var cursor uuid.UUID
 	if err := integrationAdmin.QueryRow(ctx, "SELECT last_id FROM rec_stream.content_backfill").Scan(&cursor); err != nil || cursor != first {

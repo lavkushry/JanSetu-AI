@@ -53,6 +53,7 @@
 ## Initial public-content backfill
 
 - Full Go vet and isolated PostgreSQL integration tests passed with the race detector (71.630 seconds for the application package). Coverage includes restricted-role denial, private/hidden/unapproved content exclusion, atomic rollback, concurrent callers, lock timeout without skipped rows, resumed checkpoints, completed-pass idempotency and the actual command without Kafka/Redis availability.
+- After refining post locks to `FOR NO KEY UPDATE`, targeted race-detector backfill tests passed (7.505 seconds), including compatibility with foreign-key key-share locks while still rejecting conflicting edits.
 - A new publication above the frozen scan bound produces its live event exactly once while the historical command finishes. Historical behavioral events are not copied.
 - The real Kafka/Redis stream proof passed (18.967 seconds). One historical fixture has no live publication envelope and enters the projection through backfill; a later hide wins over replay of its older backfill envelope.
 - Markdown and whitespace checks passed. The [backfill guide](BACKFILL.md) records the single-pass scope, cursor privacy, timeout/rate bounds, delivery distinction and future reconciliation/capacity gates. The active pilot database was not migrated or backfilled.
