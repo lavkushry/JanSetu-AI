@@ -1,6 +1,6 @@
 # Replayable event and feature foundation
 
-This is the first stage-3 delivery slice. PostgreSQL now writes a separate allowlisted recommendation outbox in the same transaction as consent changes, accepted feedback and post publication changes. A Go publisher delivers it to Kafka; an independent consumer projects bounded features to Redis. Serving still uses PostgreSQL features, while a later [optional snapshot cache](SNAPSHOTS.md) adds Redis reads with durable PostgreSQL fallback. A broker/cache outage does not block authorized feed fallback. Redis feature projections remain in shadow pending parity tests.
+This is the first stage-3 delivery slice. PostgreSQL now writes a separate allowlisted recommendation outbox in the same transaction as consent changes, accepted feedback and post publication changes. A Go publisher delivers it to Kafka; an independent consumer projects bounded features to Redis. Serving still uses PostgreSQL features, while a later [optional snapshot cache](SNAPSHOTS.md) adds Redis reads with durable PostgreSQL fallback. A broker/cache outage does not block authorized feed fallback. The [behavioral shadow reader](FEATURES.md) now compares revision-aware observations with the ledger without using them for serving.
 
 ## Run and verify
 
@@ -45,6 +45,6 @@ Delivered outbox records expire after seven days; all interaction outbox rows ex
 
 ## Remaining stage-3 work
 
-Redis feature serving adapters, online feature parity, session/long-term separation, ClickHouse and S3 exports with deletion manifests, retrieval indexes/reconciliation, operational backpressure/metrics, authenticated Kafka/Redis transport, replicated broker/cache deployment, complete API load/cost measurements and the civic aggregate-lock audit remain outstanding. [Snapshot caching](SNAPSHOTS.md) is now optional with isolated outage proofs. These slices establish correctness; they make no million-user capacity claim.
+Redis behavioral serving integration and measured shadow coverage, session/long-term separation, ClickHouse and S3 exports with deletion manifests, retrieval indexes/reconciliation, operational backpressure/metrics, authenticated Kafka/Redis transport, replicated broker/cache deployment, complete API load/cost measurements and the civic aggregate-lock audit remain outstanding. [Feature shadow parity](FEATURES.md), [snapshot caching](SNAPSHOTS.md) and [authenticated Go/Rust transport](TRANSPORT.md) now have isolated correctness proofs. These slices make no million-user capacity claim.
 
 The implementation follows the [franz-go producer and consumer contract](https://github.com/twmb/franz-go/blob/v1.22.1/docs/producing-and-consuming.md), [Redis atomic scripting contract](https://redis.io/docs/latest/develop/programmability/eval-intro/) and [hash-field expiry](https://redis.io/docs/latest/commands/hpexpire/). The proof uses the [official Kafka image](https://kafka.apache.org/42/getting-started/docker/). Module versions and image digests are pinned in the repository.

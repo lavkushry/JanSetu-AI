@@ -84,6 +84,9 @@ func main() {
 		os.Exit(1)
 	}
 	application := app.New(social, vaultClient, c)
+	if application.FeatureShadow != nil {
+		defer application.CloseFeatureShadow()
+	}
 	if application.Snapshots != nil {
 		defer application.Snapshots.Close()
 	}

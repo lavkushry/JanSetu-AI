@@ -71,3 +71,7 @@ recommendation-stream-proof:
 	@set -eu; trap 'docker compose -f "$(CURDIR)/infra/recommendation/compose.proof.yaml" down -v' EXIT; \
 	 docker compose -f infra/recommendation/compose.proof.yaml up -d --wait; \
 	 cd services/backend && JANSETU_INTEGRATION=1 JANSETU_RECOMMENDATION_STREAM_PROOF=1 go test -race ./internal/app -run 'TestRecommendation(Stream|RedisSnapshot)' -count=1
+
+.PHONY: recommendation-feature-proof
+recommendation-feature-proof:
+	python3 scripts/recommendation_feature_proof.py

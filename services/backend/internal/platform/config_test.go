@@ -17,6 +17,7 @@ func TestIdentityConfigurationFailsClosed(t *testing.T) {
 		"origin path":            func(c *Config) { c.WebOrigin += "/anything" },
 		"missing client":         func(c *Config) { c.OIDCClientID = "" },
 		"invalid snapshot cache": func(c *Config) { c.RecommendationSnapshotRedisURL = "http://localhost:16379" },
+		"invalid feature shadow": func(c *Config) { c.RecommendationFeatureShadowRedisURL = "http://localhost:16379" },
 		"partial ranker TLS":     func(c *Config) { c.RecommendationTLS.ServerName = "ranker.test" },
 		"HTTPS rewrite": func(c *Config) {
 			c.OIDCIssuer = "https://identity.example.test"
