@@ -72,6 +72,12 @@
 - The actual Go/Rust mutual-TLS proof passed under the race detector (1.307 seconds), including an explicit single-worker limit and startup rejection of invalid limits.
 - The targeted PostgreSQL fallback test passed with the race detector (4.242 seconds). Overload returns a nonempty fallback page after exactly one ranker call. [Admission scope](ADMISSION.md) records the per-process work bound, network and fleet limits, and blocking-work cancellation semantics.
 
+## Viewer retrieval features — 2026-10-08
+
+- Full Go vet and isolated PostgreSQL regression tests passed with the race detector (72.605 seconds for the application package). The new restricted-role test covers current/old generations, duplicate community signals, chosen interests, expired history, non-More actions, mismatched revisions, revoked publication, active/expired mutes, foreign/anonymous scope and live reset.
+- Both paired 500-request, eight-worker complete-feed runs passed with zero HTTP, content and RPC errors. API p95 was 688.620 ms for the existing query and 467.770 ms with statement-local viewer relations. Continuation/RPC p95 increased in the latter run; [the retrieval record](RETRIEVAL.md) includes those results and the shared-host/three-viewer limitations.
+- Dataset and fixture-generator digests match, source trees were clean, and each artifact records its independent release Rust binary digest and environment. No production load, recommendation-quality or million-user capacity conclusion follows from these smoke runs.
+
 ## Measured limits
 
 The [isolated complete-feed workload](API-BENCHMARK.md) passed at concurrency one and eight, each with 500 requests, 100 continuations, 150 nonconsenting requests and no HTTP/content/RPC errors. The checked-in artifacts record complete API p95 of 224.465 ms and 682.632 ms, respectively, alongside first-page/continuation and RPC measurements, source/fixture/binary hashes and hardware/runtime configuration. The concurrency-eight result exceeds the 500 ms target for this three-viewer smoke fixture; profiling and representative load validation remain necessary. CI's smaller 50-request/four-worker harness also passed locally. The workload uses isolated databases and a temporary release Rust process; the pilot was not rebuilt or mutated.
