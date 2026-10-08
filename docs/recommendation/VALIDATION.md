@@ -50,6 +50,13 @@
 - Full Go vet and isolated PostgreSQL integration tests passed with the race detector (64.406 seconds for the application package). The optional TLS Compose overlay and Markdown/whitespace validation passed. Public bindings, pilot data and rollout settings are unchanged.
 - [Transport operations](TRANSPORT.md) describe the dedicated client trust domain, secret mounts and restart-based rotation. Certificate provisioning, revocation/rotation drills, container deployment and sustained TLS throughput are not claimed by the process-level proof.
 
+## Behavioral feature shadow — 2026-10-08
+
+- `make recommendation-feature-proof` passed with the race detector (4.683 seconds for the application package), using a disposable pinned Redis on a random loopback port and isolated PostgreSQL databases. Six feedback types match the real ledger after projection. Missing, extra and changed observations produce separate counts; legacy dedup replay fills the new projection without extending expiry.
+- The real adapters enforce revision isolation, absolute per-field retention, latest timestamp/UUID ordering, bigint generation precision, bounded references/state, malformed cache rejection, live publication/block/mute checks and owner RLS. Reset during the Redis read discards the sample; replay consults live authority and cannot restore pre-reset behavior. Withdrawal and anonymous feeds do not read behavioral features. Cache outage preserves frozen pagination and exposure IDs.
+- Full isolated PostgreSQL Go tests passed with the race detector (69.024 seconds for the application package), along with Go vet and feature/stream/config unit tests. The existing real Kafka/Redis stream and snapshot proof passed (16.585 seconds). Proof containers and test databases were removed; the pilot remains unchanged.
+- The reader is disabled by default and stays in shadow when enabled. [Feature contract](FEATURES.md) describes incomplete historical coverage, transient stream lag, dependency budgets and the remaining serving/production/model evaluation gates. No learned-quality or sustained capacity claim follows from this proof.
+
 ## Measured limits
 
 The [transport smoke result](benchmark-local.json) uses 2,000 synthetic candidates/request and 200 ranked references, 1,000 requests at concurrency eight. It measured p95 14.893 ms, p99 17.071 ms, 718.87 requests/second and zero errors on a four-vCPU ARM host with a two-CPU container limit. This is a short transport test, not a steady-state complete-feed benchmark. Hardware/build/budget metadata is in the JSON artifact. Serving/event costs are unavailable.

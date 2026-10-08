@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/control"
+	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/features"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/pb"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/snapshotcache"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/store/dbgen"
@@ -341,6 +342,7 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 	var next any
 	var pendingScope snapshotcache.Scope
 	var pendingRecord snapshotcache.Record
+	var parityRefs []features.Reference
 	hydrate := func(tx pgx.Tx) error {
 		current, e := readRecommendationPreference(r.Context(), tx, viewer)
 		if e != nil {
@@ -372,6 +374,7 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 			Author            *struct{ ID uuid.UUID }
 		}
 		bodies := map[uuid.UUID]json.RawMessage{}
+		revisions := map[uuid.UUID]int32{}
 		authors := map[uuid.UUID]uuid.UUID{}
 		for _, data := range posts {
 			var post post
@@ -382,6 +385,14 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 				authors[post.ID] = post.Author.ID
 			}
 			bodies[post.ID] = data
+			revisions[post.ID] = post.PublishedRevision
+		}
+		if a.FeatureShadow != nil && p.PersonalizationEnabled {
+			for _, ref := range s.Posts[s.PostOffset:] {
+				if revisions[ref.ID] == ref.Revision {
+					parityRefs = append(parityRefs, features.Reference{PostID: ref.ID, Revision: ref.Revision})
+				}
+			}
 		}
 		hidden := map[uuid.UUID]bool{}
 		if p.PersonalizationEnabled {
@@ -503,6 +514,9 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 	}
 	if pendingScope.Token != uuid.Nil {
 		a.saveRecommendationSnapshot(r.Context(), pendingScope, pendingRecord)
+	}
+	if a.FeatureShadow != nil && actor != nil && p.PersonalizationEnabled && len(parityRefs) > 0 {
+		a.observeRecommendationFeatures(r.Context(), viewer, p.Generation, parityRefs)
 	}
 	return map[string]any{"items": items, "nextCursor": next, "expiresAt": expires.UTC().Format(time.RFC3339), "mode": mode, "recommendationMode": s.Serving}, 200, nil
 }
