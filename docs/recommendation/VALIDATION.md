@@ -57,6 +57,14 @@
 - Full isolated PostgreSQL Go tests passed with the race detector (69.024 seconds for the application package), along with Go vet and feature/stream/config unit tests. The existing real Kafka/Redis stream and snapshot proof passed (16.585 seconds). Proof containers and test databases were removed; the pilot remains unchanged.
 - The reader is disabled by default and stays in shadow when enabled. [Feature contract](FEATURES.md) describes incomplete historical coverage, transient stream lag, dependency budgets and the remaining serving/production/model evaluation gates. No learned-quality or sustained capacity claim follows from this proof.
 
+## Initial public-content backfill
+
+- Full Go vet and isolated PostgreSQL integration tests passed with the race detector (71.630 seconds for the application package). Coverage includes restricted-role denial, private/hidden/unapproved content exclusion, atomic rollback, concurrent callers, lock timeout without skipped rows, resumed checkpoints, completed-pass idempotency and the actual command without Kafka/Redis availability.
+- After refining post locks to `FOR NO KEY UPDATE`, targeted race-detector backfill tests passed (7.505 seconds), including compatibility with foreign-key key-share locks while still rejecting conflicting edits.
+- A new publication above the frozen scan bound produces its live event exactly once while the historical command finishes. Historical behavioral events are not copied.
+- The real Kafka/Redis stream proof passed (18.967 seconds). One historical fixture has no live publication envelope and enters the projection through backfill; a later hide wins over replay of its older backfill envelope.
+- Markdown and whitespace checks passed. The [backfill guide](BACKFILL.md) records the single-pass scope, cursor privacy, timeout/rate bounds, delivery distinction and future reconciliation/capacity gates. The active pilot database was not migrated or backfilled.
+
 ## Measured limits
 
 The [transport smoke result](benchmark-local.json) uses 2,000 synthetic candidates/request and 200 ranked references, 1,000 requests at concurrency eight. It measured p95 14.893 ms, p99 17.071 ms, 718.87 requests/second and zero errors on a four-vCPU ARM host with a two-CPU container limit. This is a short transport test, not a steady-state complete-feed benchmark. Hardware/build/budget metadata is in the JSON artifact. Serving/event costs are unavailable.

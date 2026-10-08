@@ -24,10 +24,15 @@ func setting(key, fallback string) string {
 }
 
 func main() {
-	mode := flag.String("mode", "publish", "publish or project")
+	mode := flag.String("mode", "publish", "publish, project, or backfill")
+	batchSize := flag.Int("batch-size", 50, "backfill page size (1..100)")
 	flag.Parse()
-	if *mode != "publish" && *mode != "project" {
-		slog.Error("mode must be publish or project")
+	if *mode != "publish" && *mode != "project" && *mode != "backfill" {
+		slog.Error("mode must be publish, project, or backfill")
+		os.Exit(1)
+	}
+	if *batchSize < 1 || *batchSize > 100 {
+		slog.Error("backfill batch must be 1..100")
 		os.Exit(1)
 	}
 	if env := setting("JANSETU_ENV", "local"); env != "local" && env != "test" {
@@ -42,6 +47,30 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	if *mode == "backfill" {
+		for ctx.Err() == nil {
+			progress, err := stream.BackfillContent(ctx, db, *batchSize)
+			if err != nil {
+				if ctx.Err() == nil {
+					slog.Error("Content backfill stopped; rerun to resume its committed checkpoint")
+					os.Exit(1)
+				}
+				return
+			}
+			slog.Info("Recommendation content backfill", "scanned", progress.TotalScanned, "enqueued", progress.TotalEnqueued, "completed", progress.Completed)
+			if progress.Completed {
+				return
+			}
+			timer := time.NewTimer(100 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+		return
+	}
 	opts := []kgo.Opt{kgo.SeedBrokers(strings.Split(setting("JANSETU_RECOMMENDATION_KAFKA_BROKERS", "127.0.0.1:19092"), ",")...), kgo.ClientID("jansetu-recommendation-" + *mode)}
 	if *mode == "project" {
 		opts = append(opts, kgo.ConsumeTopics(stream.Topic), kgo.ConsumerGroup(setting("JANSETU_RECOMMENDATION_CONSUMER_GROUP", "recommendation-features-v1")), kgo.DisableAutoCommit(), kgo.BlockRebalanceOnPoll(), kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()))
