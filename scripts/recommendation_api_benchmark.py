@@ -19,12 +19,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--requests", type=int, default=500)
     parser.add_argument("--concurrency", type=int, default=8)
+    parser.add_argument("--ranker-max-in-flight", type=int, default=8)
     parser.add_argument("--authors", type=int, default=128)
     parser.add_argument("--posts-per-author", type=int, default=8)
     parser.add_argument("--output", type=Path, default=Path("/tmp/jansetu-recommendation-api-smoke.json"))
     args = parser.parse_args()
     for name, value, limit in (("requests", args.requests, 100000),
                                ("concurrency", args.concurrency, 128),
+                               ("ranker-max-in-flight", args.ranker_max_in_flight, 128),
                                ("authors", args.authors, 1024),
                                ("posts-per-author", args.posts_per_author, 128)):
         if value < 1 or value > limit:
@@ -33,6 +35,9 @@ def main():
         parser.error("at least 32 authors are needed for first and continuation pages")
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
+    # Every worker has a 10-second HTTP deadline. Allow the full bounded
+    # request workload plus ten minutes for fixture setup and cleanup.
+    timeout_seconds = 600 + 10 * ((args.requests + args.concurrency - 1) // args.concurrency)
     subprocess.run(["cargo", "build", "--locked", "--release", "--manifest-path",
                     "services/recommendation/Cargo.toml", "--bin", "jansetu-recommendation"],
                    cwd=ROOT, check=True)
@@ -45,7 +50,8 @@ def main():
             address = f"127.0.0.1:{port}"
         with (Path(directory) / "rust.log").open("w") as log:
             ranker = subprocess.Popen([str(binary)], cwd=ROOT, start_new_session=True,
-                                      env={"JANSETU_ENV": "test", "JANSETU_RECOMMENDATION_ADDR": address},
+                                      env={"JANSETU_ENV": "test", "JANSETU_RECOMMENDATION_ADDR": address,
+                                           "JANSETU_RECOMMENDATION_MAX_IN_FLIGHT": str(args.ranker_max_in_flight)},
                                       stdout=log, stderr=subprocess.STDOUT)
             try:
                 deadline = time.monotonic() + 5
@@ -68,7 +74,7 @@ def main():
                                    JANSETU_BENCHMARK_AUTHORS=str(args.authors),
                                    JANSETU_BENCHMARK_POSTS_PER_AUTHOR=str(args.posts_per_author))
                 process = subprocess.run(["go", "test", "./internal/app", "-run",
-                                          "^TestRecommendationAPIBenchmark$", "-count=1", "-timeout=15m"],
+                                          "^TestRecommendationAPIBenchmark$", "-count=1", f"-timeout={timeout_seconds}s"],
                                          cwd=ROOT / "services/backend", env=environment)
                 if raw_result.exists():
                     result = json.loads(raw_result.read_text())
@@ -78,10 +84,12 @@ def main():
                         "generatorSHA256": hashlib.sha256((ROOT / "services/backend/internal/app/recommendation_benchmark_integration_test.go").read_bytes()).hexdigest(),
                         "rustBinarySHA256": hashlib.sha256(binary.read_bytes()).hexdigest(),
                         "rustBuild": "cargo build --locked --release, host process without a CPU or memory limit",
+                        "rustMaxInFlight": args.ranker_max_in_flight,
                         "rustVersion": subprocess.check_output(["rustc", "--version"], text=True).strip(),
                         "hostArchitecture": platform.machine(), "hostLogicalCPUs": os.cpu_count(),
                         "hostMemoryBytes": os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"),
                         "goRaceDetector": False,
+                        "testTimeoutSeconds": timeout_seconds,
                     })
                     output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
                     print(json.dumps({k: result[k] for k in ("requests", "errors", "successfulRequestsPerSecond", "allResponseLatency", "modeCounts")}))

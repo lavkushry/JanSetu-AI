@@ -7,7 +7,7 @@ make recommendation-api-benchmark BENCHMARK_REQUESTS=500 BENCHMARK_CONCURRENCY=8
 python3 scripts/recommendation_api_benchmark.py --requests 500 --concurrency 1 --output /tmp/jansetu-api-single.json
 ```
 
-The script builds with the locked Cargo dependencies, starts Rust on a temporary loopback port, and runs the Go fixture without the race detector for measurement. Rust terminates after the workload exits. CI runs 50 requests at concurrency four on a smaller fixture to verify the harness and feed invariants, without applying latency thresholds. Use `make test-integration` separately for race-detector regression coverage.
+The script builds with the locked Cargo dependencies, starts Rust on a temporary loopback port, and runs the Go fixture without the race detector for measurement. Its Go test timeout scales with the request count and worker count: ten seconds per possible worker request plus ten minutes for setup and cleanup. The artifact records that budget; accepted large workloads are not cut off by a fixed smoke timeout. Rust terminates after the workload exits. CI runs 50 requests at concurrency four on a smaller fixture to verify the harness and feed invariants, without applying latency thresholds. Use `make test-integration` separately for race-detector regression coverage.
 
 ## Dataset and request mix
 
@@ -20,6 +20,8 @@ The harness reads each HTTP body before stopping its latency timer. Validation t
 ## Result contract
 
 The JSON artifact records all-response p50/p95/p99, separate first/continuation and consenting/nonconsenting latency, elapsed wall time, successful feeds/second, HTTP statuses, error categories, response bytes and feed modes. The ranker wrapper records RPC calls, errors, maximum candidate count and RPC latency including transport/client validation. These RPC samples cover first-page ranking only; they are distinct from complete-feed measurements. CPU scheduling and instrumentation overhead are included.
+
+`--ranker-max-in-flight` configures the Rust process-wide admission bound (default 8, valid 1–128). New artifacts record it as `rustMaxInFlight`; the archived local runs below predate admission control, as identified by their source and binary digests.
 
 Dataset and generator hashes, source revision/dirty state, Rust binary digest, toolchain versions, PostgreSQL version, runtime role/pool limit, host architecture/logical CPUs/memory and replica/cache/TLS settings accompany the result. Source and binary hashes permit auditing a run from a dirty worktree. Results omit session cookies, database URLs, viewer/post IDs and response bodies. Serving/event costs stay `null` until actual allocations are available.
 
