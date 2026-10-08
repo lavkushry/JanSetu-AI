@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::Status;
+pub mod admission;
 pub mod pb {
     tonic::include_proto!("jansetu.recommendation.v1");
 }

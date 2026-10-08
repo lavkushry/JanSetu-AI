@@ -132,6 +132,22 @@ func TestRustMutualTLS(t *testing.T) {
 	t.Run("TLS never retries plaintext", func(t *testing.T) { address := startRust(t, binary, "", "", ""); call(t, address, valid, false) })
 	// Failed handshakes must not leave the listener unusable.
 	t.Run("healthy after rejection", func(t *testing.T) { call(t, target, valid, true) })
+	t.Run("single admitted worker over TLS", func(t *testing.T) {
+		address := startRust(t, binary, clientCA.certFile, server.certFile, server.keyFile, "JANSETU_RECOMMENDATION_MAX_IN_FLIGHT=1")
+		call(t, address, valid, true)
+	})
+	for _, limit := range []string{"0", "129", "invalid", ""} {
+		t.Run("invalid admission limit "+limit, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, binary)
+			cmd.Env = append(rustEnv("127.0.0.1:0", clientCA.certFile, server.certFile, server.keyFile), "JANSETU_RECOMMENDATION_MAX_IN_FLIGHT="+limit)
+			output, err := cmd.CombinedOutput()
+			if err == nil || ctx.Err() != nil {
+				t.Fatalf("expected prompt limit rejection, got %v: %s", err, output)
+			}
+		})
+	}
 	for name, files := range map[string][3]string{
 		"partial bundle":        {clientCA.certFile, "", ""},
 		"invalid CA":            {client.keyFile, server.certFile, server.keyFile},
@@ -219,7 +235,7 @@ func issue(t *testing.T, parent *certificate, name string, purpose []x509.ExtKey
 func rustEnv(address, ca, cert, key string) []string {
 	return []string{"JANSETU_ENV=test", "JANSETU_RECOMMENDATION_ADDR=" + address, "JANSETU_RECOMMENDATION_TLS_CA_FILE=" + ca, "JANSETU_RECOMMENDATION_TLS_CERT_FILE=" + cert, "JANSETU_RECOMMENDATION_TLS_KEY_FILE=" + key}
 }
-func startRust(t *testing.T, binary, ca, cert, key string) string {
+func startRust(t *testing.T, binary, ca, cert, key string, extraEnv ...string) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -235,7 +251,7 @@ func startRust(t *testing.T, binary, ca, cert, key string) string {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(binary)
-	cmd.Env = rustEnv(address, ca, cert, key)
+	cmd.Env = append(rustEnv(address, ca, cert, key), extraEnv...)
 	cmd.Stdout, cmd.Stderr = log, log
 	if err := cmd.Start(); err != nil {
 		log.Close()

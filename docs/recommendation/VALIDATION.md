@@ -66,6 +66,12 @@
 - The real Kafka/Redis stream proof passed (18.967 seconds). One historical fixture has no live publication envelope and enters the projection through backfill; a later hide wins over replay of its older backfill envelope.
 - Markdown and whitespace checks passed. The [backfill guide](BACKFILL.md) records the single-pass scope, cursor privacy, timeout/rate bounds, delivery distinction and future reconciliation/capacity gates. The active pilot database was not migrated or backfilled.
 
+## Bounded ranking work
+
+- Rust formatting, Clippy with warnings denied, eight Rust tests and three Python evaluation tests passed. New deterministic admission tests cover shared saturation, prompt rejection, capacity retained during caller cancellation, recovery, panic, expired input and configuration bounds.
+- The actual Go/Rust mutual-TLS proof passed under the race detector (1.307 seconds), including an explicit single-worker limit and startup rejection of invalid limits.
+- The targeted PostgreSQL fallback test passed with the race detector (4.242 seconds). Overload returns a nonempty fallback page after exactly one ranker call. [Admission scope](ADMISSION.md) records the per-process work bound, network and fleet limits, and blocking-work cancellation semantics.
+
 ## Measured limits
 
 The [transport smoke result](benchmark-local.json) uses 2,000 synthetic candidates/request and 200 ranked references, 1,000 requests at concurrency eight. It measured p95 14.893 ms, p99 17.071 ms, 718.87 requests/second and zero errors on a four-vCPU ARM host with a two-CPU container limit. This is a short transport test, not a steady-state complete-feed benchmark. Hardware/build/budget metadata is in the JSON artifact. Serving/event costs are unavailable.
