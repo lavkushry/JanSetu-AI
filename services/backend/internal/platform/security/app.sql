@@ -119,7 +119,7 @@ GRANT EXECUTE ON FUNCTION social.expire_recommendations() TO js_worker;
 REVOKE ALL ON ALL TABLES IN SCHEMA identity,ops,infra,social,rec_stream FROM js_recommendation_stream;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA authz,rec_stream FROM js_recommendation_stream;
 GRANT USAGE ON SCHEMA rec_stream TO js_recommendation_stream;
-GRANT EXECUTE ON FUNCTION rec_stream.claim(uuid,integer),rec_stream.ack(uuid,uuid),rec_stream.retry(uuid,uuid),rec_stream.current_authority(uuid),rec_stream.expire() TO js_recommendation_stream;
+GRANT EXECUTE ON FUNCTION rec_stream.claim(uuid,integer),rec_stream.ack(uuid,uuid),rec_stream.retry(uuid,uuid),rec_stream.current_authority(uuid),rec_stream.expire(),rec_stream.backfill_content(integer) TO js_recommendation_stream;
 GRANT USAGE ON SCHEMA rec_stream TO js_worker;
 GRANT EXECUTE ON FUNCTION rec_stream.expire() TO js_worker;
 

@@ -9,6 +9,7 @@ JanSetu optimizes discovery for useful local conversations and creators, with sa
 - [Events and privacy](EVENTS.md): current authenticated event API, generation fencing and retention.
 - [Replayable event and feature foundation](STREAMS.md): dedicated outbox, Kafka delivery, Redis projections and isolated replay proof.
 - [Behavioral feature shadow parity](FEATURES.md): bounded revision-aware Redis observations compared with the consented ledger, live authority and isolated parity proof.
+- [Initial content backfill](BACKFILL.md): bounded public-reference bootstrap with durable checkpoints and ordered live updates.
 - [Redis snapshot cache](SNAPSHOTS.md): optional frozen pagination reads, commit boundaries, consent fencing and PostgreSQL fallback.
 - [Authenticated transport](TRANSPORT.md): mutual TLS, dedicated service trust, startup validation and a real Go/Rust certificate proof.
 - [Shared rollback](ROLLOUT.md): restricted operator command, versioned switch, replica-wide ranking override and stale ranked cursor rejection.
@@ -30,7 +31,7 @@ Defaults are `JANSETU_RECOMMENDATION_MODE=shadow` and `JANSETU_RECOMMENDATION_RO
 | --- | --- | --- |
 | 1. Specification and evaluation | PRD, privacy/event contracts, reference inventory, transport benchmark, viewer-cluster experiment evaluator | Real randomized satisfaction studies and representative complete-API load results |
 | 2. Rust baseline | Tonic service, documented formula, up to 2,000 multi-source candidates, 200 ranked references, 20-item pages, batch hydration, explanations, consent controls, stable server snapshots, telemetry, shadow, fallback and audited shared rollback | Pilot evaluation before enabling serving traffic |
-| 3. Distributed data | Dedicated transactional outbox, restricted worker role, Kafka publisher, Redis projections, optional snapshot cache and behavioral shadow parity, replay/deduplication, live consent fencing and independent post count projections | Measured shadow coverage and Redis serving integration, ClickHouse/S3 datasets, public retrieval backfill, load-tested aggregate locks for existing civic mutations |
+| 3. Distributed data | Dedicated transactional outbox, restricted worker role, Kafka publisher, Redis projections, optional snapshot cache and behavioral shadow parity, replay/deduplication, live consent fencing, independent post count projections and initial public-content backfill | Measured shadow coverage and Redis serving integration, ClickHouse/S3 datasets, retrieval indexes/reconciliation, load-tested aggregate locks for existing civic mutations |
 | 4. Learned discovery | Evaluation contract and statistical promotion gate | Eligible real data, temporal training/holdout datasets, two-tower retrieval, multi-outcome ranker, Qdrant and tested ONNX adapter |
 | 5. Session and exploration | Explicit More feedback influences future baseline interest; Less/Skip suppress posts immediately | Separate session/long-term feature stores, randomized 10% exploration with conditional selection probabilities, measured creator exposure; sequence models only after simpler baselines |
 | 6. Video | Events reject video actions | Video publishing, transcoding, delivery and moderation before watch/replay features |

@@ -227,10 +227,29 @@ func TestRecommendationStreamKafkaRedisReplay(t *testing.T) {
 	defer cancel()
 	owner := login(t, a, 0)
 	viewer := parsed[struct{ Profile struct{ ID uuid.UUID } }](t, owner.request("GET", "me", nil, 0, "")).Profile.ID
-	recommendationFixture(t, a)
+	historical := recommendationFixture(t, a)[0]
 	consentRecommendation(t, owner, true)
 	t.Cleanup(func() { consentRecommendation(t, owner, false) })
 	db := streamPool(t)
+	// Remove this fixture's live publication event: only historical backfill can
+	// introduce it to this isolated projection namespace.
+	if _, err := integrationAdmin.Exec(ctx, "DELETE FROM rec_stream.outbox WHERE aggregate_key=$1", "post:"+historical.String()); err != nil {
+		t.Fatal(err)
+	}
+	resetContentBackfill(t)
+	t.Cleanup(func() { resetContentBackfill(t) })
+	for i := 0; ; i++ {
+		if i == 100 {
+			t.Fatal("historical pass did not finish")
+		}
+		if readBackfill(t, db, 50).Completed {
+			break
+		}
+	}
+	var historicalData []byte
+	if err := integrationAdmin.QueryRow(ctx, "SELECT payload||jsonb_build_object('entityVersion',sequence) FROM rec_stream.outbox WHERE aggregate_key=$1 ORDER BY sequence DESC LIMIT 1", "post:"+historical.String()).Scan(&historicalData); err != nil {
+		t.Fatal(err)
+	}
 	cache := redis.NewClient(&redis.Options{Addr: "127.0.0.1:16379"})
 	defer cache.Close()
 	if err := cache.Ping(ctx).Err(); err != nil {
@@ -314,6 +333,20 @@ func TestRecommendationStreamKafkaRedisReplay(t *testing.T) {
 		t.Fatal("projection did not converge")
 	}
 	wait(func() bool { return cache.HGet(ctx, features, field).Val() == "1" })
+	historicalState := namespace + ":{post:" + historical.String() + "}:state"
+	wait(func() bool { return cache.HGet(ctx, historicalState, "eligible").Val() == "true" })
+	// A later live revocation must beat replay of the historical envelope.
+	if _, err := integrationAdmin.Exec(ctx, "UPDATE social.post SET state='HIDDEN',version=version+1 WHERE id=$1", historical); err != nil {
+		t.Fatal(err)
+	}
+	drainRecommendationStream(t, db, stream.KafkaProducer{Client: producer})
+	wait(func() bool { return cache.HGet(ctx, historicalState, "eligible").Val() == "false" })
+	if err := stream.ProjectRecord(ctx, db, projection, &kgo.Record{Key: []byte("post:" + historical.String()), Value: historicalData}); err != nil {
+		t.Fatal(err)
+	}
+	if cache.HGet(ctx, historicalState, "eligible").Val() != "false" {
+		t.Fatal("historical replay reversed live revocation")
+	}
 	var data []byte
 	if err := integrationAdmin.QueryRow(ctx, "SELECT payload||jsonb_build_object('entityVersion',sequence) FROM rec_stream.outbox WHERE id=$1", body["eventId"]).Scan(&data); err != nil {
 		t.Fatal(err)
