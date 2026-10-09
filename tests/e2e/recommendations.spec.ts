@@ -85,6 +85,7 @@ test('recommendation consent, explanations, feedback, reset and following', asyn
   await helpful.click();
   await lostResponse;
   await expect(helpful).toBeEnabled();
+  await expect(control.getByRole('button', { name: 'Not helpful', exact: true })).toBeDisabled();
   await expect(helpful).toHaveAttribute('aria-pressed', 'false');
   await helpful.click();
   await expect(helpful).toHaveAttribute('aria-pressed', 'true');
