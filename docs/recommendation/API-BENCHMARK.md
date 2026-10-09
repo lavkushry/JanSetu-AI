@@ -25,6 +25,23 @@ The JSON artifact records all-response p50/p95/p99, separate first/continuation 
 
 Dataset and generator hashes, source revision/dirty state, Rust binary digest, toolchain versions, PostgreSQL version, runtime role/pool limit, host architecture/logical CPUs/memory and replica/cache/TLS settings accompany the result. Source and binary hashes permit auditing a run from a dirty worktree. Results omit session cookies, database URLs, viewer/post IDs and response bodies. Serving/event costs stay `null` until actual allocations are available.
 
+## Optional Go profiling
+
+Use a new output directory for each diagnostic run:
+
+```sh
+python3 scripts/recommendation_api_benchmark.py --requests 500 --concurrency 8 --profile-dir /tmp/feed-profile-001 --output /tmp/feed-profile-001.json
+go tool pprof -top /tmp/feed-profile-001/app.test /tmp/feed-profile-001/cpu.pprof
+go tool pprof -top /tmp/feed-profile-001/app.test /tmp/feed-profile-001/block.pprof
+go tool pprof -top /tmp/feed-profile-001/app.test /tmp/feed-profile-001/mutex.pprof
+```
+
+The runner creates a private directory and refuses to reuse an existing directory. It retains the exact Go test binary and CPU, blocking and mutex profiles, with SHA-256 digests in `goProfiling.artifacts`. Successful profile runs require all four nonempty artifacts. Failed runs may leave partial diagnostic files; use a fresh directory when retrying. Ordinary runs record `goProfiling.enabled=false` and produce no profiles.
+
+These profiles cover the Go test runner interval, including benchmark fixture setup, warmup, request generation, response validation and test cleanup. Database bootstrap and teardown surrounding `m.Run()` in `TestMain` are outside that interval. They are not limited to the timed HTTP interval and do not profile the PostgreSQL or Rust processes. Blocking samples use a 1,000,000 ns rate; mutex sampling records one in five contention events. Profiling adds overhead, so use a separate unprofiled run for latency comparisons. Blocking totals aggregate wait time across goroutines and can exceed wall time; network waits alone do not identify an expensive SQL query. Inspect caller stacks and use a focused follow-up experiment before changing serving behavior.
+
+Profiles and the binary remain local and can contain source paths and runtime metadata. The runner does not expose an HTTP profiling endpoint or upload these files. Keep them outside the repository; share only reviewed aggregate findings.
+
 ## Interpretation and remaining capacity gate
 
 This is a fixed-concurrency closed-loop smoke workload. It shares one host with local services, has only three synthetic viewers, uses uniform creator sizes and omits realistic communities/localities, broad viewer diversity, public civic inventory, concurrent revocations/resets, background event workers, cache dependencies, production TLS and the web BFF/proxy. API logs are discarded during timing; Rust logs go to a temporary local file. Repeat runs can vary with host load. Closed-loop latency does not correct for coordinated omission under a prescribed arrival rate.
