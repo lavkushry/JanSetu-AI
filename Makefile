@@ -80,5 +80,6 @@ recommendation-feature-proof:
 BENCHMARK_OUTPUT ?= /tmp/jansetu-recommendation-api-smoke.json
 BENCHMARK_REQUESTS ?= 500
 BENCHMARK_CONCURRENCY ?= 8
+BENCHMARK_VIEWERS ?= 3
 recommendation-api-benchmark:
-	python3 scripts/recommendation_api_benchmark.py --output "$(BENCHMARK_OUTPUT)" --requests "$(BENCHMARK_REQUESTS)" --concurrency "$(BENCHMARK_CONCURRENCY)"
+	python3 scripts/recommendation_api_benchmark.py --output "$(BENCHMARK_OUTPUT)" --requests "$(BENCHMARK_REQUESTS)" --concurrency "$(BENCHMARK_CONCURRENCY)" --viewers "$(BENCHMARK_VIEWERS)"

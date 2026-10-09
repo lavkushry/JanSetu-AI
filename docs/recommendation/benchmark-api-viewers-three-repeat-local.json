@@ -1,0 +1,95 @@
+{
+  "allResponseLatency": {
+    "p50Ms": 323.676,
+    "p95Ms": 438.657,
+    "p99Ms": 475.046
+  },
+  "apiReplicas": 1,
+  "authors": 128,
+  "behavioralShadow": false,
+  "completeFeedCapacityValidated": false,
+  "concurrency": 8,
+  "consentedLatency": {
+    "p50Ms": 346.402,
+    "p95Ms": 450.828,
+    "p99Ms": 500.475
+  },
+  "consentingViewers": 2,
+  "continuationLatency": {
+    "p50Ms": 151.153,
+    "p95Ms": 247.801,
+    "p99Ms": 370.598
+  },
+  "continuations": 100,
+  "costPerMillionEvents": null,
+  "costPerThousandFeeds": null,
+  "cursorOwnershipChecks": 1,
+  "datasetSHA256": "5de43c09c1b6e7202b9ae7f941b1cb51da1ec07e793bc21a85b6ac5041056a94",
+  "elapsedSeconds": 19.107280953,
+  "errorCounts": {},
+  "errors": 0,
+  "firstPageLatency": {
+    "p50Ms": 348.906,
+    "p95Ms": 444.644,
+    "p99Ms": 492.151
+  },
+  "fixture": "api-smoke-v2",
+  "fixtureContentSHA256": "db49e8bd9f67fd28913e2ff84c8327318dac62065a4018bb640f8aee05021577",
+  "fixtureEligiblePosts": 956,
+  "fixtureExcludedPosts": 68,
+  "generatorSHA256": "d57ec80b72ee6cccb463d449c62a8c8953a65b024a507c6acc11b5c064d6e362",
+  "gitRevision": "d4a21127a6ed0ed3a83d3d303ad9b94a57e411b0",
+  "goMaxProcs": 4,
+  "goRaceDetector": false,
+  "goVersion": "go1.26.0",
+  "hostArchitecture": "aarch64",
+  "hostLogicalCPUs": 4,
+  "hostMemoryBytes": 25136467968,
+  "maximumRequestsPerViewer": 175,
+  "measuredAt": "2026-10-09T04:15:41.740113102Z",
+  "measuredViewers": 3,
+  "modeCounts": {
+    "ranked": 500
+  },
+  "nonconsentingLatency": {
+    "p50Ms": 285.962,
+    "p95Ms": 397.949,
+    "p99Ms": 442.773
+  },
+  "nonconsentingRequests": 150,
+  "nonconsentingViewers": 1,
+  "postgresVersion": "PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+  "postsPerAuthor": 8,
+  "qualityValidated": false,
+  "recommendationRPC": {
+    "calls": 400,
+    "errors": 0,
+    "latency": {
+      "p50Ms": 2.794,
+      "p95Ms": 6.472,
+      "p99Ms": 31.534
+    },
+    "maximumCandidates": 960
+  },
+  "requests": 500,
+  "responseBytes": 9022280,
+  "runtimeRole": "js_social",
+  "rustBinarySHA256": "54439e6c71383c581eba9146245864ee638ce686d423a8991e86f7b4f9474e21",
+  "rustBuild": "cargo build --locked --release, host process without a CPU or memory limit",
+  "rustMaxInFlight": 8,
+  "rustReplicas": 1,
+  "rustVersion": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "scope": "closed-loop loopback HTTP Go API / restricted PostgreSQL / Rust RPC, configurable independent synthetic viewers; excludes BFF, production TLS, cache and background event workers",
+  "seededViewers": 3,
+  "snapshotCache": false,
+  "socialPoolMaxConns": 15,
+  "statusCounts": {
+    "200": 500
+  },
+  "successfulFeeds": 500,
+  "successfulRequestsPerSecond": 26.16803517098522,
+  "testTimeoutSeconds": 1250,
+  "tls": false,
+  "warmupRequests": 3,
+  "worktreeDirty": false
+}

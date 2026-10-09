@@ -22,6 +22,7 @@ def main():
     parser.add_argument("--ranker-max-in-flight", type=int, default=8)
     parser.add_argument("--authors", type=int, default=128)
     parser.add_argument("--posts-per-author", type=int, default=8)
+    parser.add_argument("--viewers", type=int, default=3)
     parser.add_argument("--output", type=Path, default=Path("/tmp/jansetu-recommendation-api-smoke.json"))
     parser.add_argument("--profile-dir", type=Path, help="new directory for Go CPU, block and mutex profiles plus test binary")
     args = parser.parse_args()
@@ -29,11 +30,14 @@ def main():
                                ("concurrency", args.concurrency, 128),
                                ("ranker-max-in-flight", args.ranker_max_in_flight, 128),
                                ("authors", args.authors, 1024),
-                               ("posts-per-author", args.posts_per_author, 128)):
+                               ("posts-per-author", args.posts_per_author, 128),
+                               ("viewers", args.viewers, 1024)):
         if value < 1 or value > limit:
             parser.error(f"{name} must be between 1 and {limit}")
     if args.authors < 32:
         parser.error("at least 32 authors are needed for first and continuation pages")
+    if args.viewers < 3:
+        parser.error("at least three viewers are needed for the consent mix")
     output = args.output.resolve()
     profile_dir = args.profile_dir.resolve() if args.profile_dir else None
     if profile_dir is not None:
@@ -44,8 +48,10 @@ def main():
         profile_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
     output.parent.mkdir(parents=True, exist_ok=True)
     # Every worker has a 10-second HTTP deadline. Allow the full bounded
-    # request workload plus ten minutes for fixture setup and cleanup.
-    timeout_seconds = 600 + 10 * ((args.requests + args.concurrency - 1) // args.concurrency)
+    # request workload, viewer warmups and one cursor ownership check, plus
+    # ten minutes for fixture setup and cleanup.
+    timeout_seconds = 600 + 10 * (1 + (args.viewers + args.concurrency - 1) // args.concurrency
+                                + (args.requests + args.concurrency - 1) // args.concurrency)
     subprocess.run(["cargo", "build", "--locked", "--release", "--manifest-path",
                     "services/recommendation/Cargo.toml", "--bin", "jansetu-recommendation"],
                    cwd=ROOT, check=True)
@@ -80,6 +86,7 @@ def main():
                                    JANSETU_BENCHMARK_REQUESTS=str(args.requests),
                                    JANSETU_BENCHMARK_CONCURRENCY=str(args.concurrency),
                                    JANSETU_BENCHMARK_AUTHORS=str(args.authors),
+                                   JANSETU_BENCHMARK_VIEWERS=str(args.viewers),
                                    JANSETU_BENCHMARK_POSTS_PER_AUTHOR=str(args.posts_per_author))
                 command = ["go", "test", "./internal/app", "-run",
                            "^TestRecommendationAPIBenchmark$", "-count=1", f"-timeout={timeout_seconds}s"]
@@ -122,7 +129,7 @@ def main():
                         },
                     })
                     output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-                    print(json.dumps({k: result[k] for k in ("requests", "errors", "successfulRequestsPerSecond", "allResponseLatency", "modeCounts")}))
+                    print(json.dumps({k: result[k] for k in ("requests", "seededViewers", "measuredViewers", "errors", "successfulRequestsPerSecond", "allResponseLatency", "modeCounts")}))
                     print(f"Benchmark artifact: {output}")
                 if process.returncode:
                     raise subprocess.CalledProcessError(process.returncode, process.args)
