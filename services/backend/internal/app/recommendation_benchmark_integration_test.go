@@ -221,6 +221,7 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 		Continuation bool
 		Consenting   bool
 		Viewer       int
+		PostIDs      []uuid.UUID
 	}
 	fetch := func(viewer int, cursor string) sample {
 		path := server.URL + "/v1/feed?sort=recommended"
@@ -264,6 +265,7 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 				return s
 			}
 			seen[item.Post.ID] = true
+			s.PostIDs = append(s.PostIDs, item.Post.ID)
 			authorCount[item.Post.Author.ID]++
 			if authorCount[item.Post.Author.ID] > 2 {
 				s.Error = "author_cap"
@@ -322,6 +324,7 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 		go func() {
 			defer workers.Done()
 			cursors := append([]string{}, initial...)
+			histories := map[int]*benchmarkPostHistory{}
 			<-gate
 			for {
 				i := int(next.Add(1) - 1)
@@ -334,10 +337,22 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 					cursor = cursors[viewer]
 				}
 				s := fetch(viewer, cursor)
-				results[i] = s
 				if s.Error == "" {
-					cursors[viewer] = s.Cursor
+					history := histories[viewer]
+					if history == nil {
+						history = &benchmarkPostHistory{}
+						history.accept(false, warmup[viewer].PostIDs)
+						histories[viewer] = history
+					}
+					if !history.accept(cursor != "", s.PostIDs) {
+						s.Error = "duplicate_across_pages"
+					} else {
+						cursors[viewer] = s.Cursor
+					}
 				}
+				// IDs are validation-only and never retained in result artifacts.
+				s.PostIDs = nil
+				results[i] = s
 			}
 		}()
 	}
@@ -415,8 +430,8 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 		"consentingViewers": viewerCount - viewerCount/3, "nonconsentingViewers": viewerCount / 3,
 		"measuredViewers": measuredViewers, "maximumRequestsPerViewer": maximumPerViewer,
 		"requests": requests, "concurrency": concurrency, "warmupRequests": viewerCount, "cursorOwnershipChecks": 1, "successfulFeeds": success,
-		"paginationPolicy": "advance-on-success-v2",
-		"errors":           requests - success, "errorCounts": errors, "statusCounts": statuses, "modeCounts": modes,
+		"paginationPolicy": "advance-on-success-v2", "crossPagePostValidation": true,
+		"errors": requests - success, "errorCounts": errors, "statusCounts": statuses, "modeCounts": modes,
 		"continuations": continuations, "nonconsentingRequests": nonconsenting, "responseBytes": bytes,
 		"databasePools":  poolMeasurements,
 		"elapsedSeconds": elapsed, "successfulRequestsPerSecond": float64(success) / elapsed,
