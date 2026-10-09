@@ -25,6 +25,7 @@ def main():
     parser.add_argument("--viewers", type=int, default=3)
     parser.add_argument("--output", type=Path, default=Path("/tmp/jansetu-recommendation-api-smoke.json"))
     parser.add_argument("--profile-dir", type=Path, help="new directory for Go CPU, block and mutex profiles plus test binary")
+    parser.add_argument("--query-timings", action="store_true", help="record aggregate social-pool query durations using fixed labels")
     args = parser.parse_args()
     for name, value, limit in (("requests", args.requests, 100000),
                                ("concurrency", args.concurrency, 128),
@@ -87,6 +88,7 @@ def main():
                                    JANSETU_BENCHMARK_CONCURRENCY=str(args.concurrency),
                                    JANSETU_BENCHMARK_AUTHORS=str(args.authors),
                                    JANSETU_BENCHMARK_VIEWERS=str(args.viewers),
+                                   JANSETU_BENCHMARK_QUERY_TIMINGS="1" if args.query_timings else "",
                                    JANSETU_BENCHMARK_POSTS_PER_AUTHOR=str(args.posts_per_author))
                 command = ["go", "test", "./internal/app", "-run",
                            "^TestRecommendationAPIBenchmark$", "-count=1", f"-timeout={timeout_seconds}s"]
@@ -108,6 +110,7 @@ def main():
                         "gitRevision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                         "worktreeDirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
                         "generatorSHA256": hashlib.sha256((ROOT / "services/backend/internal/app/recommendation_benchmark_integration_test.go").read_bytes()).hexdigest(),
+                        "queryTimingTracerSHA256": hashlib.sha256((ROOT / "services/backend/internal/app/recommendation_benchmark_queries_test.go").read_bytes()).hexdigest() if args.query_timings else None,
                         "rustBinarySHA256": hashlib.sha256(binary.read_bytes()).hexdigest(),
                         "rustBuild": "cargo build --locked --release, host process without a CPU or memory limit",
                         "rustMaxInFlight": args.ranker_max_in_flight,
