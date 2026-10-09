@@ -376,23 +376,14 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 		if e != nil {
 			return e
 		}
-		type post struct {
-			ID                uuid.UUID
-			PublishedRevision int32
-			Author            *struct{ ID uuid.UUID }
-		}
 		bodies := map[uuid.UUID]json.RawMessage{}
 		revisions := map[uuid.UUID]int32{}
 		authors := map[uuid.UUID]uuid.UUID{}
-		for _, data := range posts {
-			var post post
-			if e = json.Unmarshal(data, &post); e != nil {
-				return e
+		for _, post := range posts {
+			if post.AuthorID != nil {
+				authors[post.ID] = *post.AuthorID
 			}
-			if post.Author != nil {
-				authors[post.ID] = post.Author.ID
-			}
-			bodies[post.ID] = data
+			bodies[post.ID] = post.Data
 			revisions[post.ID] = post.PublishedRevision
 		}
 		if a.FeatureShadow != nil && p.PersonalizationEnabled {
@@ -465,11 +456,7 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 			if !ok || hidden[ref.ID] || counts[authors[ref.ID]] >= 2 {
 				continue
 			}
-			var post post
-			if e = json.Unmarshal(data, &post); e != nil {
-				return e
-			}
-			if post.PublishedRevision != ref.Revision {
+			if revisions[ref.ID] != ref.Revision {
 				continue
 			}
 			counts[authors[ref.ID]]++

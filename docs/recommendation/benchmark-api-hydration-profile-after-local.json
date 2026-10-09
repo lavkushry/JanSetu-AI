@@ -1,0 +1,107 @@
+{
+  "allResponseLatency": {
+    "p50Ms": 299.282,
+    "p95Ms": 404.456,
+    "p99Ms": 450.11
+  },
+  "apiReplicas": 1,
+  "authors": 128,
+  "behavioralShadow": false,
+  "completeFeedCapacityValidated": false,
+  "concurrency": 8,
+  "consentedLatency": {
+    "p50Ms": 309.206,
+    "p95Ms": 409.761,
+    "p99Ms": 450.11
+  },
+  "consentingViewers": 64,
+  "continuationLatency": {
+    "p50Ms": 142.693,
+    "p95Ms": 212.311,
+    "p99Ms": 230.64
+  },
+  "continuations": 100,
+  "costPerMillionEvents": null,
+  "costPerThousandFeeds": null,
+  "cursorOwnershipChecks": 1,
+  "datasetSHA256": "7af3f488c6ea3f7466ca8269c5317b79510207d6be3b222213dc601234e4484c",
+  "elapsedSeconds": 18.063774512,
+  "errorCounts": {},
+  "errors": 0,
+  "firstPageLatency": {
+    "p50Ms": 317.95,
+    "p95Ms": 412.125,
+    "p99Ms": 458.444
+  },
+  "fixture": "api-smoke-v2",
+  "fixtureContentSHA256": "db49e8bd9f67fd28913e2ff84c8327318dac62065a4018bb640f8aee05021577",
+  "fixtureEligiblePosts": 956,
+  "fixtureExcludedPosts": 68,
+  "generatorSHA256": "d57ec80b72ee6cccb463d449c62a8c8953a65b024a507c6acc11b5c064d6e362",
+  "gitRevision": "ad4a8d10ec6873b0f49d346276d197e4f72fe3b8",
+  "goMaxProcs": 4,
+  "goProfiling": {
+    "artifacts": {
+      "app.test": "fef0a9ac397e4ca32ee966de36b7cdb9a3117183a0c3563e1e991e6c8218d47b",
+      "block.pprof": "5fa049e861448720f4276bdb04aba99e5bb13ecb7f258181f3b8689819e8cbf0",
+      "cpu.pprof": "6f770990757fac83983c9404a0797bb38ed0d2a4e657fcee591729e22cab520c",
+      "mutex.pprof": "d49cec5b5ad47ca7d336ce2aacd17bc03a73e11fb876c4ae04c76beec26cc255"
+    },
+    "blockRateNanoseconds": 1000000,
+    "enabled": true,
+    "mutexSampleFraction": 5,
+    "scope": "Go test runner interval including benchmark fixture setup and warmup"
+  },
+  "goRaceDetector": false,
+  "goVersion": "go1.26.0",
+  "hostArchitecture": "aarch64",
+  "hostLogicalCPUs": 4,
+  "hostMemoryBytes": 25136467968,
+  "maximumRequestsPerViewer": 6,
+  "measuredAt": "2026-10-09T04:32:40.347128306Z",
+  "measuredViewers": 96,
+  "modeCounts": {
+    "ranked": 500
+  },
+  "nonconsentingLatency": {
+    "p50Ms": 279.809,
+    "p95Ms": 396.056,
+    "p99Ms": 469.429
+  },
+  "nonconsentingRequests": 150,
+  "nonconsentingViewers": 32,
+  "postgresVersion": "PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+  "postsPerAuthor": 8,
+  "qualityValidated": false,
+  "recommendationRPC": {
+    "calls": 400,
+    "errors": 0,
+    "latency": {
+      "p50Ms": 2.852,
+      "p95Ms": 5.637,
+      "p99Ms": 27.167
+    },
+    "maximumCandidates": 960
+  },
+  "requests": 500,
+  "responseBytes": 9022280,
+  "runtimeRole": "js_social",
+  "rustBinarySHA256": "6c847de71588ef67faf909762948f5fba17a0df9bc9088d9bd0156f2732db1fb",
+  "rustBuild": "cargo build --locked --release, host process without a CPU or memory limit",
+  "rustMaxInFlight": 8,
+  "rustReplicas": 1,
+  "rustVersion": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "scope": "closed-loop loopback HTTP Go API / restricted PostgreSQL / Rust RPC, configurable independent synthetic viewers; excludes BFF, production TLS, cache and background event workers",
+  "seededViewers": 96,
+  "snapshotCache": false,
+  "socialPoolMaxConns": 15,
+  "statusCounts": {
+    "200": 500
+  },
+  "successfulFeeds": 500,
+  "successfulRequestsPerSecond": 27.679707785758925,
+  "testTimeoutSeconds": 1360,
+  "tls": false,
+  "warmupRequests": 96,
+  "worktreeDirty": false
+}

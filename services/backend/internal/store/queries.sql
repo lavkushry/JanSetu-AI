@@ -713,7 +713,7 @@ SELECT * FROM ops.prerequisite_amendment WHERE case_id=$1 ORDER BY created_at,id
 INSERT INTO ops.task_prerequisite(case_id,task_id,prerequisite_task_id,amendment_id) VALUES($1,$2,$3,$4);
 
 -- name: RecommendationPosts :many
-SELECT jsonb_build_object(
+SELECT p.id, COALESCE(p.published_revision,0)::integer AS published_revision, a.id AS author_id, jsonb_build_object(
   'id',p.id,'kind',p.kind,'state',p.state,'version',p.version,'currentRevision',p.current_revision,'publishedRevision',p.published_revision,
   'title',CASE WHEN p.state='DELETED' THEN NULL WHEN pub.post_id IS NOT NULL THEN pub.title ELSE cur.title END,
   'body',CASE WHEN p.state='DELETED' THEN NULL ELSE COALESCE(pub.body,'') END,
