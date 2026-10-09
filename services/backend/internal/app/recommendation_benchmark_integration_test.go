@@ -74,6 +74,99 @@ func benchmarkPercentiles(values []float64) map[string]float64 {
 	return result
 }
 
+// Seed distinct accounts only inside TestMain's disposable databases. Requests
+// still use the normal session authentication and restricted application roles.
+func benchmarkViewers(t *testing.T, a *App, count int) ([]client, []uuid.UUID) {
+	t.Helper()
+	clients, profiles := make([]client, count), make([]uuid.UUID, count)
+	ctx := context.Background()
+	err := pgx.BeginFunc(ctx, integrationAdmin, func(tx pgx.Tx) error {
+		for i := range clients {
+			profile := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("api-smoke-v2:viewer:%d", i)))
+			principal := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("api-smoke-v2:principal:%d", i)))
+			token, err := randomSecret()
+			if err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO social.profile(id,handle,display_name,state) VALUES($1,$2,'API benchmark viewer','ACTIVE')`, profile, "viewer_"+profile.String()[:12]); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO identity.principal(id,profile_id,state) VALUES($1,$2,'ACTIVE')`, principal, profile); err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO identity.session(id,principal_id,token_hash,expires_at) VALUES($1,$2,$3,now()+interval '12 hours')`, uuid.New(), principal, tokenHash(token)); err != nil {
+				return err
+			}
+			clients[i] = client{app: a, cookie: &http.Cookie{Name: "jansetu_session", Value: token}}
+			profiles[i] = profile
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, c := range clients {
+		if myProfileID(t, c) != profiles[i] {
+			t.Fatal("benchmark session authenticated as the wrong viewer")
+		}
+		consentRecommendation(t, c, i%3 != 2)
+	}
+	return clients, profiles
+}
+
+// Balance requests within each consent group without tying viewer selection to
+// worker scheduling. Preserve the 70/30 mix across first and continuation pages.
+func benchmarkViewerSchedule(viewers, requests int) []int {
+	pools := [2][]int{}
+	for viewer := 0; viewer < viewers; viewer++ {
+		group := 0
+		if viewer%3 == 2 {
+			group = 1
+		}
+		pools[group] = append(pools[group], viewer)
+	}
+	schedule, next := make([]int, requests), [2]int{}
+	for i := range schedule {
+		group := 0
+		if (i+i/10)%10 < 3 {
+			group = 1
+		}
+		schedule[i] = pools[group][next[group]%len(pools[group])]
+		next[group]++
+	}
+	return schedule
+}
+
+func TestBenchmarkViewerSchedule(t *testing.T) {
+	for _, viewers := range []int{3, 4, 48, 96, 1024} {
+		schedule := benchmarkViewerSchedule(viewers, 10000)
+		counts, cold, coldContinuations := make([]int, viewers), 0, 0
+		for i, viewer := range schedule {
+			counts[viewer]++
+			if viewer%3 == 2 {
+				cold++
+				if i%5 == 4 {
+					coldContinuations++
+				}
+			}
+		}
+		if cold != 3000 || coldContinuations != 600 {
+			t.Fatalf("%d viewers: consent/page mix changed: %d, %d", viewers, cold, coldContinuations)
+		}
+		for group := 0; group < 2; group++ {
+			low, high := len(schedule), 0
+			for viewer, count := range counts {
+				if (viewer%3 == 2) == (group == 1) {
+					low, high = min(low, count), max(high, count)
+				}
+			}
+			if low == 0 || high-low > 1 {
+				t.Fatalf("%d viewers: unbalanced group %d, min %d max %d", viewers, group, low, high)
+			}
+		}
+	}
+}
+
 // An opt-in HTTP smoke workload. TestMain creates and removes fresh application
 // and vault databases; this harness cannot point requests at a deployed API.
 func TestRecommendationAPIBenchmark(t *testing.T) {
@@ -90,6 +183,10 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 	concurrency := benchmarkNumber(t, "JANSETU_BENCHMARK_CONCURRENCY", 8, 128)
 	authors := benchmarkNumber(t, "JANSETU_BENCHMARK_AUTHORS", 128, 1024)
 	perAuthor := benchmarkNumber(t, "JANSETU_BENCHMARK_POSTS_PER_AUTHOR", 8, 128)
+	viewerCount := benchmarkNumber(t, "JANSETU_BENCHMARK_VIEWERS", 3, 1024)
+	if viewerCount < 3 || authors < 32 {
+		t.Fatal("at least three viewers and 32 authors are required")
+	}
 	cfg := base.Config
 	cfg.RecommendationTarget = ""
 	cfg.RecommendationMode, cfg.RecommendationRollout = "serve", 100
@@ -102,12 +199,9 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 	defer rpc.Close()
 	ranker := &measuredRanker{Ranker: rpc}
 	a.Ranker = ranker
-	clients := []client{login(t, a, 0), login(t, a, 1), login(t, a, 2)}
-	viewers := []uuid.UUID{myProfileID(t, clients[0]), myProfileID(t, clients[1]), myProfileID(t, clients[2])}
-	for i, c := range clients {
-		consentRecommendation(t, c, i != 2)
-	}
-	denied, digest, published := benchmarkFixture(t, authors, perAuthor, viewers)
+	clients, viewers := benchmarkViewers(t, a, viewerCount)
+	schedule := benchmarkViewerSchedule(viewerCount, requests)
+	denied, digest, inventoryDigest, published := benchmarkFixture(t, authors, perAuthor, viewers)
 	server := httptest.NewServer(a.Handler())
 	defer server.Close()
 	transport := &http.Transport{MaxIdleConns: concurrency, MaxIdleConnsPerHost: concurrency, MaxConnsPerHost: concurrency}
@@ -125,6 +219,7 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 		Cursor       string
 		Continuation bool
 		Consenting   bool
+		Viewer       int
 	}
 	fetch := func(viewer int, cursor string) sample {
 		path := server.URL + "/v1/feed?sort=recommended"
@@ -135,7 +230,7 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 		request.AddCookie(clients[viewer].cookie)
 		start := time.Now()
 		response, err := httpClient.Do(request)
-		s := sample{Continuation: cursor != "", Consenting: viewer != 2}
+		s := sample{Continuation: cursor != "", Consenting: viewer%3 != 2, Viewer: viewer}
 		if err != nil {
 			s.Latency, s.Error = float64(time.Since(start).Microseconds())/1000, "transport"
 			return s
@@ -184,12 +279,32 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 		return s
 	}
 	initial := make([]string, len(clients))
-	for viewer := range clients {
-		s := fetch(viewer, "")
+	warmup := make([]sample, len(clients))
+	var warmupNext atomic.Int64
+	var warmupWorkers sync.WaitGroup
+	for worker := 0; worker < min(concurrency, viewerCount); worker++ {
+		warmupWorkers.Add(1)
+		go func() {
+			defer warmupWorkers.Done()
+			for {
+				viewer := int(warmupNext.Add(1) - 1)
+				if viewer >= viewerCount {
+					return
+				}
+				warmup[viewer] = fetch(viewer, "")
+			}
+		}()
+	}
+	warmupWorkers.Wait()
+	for viewer, s := range warmup {
 		if s.Error != "" || s.Mode != "ranked" || s.Cursor == "" {
 			t.Fatal("warmup failed", s.Error, s.Status, s.Mode)
 		}
 		initial[viewer] = s.Cursor
+	}
+	// Cursor ownership must hold for the independently authenticated fixture.
+	if s := fetch(1, initial[0]); s.Status != http.StatusGone {
+		t.Fatal("another viewer's snapshot cursor was accepted", s.Status)
 	}
 	ranker.mu.Lock()
 	ranker.latencies, ranker.errors, ranker.candidates = nil, 0, 0
@@ -209,11 +324,7 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 				if i >= requests {
 					return
 				}
-				// Deterministic 30% nonconsenting mix, spread across request types.
-				viewer := i % 2
-				if (i+i/10)%10 < 3 {
-					viewer = 2
-				}
+				viewer := schedule[i]
 				cursor := ""
 				if i%5 == 4 {
 					cursor = cursors[viewer]
@@ -234,7 +345,9 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 	firstLatency, continuationLatency, consentedLatency, coldLatency := []float64{}, []float64{}, []float64{}, []float64{}
 	errors, modes, statuses := map[string]int{}, map[string]int{}, map[string]int{}
 	success, continuations, nonconsenting, bytes := 0, 0, 0, 0
+	viewerRequests := make([]int, viewerCount)
 	for _, s := range results {
+		viewerRequests[s.Viewer]++
 		latencies = append(latencies, s.Latency)
 		statuses[strconv.Itoa(s.Status)]++
 		bytes += s.Bytes
@@ -257,14 +370,23 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 			modes[s.Mode]++
 		}
 	}
+	measuredViewers, maximumPerViewer := 0, 0
+	for _, count := range viewerRequests {
+		if count > 0 {
+			measuredViewers++
+		}
+		maximumPerViewer = max(maximumPerViewer, count)
+	}
 	var pgVersion string
 	if err := integrationAdmin.QueryRow(context.Background(), "SELECT version()").Scan(&pgVersion); err != nil {
 		t.Fatal(err)
 	}
 	stats := map[string]any{
-		"fixture": "api-smoke-v1", "datasetSHA256": digest, "authors": authors, "postsPerAuthor": perAuthor,
-		"fixtureEligiblePosts": published, "fixtureExcludedPosts": len(denied), "seededViewers": 3,
-		"requests": requests, "concurrency": concurrency, "warmupRequests": 3, "successfulFeeds": success,
+		"fixture": "api-smoke-v2", "datasetSHA256": digest, "fixtureContentSHA256": inventoryDigest, "authors": authors, "postsPerAuthor": perAuthor,
+		"fixtureEligiblePosts": published, "fixtureExcludedPosts": len(denied), "seededViewers": viewerCount,
+		"consentingViewers": viewerCount - viewerCount/3, "nonconsentingViewers": viewerCount / 3,
+		"measuredViewers": measuredViewers, "maximumRequestsPerViewer": maximumPerViewer,
+		"requests": requests, "concurrency": concurrency, "warmupRequests": viewerCount, "cursorOwnershipChecks": 1, "successfulFeeds": success,
 		"errors": requests - success, "errorCounts": errors, "statusCounts": statuses, "modeCounts": modes,
 		"continuations": continuations, "nonconsentingRequests": nonconsenting, "responseBytes": bytes,
 		"elapsedSeconds": elapsed, "successfulRequestsPerSecond": float64(success) / elapsed,
@@ -277,7 +399,7 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 		"apiReplicas": 1, "rustReplicas": 1, "tls": false, "snapshotCache": false, "behavioralShadow": false,
 		"costPerThousandFeeds": nil, "costPerMillionEvents": nil,
 		"completeFeedCapacityValidated": false, "qualityValidated": false,
-		"scope": "closed-loop loopback HTTP Go API / restricted PostgreSQL / Rust RPC, synthetic three-viewer smoke; excludes BFF, production TLS, cache and background event workers",
+		"scope": "closed-loop loopback HTTP Go API / restricted PostgreSQL / Rust RPC, configurable independent synthetic viewers; excludes BFF, production TLS, cache and background event workers",
 	}
 	data, err := json.MarshalIndent(stats, "", "  ")
 	if err != nil {
@@ -294,13 +416,24 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 
 // Identity, language, body, state and age offsets are reproducible. Published
 // times use a run anchor; that relative-time policy is part of the dataset hash.
-func benchmarkFixture(t *testing.T, authors, perAuthor int, viewers []uuid.UUID) (map[uuid.UUID]bool, string, int) {
+func benchmarkFixture(t *testing.T, authors, perAuthor int, viewers []uuid.UUID) (map[uuid.UUID]bool, string, string, int) {
 	t.Helper()
 	denied := map[uuid.UUID]bool{}
 	hash := sha256.New()
+	inventoryHash := sha256.New()
+	contentHash := io.MultiWriter(hash, inventoryHash)
+	seed, err := os.ReadFile("../../../../db/seed/local.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintf(hash, "seedSHA256=%x\n", sha256.Sum256(seed))
+	fmt.Fprintln(hash, "api-smoke-v2; seed=db/seed/local.sql; follows=every-eighth-author; blocks=last-author; consenting=viewer-index-modulo-three-not-two")
+	for i, viewer := range viewers {
+		fmt.Fprintf(hash, "viewer=%d|profile=%s|consenting=%t\n", i, viewer, i%3 != 2)
+	}
 	published := 0
 	ctx := context.Background()
-	err := pgx.BeginFunc(ctx, integrationAdmin, func(tx pgx.Tx) error {
+	err = pgx.BeginFunc(ctx, integrationAdmin, func(tx pgx.Tx) error {
 		for i := 0; i < authors; i++ {
 			author := uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("api-smoke-v1:author:%d", i)))
 			if _, err := tx.Exec(ctx, `INSERT INTO social.profile(id,handle,display_name,state) VALUES($1,$2,'API benchmark fixture','ACTIVE')`, author, "bench_"+author.String()[:12]); err != nil {
@@ -328,7 +461,7 @@ func benchmarkFixture(t *testing.T, authors, perAuthor int, viewers []uuid.UUID)
 					language = "hi-IN"
 				}
 				body := fmt.Sprintf("Synthetic local discovery workload item %d by creator %d. Useful discussion for the API smoke fixture.", ordinal, i)
-				fmt.Fprintf(hash, "%s|%s|%s|%s|%s|ageSeconds=%d\n", author, post, state, language, body, ordinal)
+				fmt.Fprintf(contentHash, "%s|%s|%s|%s|%s|ageSeconds=%d\n", author, post, state, language, body, ordinal)
 				if _, err := tx.Exec(ctx, `INSERT INTO social.post(id,author_id,kind,state,published_revision,published_at) VALUES($1,$2,'SHORT',$3,1,transaction_timestamp()-$4*interval '1 second')`, post, author, state, ordinal); err != nil {
 					return err
 				}
@@ -342,11 +475,11 @@ func benchmarkFixture(t *testing.T, authors, perAuthor int, viewers []uuid.UUID)
 				}
 			}
 		}
-		_, err := tx.Exec(ctx, "ANALYZE social.post; ANALYZE social.post_revision; ANALYZE social.profile; ANALYZE social.profile_follow; ANALYZE social.profile_block")
+		_, err := tx.Exec(ctx, "ANALYZE social.post; ANALYZE social.post_revision; ANALYZE social.profile; ANALYZE social.profile_follow; ANALYZE social.profile_block; ANALYZE identity.principal; ANALYZE identity.session; ANALYZE social.recommendation_preference")
 		return err
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return denied, hex.EncodeToString(hash.Sum(nil)), published
+	return denied, hex.EncodeToString(hash.Sum(nil)), hex.EncodeToString(inventoryHash.Sum(nil)), published
 }
