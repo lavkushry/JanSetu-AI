@@ -19,6 +19,7 @@ JanSetu optimizes discovery for useful local conversations and creators, with sa
 - [Validation record](VALIDATION.md): tests, browser/container proof and measured limits.
 - [Benchmark protocol](BENCHMARKS.md): reproducible workloads and capacity/cost reporting.
 - [Complete-feed smoke workload](API-BENCHMARK.md): isolated HTTP Go/PostgreSQL/Rust measurements with fixture, binary and environment metadata.
+- [Batched exposure writes](EXPOSURES.md): one insert per consenting page, identity/retry regression checks and diagnostic command counts.
 - [Viewer retrieval features](RETRIEVAL.md): statement-local history/mute assembly, restricted-role correctness and a paired complete-feed measurement.
 - [Internal protobuf](../../contracts/proto/recommendation/v1/recommendation.proto): versioned Go/Rust contract.
 
