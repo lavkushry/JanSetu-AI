@@ -197,6 +197,7 @@ function RecommendationControlBody({ value }: { value: Schema['RecommendationExp
   const { notify } = useSession();
   const [choice, setChoice] = useState('');
   const [satisfaction, setSatisfaction] = useState('');
+  const satisfactionAttempt = useRef<'SATISFIED' | 'DISSATISFIED' | null>(null);
   const eventIds = useRef<Partial<Record<FeedbackKind, string>>>({});
   const feedback = useMutation({
     mutationFn: ({ kind, eventId }: { kind: FeedbackKind; eventId: string }) =>
@@ -224,6 +225,10 @@ function RecommendationControlBody({ value }: { value: Schema['RecommendationExp
     },
   });
   const submit = (kind: FeedbackKind) => {
+    if (kind === 'SATISFIED' || kind === 'DISSATISFIED') {
+      if (satisfactionAttempt.current && satisfactionAttempt.current !== kind) return;
+      satisfactionAttempt.current = kind;
+    }
     const eventId = (eventIds.current[kind] ??= crypto.randomUUID());
     feedback.mutate({ kind, eventId });
   };
@@ -253,7 +258,11 @@ function RecommendationControlBody({ value }: { value: Schema['RecommendationExp
               type="button"
               className="text-button"
               aria-pressed={satisfaction === 'SATISFIED'}
-              disabled={feedback.isPending || satisfaction !== ''}
+              disabled={
+                feedback.isPending ||
+                satisfaction !== '' ||
+                satisfactionAttempt.current === 'DISSATISFIED'
+              }
               onClick={() => submit('SATISFIED')}
             >
               Helpful
@@ -262,12 +271,19 @@ function RecommendationControlBody({ value }: { value: Schema['RecommendationExp
               type="button"
               className="text-button"
               aria-pressed={satisfaction === 'DISSATISFIED'}
-              disabled={feedback.isPending || satisfaction !== ''}
+              disabled={
+                feedback.isPending ||
+                satisfaction !== '' ||
+                satisfactionAttempt.current === 'SATISFIED'
+              }
               onClick={() => submit('DISSATISFIED')}
             >
               Not helpful
             </button>
             {satisfaction && <p role="status">Usefulness feedback recorded.</p>}
+            {feedback.isError && satisfactionAttempt.current && !satisfaction && (
+              <p>Retry your original answer to confirm it was recorded.</p>
+            )}
           </div>
           <FormError error={feedback.error} />
         </>
