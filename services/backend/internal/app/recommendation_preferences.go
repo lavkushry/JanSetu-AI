@@ -239,14 +239,7 @@ func (a *App) recommendationEvent(w http.ResponseWriter, r *http.Request, actor 
 		if len(data) != 1 {
 			return unavailable()
 		}
-		var current struct {
-			PublishedRevision int32
-			Body              string
-		}
-		if e = json.Unmarshal(data[0], &current); e != nil {
-			return e
-		}
-		if current.PublishedRevision != revision {
+		if data[0].PublishedRevision != revision {
 			return unavailable()
 		}
 		if b.ActiveMilliseconds > elapsed+1000 {
@@ -254,6 +247,10 @@ func (a *App) recommendationEvent(w http.ResponseWriter, r *http.Request, actor 
 		}
 		normalized := 0.0
 		if b.Kind == "READ" {
+			var current struct{ Body string }
+			if e = json.Unmarshal(data[0].Data, &current); e != nil {
+				return e
+			}
 			expectedMS := max(3000, len([]rune(current.Body))*300)
 			normalized = min(1, float64(b.ActiveMilliseconds)/float64(expectedMS))
 		}

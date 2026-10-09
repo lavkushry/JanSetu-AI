@@ -85,6 +85,8 @@ Four sequential runs use the same clean source revision, fixture generator, rele
 
 The first three-viewer run includes one authorized fallback and 399 RPC calls; the other runs have 500 ranked feeds and 400 RPC calls. With timing logs discarded, its exact fallback cause was not captured. The three-viewer p95 varies substantially between repetitions, while the two 96-viewer runs are close. These observations do not isolate the contribution of viewer locks or establish a statistically supported throughput improvement. This fixture allows that hypothesis to be investigated with independent accounts; representative arrival-rate, saturation and authorization-change tests remain required.
 
+The subsequent [hydration metadata investigation](HYDRATION.md) uses this fixture and optional profiling to remove redundant JSON decoding. It records repeated latency observations separately from sampled CPU, without claiming an API latency or capacity improvement.
+
 ## Continuation progression
 
 New runs record `paginationPolicy=advance-on-success-v2`. Each worker retains a separate cursor for each viewer and replaces it after every successful response, including continuation responses. An exhausted cursor clears that state, so the next scheduled continuation starts a new first page. A continuation response returning its input cursor fails with `cursor_not_advanced`. Failed requests preserve the previous cursor for a possible retry.

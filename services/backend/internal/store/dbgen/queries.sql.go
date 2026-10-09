@@ -4324,7 +4324,7 @@ func (q *Queries) Receipts(ctx context.Context, searchText string) ([]SocialCase
 }
 
 const recommendationPosts = `-- name: RecommendationPosts :many
-SELECT jsonb_build_object(
+SELECT p.id, COALESCE(p.published_revision,0)::integer AS published_revision, a.id AS author_id, jsonb_build_object(
   'id',p.id,'kind',p.kind,'state',p.state,'version',p.version,'currentRevision',p.current_revision,'publishedRevision',p.published_revision,
   'title',CASE WHEN p.state='DELETED' THEN NULL WHEN pub.post_id IS NOT NULL THEN pub.title ELSE cur.title END,
   'body',CASE WHEN p.state='DELETED' THEN NULL ELSE COALESCE(pub.body,'') END,
@@ -4371,19 +4371,31 @@ type RecommendationPostsParams struct {
 	PostIds      []uuid.UUID `json:"post_ids"`
 }
 
-func (q *Queries) RecommendationPosts(ctx context.Context, arg RecommendationPostsParams) ([][]byte, error) {
+type RecommendationPostsRow struct {
+	ID                uuid.UUID  `json:"id"`
+	PublishedRevision int32      `json:"published_revision"`
+	AuthorID          *uuid.UUID `json:"author_id"`
+	Data              []byte     `json:"data"`
+}
+
+func (q *Queries) RecommendationPosts(ctx context.Context, arg RecommendationPostsParams) ([]RecommendationPostsRow, error) {
 	rows, err := q.db.Query(ctx, recommendationPosts, arg.ViewerID, arg.ReviewAccess, arg.PostIds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := [][]byte{}
+	items := []RecommendationPostsRow{}
 	for rows.Next() {
-		var data []byte
-		if err := rows.Scan(&data); err != nil {
+		var i RecommendationPostsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublishedRevision,
+			&i.AuthorID,
+			&i.Data,
+		); err != nil {
 			return nil, err
 		}
-		items = append(items, data)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
