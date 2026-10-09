@@ -277,6 +277,9 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 		if page.NextCursor != nil {
 			s.Cursor = *page.NextCursor
 		}
+		if cursor != "" && s.Cursor == cursor {
+			s.Error = "cursor_not_advanced"
+		}
 		return s
 	}
 	initial := make([]string, len(clients))
@@ -332,7 +335,7 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 				}
 				s := fetch(viewer, cursor)
 				results[i] = s
-				if cursor == "" && s.Error == "" {
+				if s.Error == "" {
 					cursors[viewer] = s.Cursor
 				}
 			}
@@ -412,7 +415,8 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 		"consentingViewers": viewerCount - viewerCount/3, "nonconsentingViewers": viewerCount / 3,
 		"measuredViewers": measuredViewers, "maximumRequestsPerViewer": maximumPerViewer,
 		"requests": requests, "concurrency": concurrency, "warmupRequests": viewerCount, "cursorOwnershipChecks": 1, "successfulFeeds": success,
-		"errors": requests - success, "errorCounts": errors, "statusCounts": statuses, "modeCounts": modes,
+		"paginationPolicy": "advance-on-success-v2",
+		"errors":           requests - success, "errorCounts": errors, "statusCounts": statuses, "modeCounts": modes,
 		"continuations": continuations, "nonconsentingRequests": nonconsenting, "responseBytes": bytes,
 		"databasePools":  poolMeasurements,
 		"elapsedSeconds": elapsed, "successfulRequestsPerSecond": float64(success) / elapsed,

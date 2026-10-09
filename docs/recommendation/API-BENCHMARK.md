@@ -84,3 +84,9 @@ Four sequential runs use the same clean source revision, fixture generator, rele
 | [96 viewers, repeat](benchmark-api-viewers-ninety-six-repeat-local.json) | 27.50 | 415.163 ms | 419.415 ms | 191.918 ms | 7.558 ms | 500 / 0 |
 
 The first three-viewer run includes one authorized fallback and 399 RPC calls; the other runs have 500 ranked feeds and 400 RPC calls. With timing logs discarded, its exact fallback cause was not captured. The three-viewer p95 varies substantially between repetitions, while the two 96-viewer runs are close. These observations do not isolate the contribution of viewer locks or establish a statistically supported throughput improvement. This fixture allows that hypothesis to be investigated with independent accounts; representative arrival-rate, saturation and authorization-change tests remain required.
+
+## Continuation progression
+
+New runs record `paginationPolicy=advance-on-success-v2`. Each worker retains a separate cursor for each viewer and replaces it after every successful response, including continuation responses. An exhausted cursor clears that state, so the next scheduled continuation starts a new first page. A continuation response returning its input cursor fails with `cursor_not_advanced`. Failed requests preserve the previous cursor for a possible retry.
+
+Earlier artifacts lack this field: their workers refreshed cursors only after first pages, so repeated continuation requests could replay the same page. Those results remain historical measurements of that workload and should not be compared as equivalent scrolling sessions. The actual continuation count remains recorded because exhausted cursors can change the nominal 80/20 request mix.
