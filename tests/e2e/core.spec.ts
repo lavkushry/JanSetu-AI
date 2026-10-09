@@ -226,7 +226,17 @@ test('publisher corrections, withdrawal and reviewed republication preserve priv
     await expect(
       officer.page.getByRole('button', { name: 'Start work', exact: true }),
     ).toBeVisible();
-    await review.getByRole('button', { name: 'Refresh publication review', exact: true }).click();
+    const refreshedReview = staff.page.waitForResponse(
+      (r) => r.url().endsWith(`/authority/cases/${caseId}`) && r.request().method() === 'GET',
+    );
+    const refreshButton = review.getByRole('button', {
+      name: 'Refresh publication review',
+      exact: true,
+    });
+    await refreshButton.click();
+    expect((await refreshedReview).status()).toBe(200);
+    // Refresh clears the acknowledgement; wait for its state update before editing.
+    await expect(refreshButton).toBeEnabled();
     const freshTitle = `Fresh reviewed lifecycle crossing ${Date.now()}`;
     await review.getByLabel('Public title', { exact: true }).fill(freshTitle);
     await review
