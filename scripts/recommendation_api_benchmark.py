@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--authors", type=int, default=128)
     parser.add_argument("--posts-per-author", type=int, default=8)
     parser.add_argument("--output", type=Path, default=Path("/tmp/jansetu-recommendation-api-smoke.json"))
+    parser.add_argument("--profile-dir", type=Path, help="new directory for Go CPU, block and mutex profiles plus test binary")
     args = parser.parse_args()
     for name, value, limit in (("requests", args.requests, 100000),
                                ("concurrency", args.concurrency, 128),
@@ -34,6 +35,13 @@ def main():
     if args.authors < 32:
         parser.error("at least 32 authors are needed for first and continuation pages")
     output = args.output.resolve()
+    profile_dir = args.profile_dir.resolve() if args.profile_dir else None
+    if profile_dir is not None:
+        if output == profile_dir or output in {profile_dir / name for name in
+                                               ("app.test", "cpu.pprof", "block.pprof", "mutex.pprof")}:
+            parser.error("output must not overwrite the profile directory or a profiling artifact")
+        # Refuse reuse so an old profile cannot be mistaken for this run's output.
+        profile_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
     output.parent.mkdir(parents=True, exist_ok=True)
     # Every worker has a 10-second HTTP deadline. Allow the full bounded
     # request workload plus ten minutes for fixture setup and cleanup.
@@ -73,9 +81,20 @@ def main():
                                    JANSETU_BENCHMARK_CONCURRENCY=str(args.concurrency),
                                    JANSETU_BENCHMARK_AUTHORS=str(args.authors),
                                    JANSETU_BENCHMARK_POSTS_PER_AUTHOR=str(args.posts_per_author))
-                process = subprocess.run(["go", "test", "./internal/app", "-run",
-                                          "^TestRecommendationAPIBenchmark$", "-count=1", f"-timeout={timeout_seconds}s"],
-                                         cwd=ROOT / "services/backend", env=environment)
+                command = ["go", "test", "./internal/app", "-run",
+                           "^TestRecommendationAPIBenchmark$", "-count=1", f"-timeout={timeout_seconds}s"]
+                if profile_dir is not None:
+                    command.extend(["-o", str(profile_dir / "app.test"),
+                                    "-cpuprofile", str(profile_dir / "cpu.pprof"),
+                                    "-blockprofile", str(profile_dir / "block.pprof"),
+                                    "-blockprofilerate", "1000000",
+                                    "-mutexprofile", str(profile_dir / "mutex.pprof"),
+                                    "-mutexprofilefraction", "5"])
+                process = subprocess.run(command, cwd=ROOT / "services/backend", env=environment)
+                if process.returncode == 0 and profile_dir is not None:
+                    for name in ("app.test", "cpu.pprof", "block.pprof", "mutex.pprof"):
+                        if not (profile_dir / name).is_file() or (profile_dir / name).stat().st_size == 0:
+                            raise RuntimeError(f"profiling completed without {name}")
                 if raw_result.exists():
                     result = json.loads(raw_result.read_text())
                     result.update({
@@ -90,6 +109,17 @@ def main():
                         "hostMemoryBytes": os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"),
                         "goRaceDetector": False,
                         "testTimeoutSeconds": timeout_seconds,
+                        "goProfiling": {
+                            "enabled": profile_dir is not None,
+                            "scope": "Go test runner interval including benchmark fixture setup and warmup" if profile_dir else None,
+                            "blockRateNanoseconds": 1000000 if profile_dir else None,
+                            "mutexSampleFraction": 5 if profile_dir else None,
+                            "artifacts": {
+                                name: hashlib.sha256((profile_dir / name).read_bytes()).hexdigest()
+                                for name in ("app.test", "cpu.pprof", "block.pprof", "mutex.pprof")
+                                if (profile_dir / name).is_file()
+                            } if profile_dir else {},
+                        },
                     })
                     output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
                     print(json.dumps({k: result[k] for k in ("requests", "errors", "successfulRequestsPerSecond", "allResponseLatency", "modeCounts")}))
