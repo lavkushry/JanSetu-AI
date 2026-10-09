@@ -37,6 +37,9 @@ def main():
     output = args.output.resolve()
     profile_dir = args.profile_dir.resolve() if args.profile_dir else None
     if profile_dir is not None:
+        if output == profile_dir or output in {profile_dir / name for name in
+                                               ("app.test", "cpu.pprof", "block.pprof", "mutex.pprof")}:
+            parser.error("output must not overwrite the profile directory or a profiling artifact")
         # Refuse reuse so an old profile cannot be mistaken for this run's output.
         profile_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
     output.parent.mkdir(parents=True, exist_ok=True)
