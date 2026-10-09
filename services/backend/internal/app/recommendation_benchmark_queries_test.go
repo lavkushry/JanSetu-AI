@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -16,11 +17,13 @@ import (
 // This tracer is installed only on the opt-in benchmark's own social pool.
 // Labels are fixed: SQL, arguments, identities and error messages are never kept.
 type benchmarkQueryTracer struct {
-	mu         sync.Mutex
-	recording  bool
-	generation int
-	samples    map[string][]float64
-	failures   map[string]int
+	mu                sync.Mutex
+	recording         bool
+	generation        int
+	samples           map[string][]float64
+	failures          map[string]int
+	references        map[string]int
+	maximumReferences map[string]int
 }
 
 type benchmarkQueryKey struct{}
@@ -28,13 +31,20 @@ type benchmarkQueryStart struct {
 	label      string
 	started    time.Time
 	generation int
+	references int
 }
 
-func benchmarkQueryLabel(sql string) string {
+func benchmarkQueryLabel(data pgx.TraceQueryStartData) string {
+	sql := data.SQL
 	switch {
 	case sql == recommendationCandidates:
 		return "candidateRetrieval"
 	case strings.HasPrefix(sql, "-- name: RecommendationPosts :many\n"):
+		if len(data.Args) != 0 {
+			if include, ok := data.Args[0].(bool); ok && !include {
+				return "postEligibility"
+			}
+		}
 		return "postHydration"
 	case sql == "SELECT authz.lock_principal($1)":
 		return "principalLock"
@@ -62,9 +72,16 @@ func (q *benchmarkQueryTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn,
 	if !active {
 		return ctx
 	}
-	return context.WithValue(ctx, benchmarkQueryKey{}, benchmarkQueryStart{
-		label: benchmarkQueryLabel(data.SQL), started: time.Now(), generation: generation,
-	})
+	start := benchmarkQueryStart{label: benchmarkQueryLabel(data), started: time.Now(), generation: generation}
+	if start.label == "postHydration" || start.label == "postEligibility" {
+		for _, arg := range data.Args {
+			if ids, ok := arg.([]uuid.UUID); ok {
+				start.references = len(ids)
+				break
+			}
+		}
+	}
+	return context.WithValue(ctx, benchmarkQueryKey{}, start)
 }
 
 func (q *benchmarkQueryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryEndData) {
@@ -79,6 +96,8 @@ func (q *benchmarkQueryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, d
 		return
 	}
 	q.samples[start.label] = append(q.samples[start.label], elapsed)
+	q.references[start.label] += start.references
+	q.maximumReferences[start.label] = max(q.maximumReferences[start.label], start.references)
 	if data.Err != nil {
 		q.failures[start.label]++
 	}
@@ -89,6 +108,7 @@ func (q *benchmarkQueryTracer) start() {
 	defer q.mu.Unlock()
 	q.generation++
 	q.samples, q.failures = map[string][]float64{}, map[string]int{}
+	q.references, q.maximumReferences = map[string]int{}, map[string]int{}
 	q.recording = true
 }
 
@@ -102,10 +122,14 @@ func (q *benchmarkQueryTracer) finish() map[string]any {
 		for _, value := range samples {
 			total += value
 		}
-		groups[label] = map[string]any{
+		group := map[string]any{
 			"calls": len(samples), "failedCalls": q.failures[label], "totalMs": total,
 			"latency": benchmarkPercentiles(samples),
 		}
+		if label == "postHydration" || label == "postEligibility" {
+			group["totalReferences"], group["maximumReferences"] = q.references[label], q.maximumReferences[label]
+		}
+		groups[label] = group
 	}
 	return map[string]any{
 		"enabled": true, "pool": "social", "scope": "measured HTTP workers only; pgx query start through Exec completion or Rows close, including row iteration; excludes pool acquisition",
@@ -174,5 +198,29 @@ func TestBenchmarkQueryTracerConcurrent(t *testing.T) {
 	groups := q.finish()["groups"].(map[string]any)
 	if groups["candidateRetrieval"].(map[string]any)["calls"] != 800 {
 		t.Fatal("concurrent queries were lost")
+	}
+}
+
+func TestBenchmarkQueryTracerReferenceCounts(t *testing.T) {
+	q := &benchmarkQueryTracer{}
+	q.start()
+	ids := []uuid.UUID{uuid.New(), uuid.New()}
+	for _, include := range []bool{false, true} {
+		ctx := q.TraceQueryStart(context.Background(), nil, pgx.TraceQueryStartData{
+			SQL:  "-- name: RecommendationPosts :many\nSELECT 'private body sentinel'",
+			Args: []any{include, uuid.New(), false, ids},
+		})
+		q.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
+	}
+	result := q.finish()
+	for _, label := range []string{"postEligibility", "postHydration"} {
+		group := result["groups"].(map[string]any)[label].(map[string]any)
+		if group["calls"] != 1 || group["totalReferences"] != 2 || group["maximumReferences"] != 2 {
+			t.Fatalf("wrong reference counts: %v", group)
+		}
+	}
+	data, err := json.Marshal(result)
+	if err != nil || strings.Contains(string(data), ids[0].String()) || strings.Contains(string(data), "private") {
+		t.Fatal("reference timing retained query data", err)
 	}
 }

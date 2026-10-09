@@ -713,7 +713,7 @@ SELECT * FROM ops.prerequisite_amendment WHERE case_id=$1 ORDER BY created_at,id
 INSERT INTO ops.task_prerequisite(case_id,task_id,prerequisite_task_id,amendment_id) VALUES($1,$2,$3,$4);
 
 -- name: RecommendationPosts :many
-SELECT p.id, COALESCE(p.published_revision,0)::integer AS published_revision, a.id AS author_id, jsonb_build_object(
+SELECT p.id, COALESCE(p.published_revision,0)::integer AS published_revision, a.id AS author_id, CASE WHEN sqlc.arg(include_data)::boolean THEN jsonb_build_object(
   'id',p.id,'kind',p.kind,'state',p.state,'version',p.version,'currentRevision',p.current_revision,'publishedRevision',p.published_revision,
   'title',CASE WHEN p.state='DELETED' THEN NULL WHEN pub.post_id IS NOT NULL THEN pub.title ELSE cur.title END,
   'body',CASE WHEN p.state='DELETED' THEN NULL ELSE COALESCE(pub.body,'') END,
@@ -739,7 +739,7 @@ SELECT p.id, COALESCE(p.published_revision,0)::integer AS published_revision, a.
     'mutedAuthor',CASE WHEN p.state='DELETED' THEN false ELSE EXISTS(SELECT FROM social.mute m WHERE m.profile_id=sqlc.arg(viewer_id) AND m.muted_profile_id=p.author_id AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) END),
   'candidate',CASE WHEN p.author_id=sqlc.arg(viewer_id) OR sqlc.arg(review_access)::boolean THEN
     jsonb_build_object('title',cur.title,'body',cur.body,'revision',cur.revision,'reviewState',cur.review_state) ELSE NULL END
-) AS data
+) ELSE NULL::jsonb END AS data
 FROM social.post p JOIN social.post_revision cur ON cur.post_id=p.id AND cur.revision=p.current_revision
 LEFT JOIN social.post_revision pub ON pub.post_id=p.id AND pub.revision=p.published_revision
 LEFT JOIN social.profile a ON a.id=p.author_id LEFT JOIN social.community c ON c.id=p.community_id
