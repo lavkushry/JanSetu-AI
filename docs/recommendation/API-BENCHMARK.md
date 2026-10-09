@@ -27,6 +27,12 @@ The JSON artifact records all-response p50/p95/p99, separate first/continuation 
 
 Dataset and generator hashes, source revision/dirty state, Rust binary digest, toolchain versions, PostgreSQL version, runtime role/pool limit, host architecture/logical CPUs/memory and replica/cache/TLS settings accompany the result. Source and binary hashes permit auditing a run from a dirty worktree. Results omit session cookies, database URLs, viewer/post IDs and response bodies. Serving/event costs stay `null` until actual allocations are available.
 
+## Database pool measurements
+
+New artifacts include `databasePools` for the isolated social, authentication, operations, publication, vault and vault-authentication pools. Counters are sampled after warmup, immediately before releasing workload workers, and again after all workers finish. Their differences exclude fixture construction and warmup: successful acquisitions and their cumulative duration, successful acquisitions that encountered an empty pool and their cumulative wait, canceled acquisitions and newly opened connections. No query text, arguments, connection URLs or viewer identifiers are recorded.
+
+An empty-pool acquisition can wait for either a connection release or construction; it does not prove the pool reached its configured maximum. Acquisition durations exclude SQL execution and transaction lock waits after checkout, and successful-wait totals exclude canceled acquisitions. Totals aggregate concurrent waits and can exceed elapsed wall time. Start/end acquired and total connection gauges are snapshots, not peak utilization. These counters describe this isolated harness, including its in-process vault; they do not cover an external database server's internal waits. Use them alongside profiles and a controlled comparison before changing pool sizes.
+
 ## Optional Go profiling
 
 Use a new output directory for each diagnostic run:
