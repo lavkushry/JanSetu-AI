@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation"
 	"github.com/lavkushry/JanSetu-AI/services/backend/internal/recommendation/pb"
 )
@@ -226,10 +227,34 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 			}
 		}()
 	}
+	// Baselines exclude authentication, fixture construction and warmup.
+	pools := map[string]*pgxpool.Pool{
+		"social": a.DB, "auth": a.Auth, "operations": a.Operations,
+		"publication": a.Publication, "vault": integrationVaultRuntime, "vaultAuth": integrationVaultAuth,
+	}
+	poolBefore := make(map[string]*pgxpool.Stat, len(pools))
+	for name, pool := range pools {
+		poolBefore[name] = pool.Stat()
+	}
 	started := time.Now()
 	close(gate)
 	workers.Wait()
 	elapsed := time.Since(started).Seconds()
+	poolMeasurements := make(map[string]any, len(pools))
+	for name, pool := range pools {
+		before, after := poolBefore[name], pool.Stat()
+		poolMeasurements[name] = map[string]any{
+			"successfulAcquires":     after.AcquireCount() - before.AcquireCount(),
+			"successfulAcquireMs":    float64(after.AcquireDuration()-before.AcquireDuration()) / float64(time.Millisecond),
+			"emptyAcquires":          after.EmptyAcquireCount() - before.EmptyAcquireCount(),
+			"emptyAcquireWaitMs":     float64(after.EmptyAcquireWaitTime()-before.EmptyAcquireWaitTime()) / float64(time.Millisecond),
+			"canceledAcquires":       after.CanceledAcquireCount() - before.CanceledAcquireCount(),
+			"newConnections":         after.NewConnsCount() - before.NewConnsCount(),
+			"maxConnections":         after.MaxConns(),
+			"totalConnectionsBefore": before.TotalConns(), "totalConnectionsAfter": after.TotalConns(),
+			"acquiredConnectionsBefore": before.AcquiredConns(), "acquiredConnectionsAfter": after.AcquiredConns(),
+		}
+	}
 	latencies := make([]float64, 0, requests)
 	firstLatency, continuationLatency, consentedLatency, coldLatency := []float64{}, []float64{}, []float64{}, []float64{}
 	errors, modes, statuses := map[string]int{}, map[string]int{}, map[string]int{}
@@ -267,6 +292,7 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 		"requests": requests, "concurrency": concurrency, "warmupRequests": 3, "successfulFeeds": success,
 		"errors": requests - success, "errorCounts": errors, "statusCounts": statuses, "modeCounts": modes,
 		"continuations": continuations, "nonconsentingRequests": nonconsenting, "responseBytes": bytes,
+		"databasePools":  poolMeasurements,
 		"elapsedSeconds": elapsed, "successfulRequestsPerSecond": float64(success) / elapsed,
 		"allResponseLatency": benchmarkPercentiles(latencies),
 		"firstPageLatency":   benchmarkPercentiles(firstLatency), "continuationLatency": benchmarkPercentiles(continuationLatency),
