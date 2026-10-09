@@ -47,3 +47,17 @@ Both runs use the default 1,024 generated posts (956 eligible, 68 hidden/blocked
 The concurrency-eight API p95 exceeds the 500 ms engineering target in this fixture. First-page work and shared-viewer/database contention need further profiling; the low RPC latency alone does not establish their cause. These short runs neither locate saturation nor validate the representative capacity gate.
 
 The subsequent [viewer-retrieval experiment](RETRIEVAL.md) compares statement-local history/mute assembly against a fresh baseline. Its artifacts and per-path results are recorded separately from these earlier runs.
+
+
+## Independent viewer comparison — 2026-10-09
+
+Four sequential runs use the same clean source revision, fixture generator, release Rust binary, eight workers and 1,024 generated posts. Each measures 500 requests, 100 continuations and 150 nonconsenting requests. All configured viewers participate in measurement: the three-viewer runs send at most 175 requests to one viewer, compared with six for 96 viewers. All runs have zero HTTP, content and RPC errors. Each population has a distinct full dataset hash and the same generated-content hash. Warmup counts and associated snapshot/exposure state differ with population. The host has four logical ARM CPUs and PostgreSQL 18.6; local services share it with the unconstrained API and Rust processes.
+
+| Population and run order | Successful feeds/s | Complete API p95 | First page p95 | Continuation p95 | RPC p95 | Ranked / fallback feeds |
+| --- | --- | --- | --- | --- | --- | --- |
+| [3 viewers, first](benchmark-api-viewers-three-local.json) | 21.11 | 646.147 ms | 661.172 ms | 455.349 ms | 36.573 ms | 499 / 1 |
+| [96 viewers, first](benchmark-api-viewers-ninety-six-local.json) | 27.49 | 416.698 ms | 424.121 ms | 194.927 ms | 7.933 ms | 500 / 0 |
+| [3 viewers, repeat](benchmark-api-viewers-three-repeat-local.json) | 26.17 | 438.657 ms | 444.644 ms | 247.801 ms | 6.472 ms | 500 / 0 |
+| [96 viewers, repeat](benchmark-api-viewers-ninety-six-repeat-local.json) | 27.50 | 415.163 ms | 419.415 ms | 191.918 ms | 7.558 ms | 500 / 0 |
+
+The first three-viewer run includes one authorized fallback and 399 RPC calls; the other runs have 500 ranked feeds and 400 RPC calls. With timing logs discarded, its exact fallback cause was not captured. The three-viewer p95 varies substantially between repetitions, while the two 96-viewer runs are close. These observations do not isolate the contribution of viewer locks or establish a statistically supported throughput improvement. This fixture allows that hypothesis to be investigated with independent accounts; representative arrival-rate, saturation and authorization-change tests remain required.
