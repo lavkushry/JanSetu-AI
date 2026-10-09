@@ -33,3 +33,9 @@ Use a separate recommendation stream with this allowlisted envelope, not the mix
 - Consumer state: consumer name, event ID and last applied entity/generation version. Replay applies no duplicate deltas and cannot resurrect prior consent generations.
 
 Publish content understanding only from eligible approved social revisions. Exclude reports, private evidence/media, identity-vault data, raw OCR, internal moderator report grounds and operational case stores. Only sanitized, published civic receipt projections can appear in serving, and urgency remains independent of behavior. The current stream implements controls, normalized interactions and public content references. Retrieval-source, exploration and experiment probabilities require their own serving instrumentation before future model/dataset consumers can use them.
+
+## Private feedback summary
+
+`GET /v1/me/recommendation-feedback-summary` returns only the authenticated viewer's More, Less, Helpful and Not helpful counts and current history generation. It counts current-generation events from the last 30 days under owner RLS and the same transaction lock used for consent changes and history reset. Consent off returns zero counts. No post, exposure or other-viewer identifiers are returned.
+
+Recommendation settings display the summary and reload it after a preference/history generation change. These are counts of explicit feedback events, not unique posts, reading duration or a satisfaction score. A history reset clears them while retaining chosen preferences; changing preferences or withdrawing consent also clears the old generation.
