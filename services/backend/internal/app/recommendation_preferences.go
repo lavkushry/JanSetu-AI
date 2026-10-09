@@ -245,6 +245,22 @@ func (a *App) recommendationEvent(w http.ResponseWriter, r *http.Request, actor 
 		if b.ActiveMilliseconds > elapsed+1000 {
 			return invalid("Reading time exceeds this exposure's age")
 		}
+		if b.Kind == "SATISFIED" || b.Kind == "DISSATISFIED" {
+			// recommendationTransaction serializes this viewer, including requests
+			// from other sessions. Preserve identical retries above, but never add
+			// an opposite usefulness label to the same consented exposure.
+			var answered bool
+			e = tx.QueryRow(r.Context(), `SELECT EXISTS (
+                SELECT FROM social.recommendation_event
+                WHERE profile_id=$1 AND generation=$2 AND exposure_id=$3
+                AND kind IN ('SATISFIED','DISSATISFIED'))`, actor.ProfileID, p.Generation, b.ExposureID).Scan(&answered)
+			if e != nil {
+				return e
+			}
+			if answered {
+				return failure(409, "EVENT_CONFLICT", "Usefulness feedback was already recorded for this recommendation")
+			}
+		}
 		normalized := 0.0
 		if b.Kind == "READ" {
 			var current struct{ Body string }

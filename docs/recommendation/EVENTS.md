@@ -33,3 +33,9 @@ Use a separate recommendation stream with this allowlisted envelope, not the mix
 - Consumer state: consumer name, event ID and last applied entity/generation version. Replay applies no duplicate deltas and cannot resurrect prior consent generations.
 
 Publish content understanding only from eligible approved social revisions. Exclude reports, private evidence/media, identity-vault data, raw OCR, internal moderator report grounds and operational case stores. Only sanitized, published civic receipt projections can appear in serving, and urgency remains independent of behavior. The current stream implements controls, normalized interactions and public content references. Retrieval-source, exploration and experiment probabilities require their own serving instrumentation before future model/dataset consumers can use them.
+
+## One usefulness answer per exposure
+
+New SATISFIED or DISSATISFIED events conflict with HTTP 409 if either usefulness kind is already recorded for the same viewer, generation and exposure. The recommendation transaction serializes concurrent sessions for that viewer, so opposite answers racing from different tabs cannot both be accepted. More/Less remain independent topic controls; a different exposure can receive its own usefulness answer.
+
+An identical event-ID/body retry still succeeds, including after exposure expiry, subject to current owner, session, consent and generation checks. Clients must retain the first attempted answer and event ID across ambiguous failures. This rule does not rewrite historical events or alter ranking weights.
