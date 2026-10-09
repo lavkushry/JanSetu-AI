@@ -193,6 +193,11 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 	cfg.RecommendationMode, cfg.RecommendationRollout = "serve", 100
 	cfg.RecommendationSnapshotRedisURL, cfg.RecommendationFeatureShadowRedisURL = "", ""
 	a := cloneTestApp(t, cfg)
+	var queryTracer *benchmarkQueryTracer
+	if os.Getenv("JANSETU_BENCHMARK_QUERY_TIMINGS") == "1" {
+		queryTracer = &benchmarkQueryTracer{}
+		a.DB = benchmarkTracedPool(t, base.DB, queryTracer)
+	}
 	rpc, err := recommendation.New(target, recommendation.TLSConfig{})
 	if err != nil {
 		t.Fatal(err)
@@ -366,9 +371,16 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 		poolBefore[name] = pool.Stat()
 	}
 	started := time.Now()
+	if queryTracer != nil {
+		queryTracer.start()
+	}
 	close(gate)
 	workers.Wait()
 	elapsed := time.Since(started).Seconds()
+	queryTimings := map[string]any{"enabled": false}
+	if queryTracer != nil {
+		queryTimings = queryTracer.finish()
+	}
 	poolMeasurements := make(map[string]any, len(pools))
 	for name, pool := range pools {
 		before, after := poolBefore[name], pool.Stat()
@@ -433,8 +445,9 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 		"paginationPolicy": "advance-on-success-v2", "crossPagePostValidation": true,
 		"errors": requests - success, "errorCounts": errors, "statusCounts": statuses, "modeCounts": modes,
 		"continuations": continuations, "nonconsentingRequests": nonconsenting, "responseBytes": bytes,
-		"databasePools":  poolMeasurements,
-		"elapsedSeconds": elapsed, "successfulRequestsPerSecond": float64(success) / elapsed,
+		"databasePools":        poolMeasurements,
+		"databaseQueryTimings": queryTimings,
+		"elapsedSeconds":       elapsed, "successfulRequestsPerSecond": float64(success) / elapsed,
 		"allResponseLatency": benchmarkPercentiles(latencies),
 		"firstPageLatency":   benchmarkPercentiles(firstLatency), "continuationLatency": benchmarkPercentiles(continuationLatency),
 		"consentedLatency": benchmarkPercentiles(consentedLatency), "nonconsentingLatency": benchmarkPercentiles(coldLatency),
@@ -455,6 +468,22 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 	}
 	if len(errors) != 0 {
 		t.Fatal("benchmark contained errors", errors)
+	}
+	if queryTracer != nil {
+		groups := queryTimings["groups"].(map[string]any)
+		for label, expected := range map[string]int{
+			"candidateRetrieval": requests - continuations,
+			"postHydration":      requests, "principalLock": requests, "profileLock": requests,
+			"preferenceRead": requests * 2, "snapshotRead": continuations,
+		} {
+			calls := 0
+			if group, ok := groups[label]; ok {
+				calls = group.(map[string]any)["calls"].(int)
+			}
+			if calls != expected {
+				t.Fatalf("query tracer %s: got %d calls, expected %d", label, calls, expected)
+			}
+		}
 	}
 	t.Logf("%d successful complete feeds, %.2f requests/s; all-response latency %v", success, float64(success)/elapsed, stats["allResponseLatency"])
 }
