@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"time"
@@ -57,15 +56,7 @@ func (a *App) compareRecommendationFeatures(ctx context.Context, reader features
 		return result
 	}
 	live := map[uuid.UUID]int32{}
-	for _, raw := range data {
-		var p struct {
-			ID                uuid.UUID
-			PublishedRevision int32
-		}
-		if json.Unmarshal(raw, &p) != nil {
-			result.Status = "ledger_unavailable"
-			return result
-		}
+	for _, p := range data {
 		live[p.ID] = p.PublishedRevision
 	}
 	ids = []uuid.UUID{}
