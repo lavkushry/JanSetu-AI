@@ -10,7 +10,7 @@ The strengthened consent/snapshot integration test verifies every returned socia
 
 ## Diagnostic evidence
 
-The [existing diagnostic](benchmark-api-query-timings-local.json) and [batch diagnostic](benchmark-api-exposure-batch-local.json) share fixture, generator and workload hashes: 50 requests, four workers, 12 viewers, 256 generated posts, 10 continuations and 15 nonconsenting requests. Both use the same query-timing tracer and unchanged Rust source, return 50 ranked feeds and record zero HTTP/content/RPC errors. Each worktree independently builds its release Rust binary; digests are recorded.
+The [existing diagnostic](benchmark-api-query-timings-local.json) and [batch diagnostic](benchmark-api-exposure-batch-local.json) share fixture and generator hashes and use the same workload: 50 requests, four workers, 12 viewers, 256 generated posts, 10 continuations and 15 nonconsenting requests. Both use the same query-timing tracer and unchanged Rust source, return 50 ranked feeds and record zero HTTP/content/RPC errors. Each worktree independently builds its release Rust binary; digests are recorded.
 
 | Query group | Individual inserts | Batch insert |
 | --- | --- | --- |
