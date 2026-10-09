@@ -57,6 +57,8 @@ jobs:
       - run: make recommendation-generate
       - run: git diff --exit-code -- services/backend/internal/store/dbgen services/backend/internal/recommendation/pb apps/web/src/lib/generated.ts
       - run: npx playwright install --with-deps chromium
+      - name: Isolated recommendation feedback browser proof
+        run: make recommendation-browser-proof
       - name: Start vault, API, workers, and production web
         run: |
           (cd services/backend && go run ./cmd/vault) > /tmp/jansetu-vault.log 2>&1 &

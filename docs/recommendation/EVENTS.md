@@ -2,17 +2,17 @@
 
 ## Public endpoints
 
-| Endpoint | Contract |
-| --- | --- |
-| `GET /v1/feed?sort=recommended` | Existing feed DTO plus optional explanation, exposure ID, civic section and serving mode; original sorts remain supported |
-| `GET /v1/me/recommendation-preferences` | Authenticated viewer's explicit interests, languages, coarse locality, consent, version and history generation |
-| `PUT /v1/me/recommendation-preferences` | Full explicit input; `If-Match` version; default consent off; no-op does not bump version |
-| `POST /v1/me/recommendation-history/reset` | `If-Match`; advance generation; preserve chosen preferences; remove snapshots/exposures/events |
-| `POST /v1/me/recommendation-events` | Current consent, UUID event/exposure identity, served revision and expiry; unknown fields rejected |
+| Endpoint                                   | Contract                                                                                                                  |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/feed?sort=recommended`            | Existing feed DTO plus optional explanation, exposure ID, civic section and serving mode; original sorts remain supported |
+| `GET /v1/me/recommendation-preferences`    | Authenticated viewer's explicit interests, languages, coarse locality, consent, version and history generation            |
+| `PUT /v1/me/recommendation-preferences`    | Full explicit input; `If-Match` version; default consent off; no-op does not bump version                                 |
+| `POST /v1/me/recommendation-history/reset` | `If-Match`; advance generation; preserve chosen preferences; remove snapshots/exposures/events                            |
+| `POST /v1/me/recommendation-events`        | Current consent, UUID event/exposure identity, served revision and expiry; unknown fields rejected                        |
 
 All mutations require the existing CSRF/origin/session checks. Preferences and event rows are RLS owner-scoped. Recommendation commands refresh current principal/profile state and session inside the transaction. Operations, publication, media, projection-worker and vault roles cannot read personal recommendation tables. The projection worker can execute only a fixed retention cleanup function.
 
-Event kinds: READ, SKIP, MORE, LESS, SATISFIED, DISSATISFIED. READ uses foreground active milliseconds bounded by exposure age plus one second for clock/transport tolerance, capped at ten minutes, and normalized by `max(3000, UnicodeLength(body)*300)` milliseconds with a maximum of 1. Reading is supporting evidence; it has no behavioral ranking weight in this baseline. The UI currently submits only explicit More/Less; it does not silently collect reading time or claim to detect background attention. Watch/completion/replay events are rejected until video delivery exists.
+Event kinds: READ, SKIP, MORE, LESS, SATISFIED, DISSATISFIED. READ uses foreground active milliseconds bounded by exposure age plus one second for clock/transport tolerance, capped at ten minutes, and normalized by `max(3000, UnicodeLength(body)*300)` milliseconds with a maximum of 1. Reading is supporting evidence; it has no behavioral ranking weight in this baseline. The UI submits explicit More/Less and optional Helpful/Not helpful feedback from the explanation panel for consented exposures. Usefulness feedback is separate from topic preference and does not hide a post. One usefulness answer is accepted per mounted exposure; failures can be retried with the same event ID. The controls reset when the exposure changes; it does not silently collect reading time or claim to detect background attention. Watch/completion/replay events are rejected until video delivery exists.
 
 Server exposures are minted only for consented authenticated viewers and only inserted for returned published revisions. Exposure IDs are frozen across cursor retries. A snapshot is not proof an item was visually viewed; this first ledger records served exposure, not viewport impression. Clients must keep the same event ID/body for retries. Repeated event ID with different fields conflicts; multiple IDs for the same exposure/kind also conflict. Duplicate submissions do not accumulate duration. Event endpoints reject expired, foreign, stale-generation, withdrawn, blocked/muted or revision-changed content.
 
