@@ -964,7 +964,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Requires current behavioral consent and a viewer-bound served published revision. Stable eventId deduplicates retries; one event per exposure and kind. Video actions are unavailable. READ duration must be foreground active time. */
+        /** @description Requires current behavioral consent and a viewer-bound served published revision. Stable eventId deduplicates retries; one event per exposure and kind, with at most one usefulness answer across SATISFIED and DISSATISFIED. A new event ID for an already answered exposure conflicts; an identical stored-event retry remains accepted. Video actions are unavailable. READ duration must be foreground active time. */
         post: operations["record_recommendation_event"];
         delete?: never;
         options?: never;

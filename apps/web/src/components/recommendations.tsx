@@ -206,7 +206,6 @@ function RecommendationControlBody({ value }: { value: Schema['RecommendationExp
         body: { eventId, exposureId: value.exposureId, kind },
       }),
     onSuccess: async (_, { kind }) => {
-      void qc.invalidateQueries({ queryKey: ['recommendation-feedback-summary'] });
       if (kind === 'SATISFIED' || kind === 'DISSATISFIED') {
         setSatisfaction(kind);
         notify('Thanks — your usefulness feedback was recorded');
