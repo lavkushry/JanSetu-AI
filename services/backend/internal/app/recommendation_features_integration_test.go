@@ -96,8 +96,24 @@ func TestRecommendationFeatureLedgerParityReplayAndEligibility(t *testing.T) {
 	if len(refs) != 2 || page.NextCursor == nil {
 		t.Fatal("missing consenting fixture page")
 	}
+	// Both usefulness kinds are projected, but must originate from separate
+	// exposures. Capture the second before Skip/Less suppress future retrieval.
+	var alternateExposure uuid.UUID
+	for _, item := range recommendedPage(t, owner, "").Items {
+		if item.Type == "POST" && item.Post.ID == refs[0].PostID {
+			alternateExposure = item.Recommendation.ExposureID
+			break
+		}
+	}
+	if alternateExposure == uuid.Nil || alternateExposure == exposure {
+		t.Fatal("missing independent usefulness exposure")
+	}
 	for _, action := range features.Actions {
-		body := map[string]any{"eventId": uuid.New(), "exposureId": exposure, "kind": action}
+		eventExposure := exposure
+		if action == "DISSATISFIED" {
+			eventExposure = alternateExposure
+		}
+		body := map[string]any{"eventId": uuid.New(), "exposureId": eventExposure, "kind": action}
 		if action == "READ" {
 			body["activeMilliseconds"] = 1000
 		}
