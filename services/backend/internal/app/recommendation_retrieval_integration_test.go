@@ -70,6 +70,18 @@ func TestRecommendationRetrievalViewerHistoryAndMutes(t *testing.T) {
 	event(viewer, ids[12], p.Generation, 1, "MORE", 0) // publication revoked
 	event(foreign, ids[14], foreignPrefs.Generation, 1, "MORE", 0)
 	event(viewer, ids[16], p.Generation, 1, "READ", 0)
+	event(viewer, ids[19], p.Generation, 1, "LESS", 0)
+	event(viewer, ids[29], p.Generation, 1, "SKIP", 0)
+	event(viewer, ids[27], p.Generation-1, 1, "LESS", 0)
+	event(viewer, ids[8], p.Generation, 1, "SATISFIED", 0)
+	event(viewer, ids[10], p.Generation, 1, "DISSATISFIED", 0)
+	event(foreign, ids[0], foreignPrefs.Generation, 1, "LESS", 0)
+	event(foreign, ids[14], foreignPrefs.Generation, 1, "SKIP", 0)
+	// Dismissal is post-scoped and survives republication, unlike the
+	// revision-bound More feature. Its sibling remains independently eligible.
+	exec(`INSERT INTO social.post_revision(post_id,revision,body,language_tag,review_state)
+ VALUES($1,2,'Revised published fixture','en-IN','APPROVED')`, ids[19])
+	exec(`UPDATE social.post SET current_revision=2,published_revision=2 WHERE id=$1`, ids[19])
 	exec(`INSERT INTO social.mute(id,profile_id,muted_profile_id) VALUES($1,$2,$3)`, uuid.New(), viewer, authors[20])
 	exec(`INSERT INTO social.mute(id,profile_id,muted_profile_id,expires_at)
  VALUES($1,$2,$3,statement_timestamp()-interval '1 day')`, uuid.New(), viewer, authors[22])
@@ -124,7 +136,8 @@ func TestRecommendationRetrievalViewerHistoryAndMutes(t *testing.T) {
 			}
 		}
 	}
-	check(read(owner, p, viewer), []int{0, 1, 2, 3, 4, 5, 18}, []int{12, 20, 21, 24, 26})
+	check(read(owner, p, viewer), []int{0, 1, 2, 3, 4, 5, 18}, []int{12, 19, 20, 21, 24, 26, 29})
+	check(read(other, foreignPrefs, foreign), []int{15}, []int{0, 12, 14, 28, 29})
 	// Consent gates behavioral interest, while chosen interests and mutes remain.
 	disabled := p
 	disabled.PersonalizationEnabled = false
