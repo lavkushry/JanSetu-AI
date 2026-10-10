@@ -71,7 +71,7 @@ func TestRecommendationMetadataOmitsPayload(t *testing.T) {
 // requested. The real restricted-role payload query must recheck visibility and
 // the handler must retain the snapshot's served revision.
 func TestRecommendationHydrationRechecksPublication(t *testing.T) {
-	for _, change := range []string{"withdraw", "revision"} {
+	for _, change := range []string{"withdraw", "revision", "author"} {
 		t.Run(change, func(t *testing.T) {
 			base := testApp(t)
 			cfg := base.Config
@@ -93,6 +93,10 @@ func TestRecommendationHydrationRechecksPublication(t *testing.T) {
 				return result, nil
 			})
 			hook := &hydrationQueryChange{change: func() error {
+				if change == "author" {
+					_, err := integrationAdmin.Exec(context.Background(), `UPDATE social.profile SET state='SUSPENDED' WHERE id=(SELECT author_id FROM social.post WHERE id=$1)`, ids[0])
+					return err
+				}
 				if change == "withdraw" {
 					_, err := integrationAdmin.Exec(context.Background(), `UPDATE social.post SET state='HIDDEN' WHERE id=$1`, ids[0])
 					return err
@@ -127,7 +131,7 @@ func TestRecommendationHydrationRechecksPublication(t *testing.T) {
 			for _, item := range page.Items {
 				if item.Type == "POST" {
 					posts++
-					if item.Post.ID == ids[0] {
+					if item.Post.ID == ids[0] || (change == "author" && item.Post.ID == ids[1]) {
 						t.Fatal("revoked or different-revision content survived final hydration")
 					}
 				}
@@ -136,7 +140,11 @@ func TestRecommendationHydrationRechecksPublication(t *testing.T) {
 				t.Fatal("unchanged eligible posts disappeared")
 			}
 			var exposures int
-			if err := integrationAdmin.QueryRow(context.Background(), `SELECT count(*) FROM social.recommendation_exposure WHERE profile_id=$1 AND post_id=$2`, profile, ids[0]).Scan(&exposures); err != nil || exposures != 0 {
+			unserved := []uuid.UUID{ids[0]}
+			if change == "author" {
+				unserved = append(unserved, ids[1])
+			}
+			if err := integrationAdmin.QueryRow(context.Background(), `SELECT count(*) FROM social.recommendation_exposure WHERE profile_id=$1 AND post_id=ANY($2)`, profile, unserved).Scan(&exposures); err != nil || exposures != 0 {
 				t.Fatal("unserved revision received an exposure", err)
 			}
 		})

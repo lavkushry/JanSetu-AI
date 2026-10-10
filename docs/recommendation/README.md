@@ -23,6 +23,7 @@ JanSetu optimizes discovery for useful local conversations and creators, with sa
 - [Selective body hydration](SELECTIVE-HYDRATION.md): metadata-first page selection, final permission/revision checks and measured body reference counts.
 - [Viewer retrieval features](RETRIEVAL.md): statement-local history/mute assembly, restricted-role correctness and a paired complete-feed measurement.
 - [Candidate hash budget](CANDIDATE-HASHING.md): published-body hashes after source limits, ordered feature parity and larger-inventory diagnostics.
+- [Active author eligibility](AUTHOR-ELIGIBILITY.md): statement-local membership, planner diagnostics and authorization parity.
 - [Internal protobuf](../../contracts/proto/recommendation/v1/recommendation.proto): versioned Go/Rust contract.
 
 Run `make recommendation-browser-proof` for the isolated end-to-end browser proof (local PostgreSQL and Chromium required). Use `make recommendation-generate` to regenerate Go protobuf code with pinned generators and protoc 3.21.12 (Ubuntu 24.04's `protobuf-compiler`).
