@@ -52,6 +52,8 @@ func TestRecommendationUsefulnessOneAnswerAcrossSessions(t *testing.T) {
 			t.Fatal(err)
 		}
 		mustStatus(t, secondSession.request("POST", path, original, 0, ""), 200)
+		mustStatus(t, secondSession.request("POST", path, event(exposures[i], opposite), 0, ""), 409)
+		mustStatus(t, secondSession.request("POST", path, event(exposures[i], kind), 0, ""), 409)
 	}
 	type outcome struct {
 		code int
