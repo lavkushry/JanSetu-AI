@@ -52,7 +52,7 @@ jobs:
       - run: make recommendation-stream-proof
       - run: make recommendation-feature-proof
       - name: Isolated complete-feed benchmark smoke
-        run: python3 scripts/recommendation_api_benchmark.py --requests 50 --concurrency 4 --authors 64 --posts-per-author 4 --viewers 12
+        run: python3 scripts/recommendation_api_benchmark.py --requests 50 --concurrency 4 --authors 64 --posts-per-author 4 --viewers 12 --query-timings
       - run: make generate
       - run: make recommendation-generate
       - run: git diff --exit-code -- services/backend/internal/store/dbgen services/backend/internal/recommendation/pb apps/web/src/lib/generated.ts
