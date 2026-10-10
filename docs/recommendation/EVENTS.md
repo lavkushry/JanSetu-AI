@@ -23,6 +23,8 @@ Snapshot tokens expire after five minutes; a worker janitor runs each minute to 
 
 The optional stage-3 publisher now exports allowlisted envelopes into Kafka and Redis projections. [Stream delivery and retention](STREAMS.md) documents live authority checks, revocation/deletion fences, usable feature expiry and the separate broker retention window. No analytics/training dataset export exists yet. Backups and future analytics retention require their own documented deletion process.
 
+Cleanup locks exposure parents before deleting expired events and skips parents held by an in-flight owner reset or account command. Their child events stay untouched in that pass; a later janitor pass removes them if the owner command has not already cleared them.
+
 ## Stream envelope and future extensions
 
 Use a separate recommendation stream with this allowlisted envelope, not the mixed existing operational outbox:
