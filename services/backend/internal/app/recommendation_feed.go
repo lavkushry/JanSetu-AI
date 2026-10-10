@@ -136,7 +136,7 @@ WITH recent_interests AS MATERIALIZED (
 ), viewer_mutes AS MATERIALIZED (
  SELECT muted_profile_id,muted_community_id FROM social.mute
  WHERE profile_id=$1 AND (expires_at IS NULL OR expires_at>statement_timestamp())
-), eligible AS NOT MATERIALIZED (
+), eligible AS MATERIALIZED (
  SELECT p.id,p.published_revision,p.author_id,p.published_at,
  r.body AS published_body,
  coalesce(p.source_post_id,p.id)::text AS conversation_key,
