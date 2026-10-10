@@ -121,8 +121,9 @@ func (a *App) saveRecommendationSnapshot(ctx context.Context, scope snapshotcach
 	slog.Info("recommendation snapshot cache", "operation", "save", "status", status)
 }
 
-// Assemble viewer-scoped history and active mutes once per statement. Their
-// restricted-role reads retain RLS and the same generation/revision/time fences.
+// Assemble viewer-scoped history, suppressions and active mutes once per statement.
+// Restricted-role reads retain RLS; More is revision/time-fenced, while retained
+// Less/Skip events suppress the post throughout the current consent generation.
 // Materialize the selected references before hashing their published bodies;
 // matching inventory can be much larger than the 2,000-candidate budget.
 const recommendationCandidates = `
@@ -133,6 +134,10 @@ WITH recent_interests AS MATERIALIZED (
  WHERE $7::boolean AND e.profile_id=$1 AND e.generation=$6 AND e.kind='MORE'
  AND previous.state='PUBLISHED' AND previous.published_revision=x.revision
  AND e.created_at>statement_timestamp()-interval '30 days'
+), suppressed_posts AS MATERIALIZED (
+ SELECT DISTINCT x.post_id
+ FROM social.recommendation_event e JOIN social.recommendation_exposure x ON x.id=e.exposure_id
+ WHERE $7::boolean AND e.profile_id=$1 AND e.generation=$6 AND e.kind IN ('LESS','SKIP')
 ), viewer_mutes AS MATERIALIZED (
  SELECT muted_profile_id,muted_community_id FROM social.mute
  WHERE profile_id=$1 AND (expires_at IS NULL OR expires_at>statement_timestamp())
@@ -162,6 +167,7 @@ WITH recent_interests AS MATERIALIZED (
  AND (cardinality($5::text[])=0 OR r.language_tag=ANY($5))
  AND NOT EXISTS(SELECT FROM social.profile_block b WHERE (b.blocker_id=$1 AND b.blocked_id=p.author_id) OR (b.blocked_id=$1 AND b.blocker_id=p.author_id))
  AND NOT EXISTS(SELECT FROM viewer_mutes m WHERE m.muted_profile_id=p.author_id OR m.muted_community_id=p.community_id)
+ AND NOT EXISTS(SELECT FROM suppressed_posts hidden WHERE hidden.post_id=p.id)
 ), sources AS (
  (SELECT id FROM eligible WHERE relationship>0 ORDER BY published_at DESC,id LIMIT 500)
  UNION (SELECT id FROM eligible WHERE interest>0 OR locality>0 ORDER BY published_at DESC,id LIMIT 500)

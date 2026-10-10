@@ -163,14 +163,39 @@ test('recommendation consent, explanations, feedback, reset and following', asyn
   expect((await topicResponse).status()).toBe(200);
   await expect(third.getByRole('button', { name: 'More like this', exact: true })).toBeDisabled();
   await expect(third.getByRole('button', { name: 'Not helpful', exact: true })).toBeDisabled();
+  const dismissedCard = page
+    .locator('.feed-list > div:has(.recommendation-control button) .post-card')
+    .first();
+  const dismissedTestId = await dismissedCard.getAttribute('data-testid');
+  if (!dismissedTestId) throw new Error('Missing consenting post card');
+  const lessResponse = page.waitForResponse(
+    (r) =>
+      r.url().includes('/api/me/recommendation-events') &&
+      r.request().postDataJSON()?.kind === 'LESS',
+  );
+  const refilledFeed = page.waitForResponse(
+    (r) => r.url().includes('/api/feed?') && r.url().includes('recommended') && r.status() === 200,
+  );
+  await control.getByRole('button', { name: 'Less like this', exact: true }).click();
+  expect((await lessResponse).status()).toBe(200);
+  const refilled = await (await refilledFeed).json();
+  expect(refilled.items).toHaveLength(20);
+  for (const item of refilled.items) {
+    expect(item.post?.id).not.toBe(dismissedTestId.slice('post-'.length));
+  }
+  await expect(page.getByTestId(dismissedTestId)).toHaveCount(0);
   const snapshot = await (await page.request.get('/api/feed?sort=recommended')).json();
   expect(snapshot.nextCursor).toBeTruthy();
   const refreshedSummary = page.waitForResponse(
     (r) => r.url().includes('/api/me/recommendation-feedback-summary') && r.status() === 200,
   );
+  // Less refreshed the controls; preserve an explanation that is already open.
+  if ((await control.getAttribute('open')) === null) {
+    await control.getByText('Why this?', { exact: true }).click();
+  }
   await control.getByRole('link', { name: 'Manage recommendation preferences' }).click();
   await refreshedSummary;
-  await expect(summary.locator('dd')).toHaveText(['2', '0', '2', '1']);
+  await expect(summary.locator('dd')).toHaveText(['2', '1', '2', '1']);
   const before = await (await page.request.get('/api/me/recommendation-preferences')).json();
   await settings.getByRole('button', { name: 'Reset recommendation history' }).click();
   await expect
