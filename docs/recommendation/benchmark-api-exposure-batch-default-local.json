@@ -1,0 +1,188 @@
+{
+  "allResponseLatency": {
+    "p50Ms": 318.124,
+    "p95Ms": 486.058,
+    "p99Ms": 565.743
+  },
+  "apiReplicas": 1,
+  "authors": 128,
+  "behavioralShadow": false,
+  "completeFeedCapacityValidated": false,
+  "concurrency": 8,
+  "consentedLatency": {
+    "p50Ms": 316.287,
+    "p95Ms": 535.989,
+    "p99Ms": 608.078
+  },
+  "consentingViewers": 16,
+  "continuationLatency": {
+    "p50Ms": 90.954,
+    "p95Ms": 140.629,
+    "p99Ms": 140.738
+  },
+  "continuations": 20,
+  "costPerMillionEvents": null,
+  "costPerThousandFeeds": null,
+  "crossPagePostValidation": true,
+  "cursorOwnershipChecks": 1,
+  "databasePools": {
+    "auth": {
+      "acquiredConnectionsAfter": 0,
+      "acquiredConnectionsBefore": 0,
+      "canceledAcquires": 0,
+      "emptyAcquireWaitMs": 0,
+      "emptyAcquires": 0,
+      "maxConnections": 15,
+      "newConnections": 0,
+      "successfulAcquireMs": 0.23292,
+      "successfulAcquires": 500,
+      "totalConnectionsAfter": 8,
+      "totalConnectionsBefore": 8
+    },
+    "operations": {
+      "acquiredConnectionsAfter": 0,
+      "acquiredConnectionsBefore": 0,
+      "canceledAcquires": 0,
+      "emptyAcquireWaitMs": 0,
+      "emptyAcquires": 0,
+      "maxConnections": 15,
+      "newConnections": 0,
+      "successfulAcquireMs": 0,
+      "successfulAcquires": 0,
+      "totalConnectionsAfter": 2,
+      "totalConnectionsBefore": 2
+    },
+    "publication": {
+      "acquiredConnectionsAfter": 0,
+      "acquiredConnectionsBefore": 0,
+      "canceledAcquires": 0,
+      "emptyAcquireWaitMs": 0,
+      "emptyAcquires": 0,
+      "maxConnections": 15,
+      "newConnections": 0,
+      "successfulAcquireMs": 0,
+      "successfulAcquires": 0,
+      "totalConnectionsAfter": 2,
+      "totalConnectionsBefore": 2
+    },
+    "social": {
+      "acquiredConnectionsAfter": 0,
+      "acquiredConnectionsBefore": 0,
+      "canceledAcquires": 0,
+      "emptyAcquireWaitMs": 0,
+      "emptyAcquires": 0,
+      "maxConnections": 15,
+      "newConnections": 0,
+      "successfulAcquireMs": 0.30808,
+      "successfulAcquires": 460,
+      "totalConnectionsAfter": 8,
+      "totalConnectionsBefore": 8
+    },
+    "vault": {
+      "acquiredConnectionsAfter": 0,
+      "acquiredConnectionsBefore": 0,
+      "canceledAcquires": 0,
+      "emptyAcquireWaitMs": 0,
+      "emptyAcquires": 0,
+      "maxConnections": 15,
+      "newConnections": 0,
+      "successfulAcquireMs": 0,
+      "successfulAcquires": 0,
+      "totalConnectionsAfter": 2,
+      "totalConnectionsBefore": 2
+    },
+    "vaultAuth": {
+      "acquiredConnectionsAfter": 0,
+      "acquiredConnectionsBefore": 0,
+      "canceledAcquires": 0,
+      "emptyAcquireWaitMs": 0,
+      "emptyAcquires": 0,
+      "maxConnections": 15,
+      "newConnections": 0,
+      "successfulAcquireMs": 0,
+      "successfulAcquires": 0,
+      "totalConnectionsAfter": 2,
+      "totalConnectionsBefore": 2
+    }
+  },
+  "databaseQueryTimings": {
+    "enabled": false
+  },
+  "datasetSHA256": "9c995c4de08db7334e8debb4ac4caee948f02713a37c702b00fd88c706620455",
+  "elapsedSeconds": 3.881763178,
+  "errorCounts": {},
+  "errors": 0,
+  "firstPageLatency": {
+    "p50Ms": 355.483,
+    "p95Ms": 535.989,
+    "p99Ms": 608.078
+  },
+  "fixture": "api-smoke-v2",
+  "fixtureContentSHA256": "db49e8bd9f67fd28913e2ff84c8327318dac62065a4018bb640f8aee05021577",
+  "fixtureEligiblePosts": 956,
+  "fixtureExcludedPosts": 68,
+  "generatorSHA256": "b5f10fd2ac70cbdb93e2933415c1aefc44aae60372d51819b038b9f4b1731522",
+  "gitRevision": "9a9313b892f41b3f0d7b1f5e8d41fbb57e81aa52",
+  "goMaxProcs": 4,
+  "goProfiling": {
+    "artifacts": {},
+    "blockRateNanoseconds": null,
+    "enabled": false,
+    "mutexSampleFraction": null,
+    "scope": null
+  },
+  "goRaceDetector": false,
+  "goVersion": "go1.26.0",
+  "hostArchitecture": "aarch64",
+  "hostLogicalCPUs": 4,
+  "hostMemoryBytes": 25136467968,
+  "maximumRequestsPerViewer": 5,
+  "measuredAt": "2026-10-09T12:09:54.350810688Z",
+  "measuredViewers": 24,
+  "modeCounts": {
+    "ranked": 100
+  },
+  "nonconsentingLatency": {
+    "p50Ms": 319.777,
+    "p95Ms": 448.986,
+    "p99Ms": 540.874
+  },
+  "nonconsentingRequests": 30,
+  "nonconsentingViewers": 8,
+  "paginationPolicy": "advance-on-success-v2",
+  "postgresVersion": "PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+  "postsPerAuthor": 8,
+  "qualityValidated": false,
+  "queryTimingTracerSHA256": null,
+  "recommendationRPC": {
+    "calls": 80,
+    "errors": 0,
+    "latency": {
+      "p50Ms": 2.514,
+      "p95Ms": 5.273,
+      "p99Ms": 7.535
+    },
+    "maximumCandidates": 960
+  },
+  "requests": 100,
+  "responseBytes": 1804299,
+  "runtimeRole": "js_social",
+  "rustBinarySHA256": "46cc90a956161086b00bb3fae709ce32a617dadbed70c4c36b46e0fae4482af0",
+  "rustBuild": "cargo build --locked --release, host process without a CPU or memory limit",
+  "rustMaxInFlight": 8,
+  "rustReplicas": 1,
+  "rustVersion": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "scope": "closed-loop loopback HTTP Go API / restricted PostgreSQL / Rust RPC, configurable independent synthetic viewers; excludes BFF, production TLS, cache and background event workers",
+  "seededViewers": 24,
+  "snapshotCache": false,
+  "socialPoolMaxConns": 15,
+  "statusCounts": {
+    "200": 100
+  },
+  "successfulFeeds": 100,
+  "successfulRequestsPerSecond": 25.76148915182481,
+  "testTimeoutSeconds": 770,
+  "tls": false,
+  "warmupRequests": 24,
+  "worktreeDirty": false
+}

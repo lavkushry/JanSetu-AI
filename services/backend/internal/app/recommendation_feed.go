@@ -449,6 +449,9 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 			}
 		}
 		counts := map[uuid.UUID]int{}
+		exposureIDs := []uuid.UUID{}
+		exposurePosts := []uuid.UUID{}
+		exposureRevisions := []int32{}
 		for s.PostOffset < len(s.Posts) && len(items) < 20 {
 			ref := s.Posts[s.PostOffset]
 			s.PostOffset++
@@ -462,15 +465,22 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 			counts[authors[ref.ID]]++
 			explanation := map[string]any{"explanation": ref.Explanation}
 			if actor != nil && p.PersonalizationEnabled {
-				_, e = tx.Exec(r.Context(), `INSERT INTO social.recommendation_exposure(id,profile_id,post_id,revision,generation,model_version,policy_version,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`, ref.Exposure, viewer, ref.ID, ref.Revision, p.Generation, s.Model, s.Policy, expires)
-				if e != nil {
-					return e
-				}
+				exposureIDs = append(exposureIDs, ref.Exposure)
+				exposurePosts = append(exposurePosts, ref.ID)
+				exposureRevisions = append(exposureRevisions, ref.Revision)
 				explanation["exposureId"] = ref.Exposure
 			}
 			items = append(items, map[string]any{"type": "POST", "post": data, "recommendation": explanation})
 		}
 		for len(items) < 20 && addReceipt() {
+		}
+		if len(exposureIDs) != 0 {
+			_, e = tx.Exec(r.Context(), `INSERT INTO social.recommendation_exposure(id,profile_id,post_id,revision,generation,model_version,policy_version,expires_at)
+ SELECT x.id,$2,x.post_id,x.revision,$5,$6,$7,$8 FROM unnest($1::uuid[],$3::uuid[],$4::integer[]) AS x(id,post_id,revision)
+ ON CONFLICT DO NOTHING`, exposureIDs, viewer, exposurePosts, exposureRevisions, p.Generation, s.Model, s.Policy, expires)
+			if e != nil {
+				return e
+			}
 		}
 		if s.PostOffset < len(s.Posts) || s.ReceiptOffset < len(s.Receipts) {
 			token := recommendationCursor(s)
