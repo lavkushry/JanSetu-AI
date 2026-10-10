@@ -113,6 +113,8 @@ test('recommendation consent, explanations, feedback, reset and following', asyn
   const snapshot = await (await page.request.get('/api/feed?sort=recommended')).json();
   expect(snapshot.nextCursor).toBeTruthy();
   await page.goto('/account');
+  const summary = page.getByRole('region', { name: 'Your recommendation feedback' });
+  await expect(summary.locator('dd')).toHaveText(['1', '0', '1', '1']);
   const before = await (await page.request.get('/api/me/recommendation-preferences')).json();
   await settings.getByRole('button', { name: 'Reset recommendation history' }).click();
   await expect
@@ -124,6 +126,7 @@ test('recommendation consent, explanations, feedback, reset and following', asyn
   expect(
     (await page.request.get(`/api/feed?sort=recommended&cursor=${snapshot.nextCursor}`)).status(),
   ).toBe(410);
+  await expect(summary.locator('dd')).toHaveText(['0', '0', '0', '0']);
   await settings.getByRole('switch').uncheck();
   await settings.getByRole('button', { name: 'Save recommendation preferences' }).click();
   await expect

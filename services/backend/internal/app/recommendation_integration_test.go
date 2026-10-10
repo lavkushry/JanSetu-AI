@@ -110,8 +110,9 @@ type recommendationPage struct {
 	Items []struct {
 		Type string
 		Post struct {
-			ID     uuid.UUID
-			Author *struct{ ID uuid.UUID }
+			ID                uuid.UUID
+			PublishedRevision int32
+			Author            *struct{ ID uuid.UUID }
 		}
 		Receipt        struct{ ID uuid.UUID }
 		Recommendation struct {
@@ -184,8 +185,23 @@ func TestRecommendationSnapshotConsentVisibilityAndEvents(t *testing.T) {
 		}
 	}
 	p = consentRecommendation(t, owner, true)
+	assertExposures := func(page recommendationPage) {
+		t.Helper()
+		for _, item := range page.Items {
+			if item.Type != "POST" {
+				continue
+			}
+			var matches bool
+			err := integrationAdmin.QueryRow(context.Background(), `SELECT profile_id=$2 AND post_id=$3 AND revision=$4 AND generation=$5 AND model_version='rules-v1' AND policy_version='explicit-relevance-v1'
+ FROM social.recommendation_exposure WHERE id=$1`, item.Recommendation.ExposureID, viewer, item.Post.ID, item.Post.PublishedRevision, p.Generation).Scan(&matches)
+			if err != nil || !matches {
+				t.Fatal("returned exposure was not persisted with its exact identity, revision and consent generation", err)
+			}
+		}
+	}
 	mustStatus(t, owner.request("GET", "feed?sort=recommended&cursor="+*first.NextCursor, nil, 0, ""), 410)
 	first = recommendedPage(t, owner, "")
+	assertExposures(first)
 	if first.NextCursor == nil {
 		t.Fatal("missing cursor")
 	}
@@ -230,6 +246,7 @@ func TestRecommendationSnapshotConsentVisibilityAndEvents(t *testing.T) {
 		return nil, nil
 	})
 	second := recommendedPage(t, owner, token)
+	assertExposures(second)
 	if calls != before {
 		t.Fatal("snapshot reordered")
 	}
@@ -241,6 +258,16 @@ func TestRecommendationSnapshotConsentVisibilityAndEvents(t *testing.T) {
 		if v.Type == "POST" && seen[v.Post.ID] {
 			t.Fatal("post repeated across pages")
 		}
+	}
+	var exposuresBefore, exposuresAfter int
+	if err := integrationAdmin.QueryRow(context.Background(), `SELECT count(*) FROM social.recommendation_exposure WHERE profile_id=$1`, viewer).Scan(&exposuresBefore); err != nil {
+		t.Fatal(err)
+	}
+	if replay := recommendedPage(t, owner, token); !reflect.DeepEqual(second, replay) {
+		t.Fatal("consenting cursor replay changed the page or exposure identities")
+	}
+	if err := integrationAdmin.QueryRow(context.Background(), `SELECT count(*) FROM social.recommendation_exposure WHERE profile_id=$1`, viewer).Scan(&exposuresAfter); err != nil || exposuresAfter != exposuresBefore {
+		t.Fatal("cursor retry created duplicate exposure records", err)
 	}
 	mustStatus(t, owner.request("POST", "me/recommendation-history/reset", nil, p.Version, ""), 200)
 	mustStatus(t, owner.request("POST", "me/recommendation-history/reset", nil, p.Version, ""), 412)

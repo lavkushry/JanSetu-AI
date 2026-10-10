@@ -922,6 +922,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/recommendation-feedback-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Private counts of explicit feedback in the current history generation and last 30 days. Consent off returns zero counts. No post or exposure identifiers are returned. */
+        get: operations["get_recommendation_feedback_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/recommendation-history/reset": {
         parameters: {
             query?: never;
@@ -1814,6 +1831,13 @@ export interface components {
         RecommendationPreference: components["schemas"]["RecommendationPreferenceInput"] & {
             generation: number;
             version: number;
+        };
+        RecommendationFeedbackSummary: {
+            generation: number;
+            more: number;
+            less: number;
+            helpful: number;
+            notHelpful: number;
         };
         RecommendationEvent: {
             /** Format: uuid */
@@ -4402,6 +4426,27 @@ export interface operations {
             };
             412: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+        };
+    };
+    get_recommendation_feedback_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Owner-scoped feedback counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommendationFeedbackSummary"];
+                };
+            };
+            401: components["responses"]["Problem"];
         };
     };
     reset_recommendation_history: {
