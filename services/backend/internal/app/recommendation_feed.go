@@ -123,6 +123,8 @@ func (a *App) saveRecommendationSnapshot(ctx context.Context, scope snapshotcach
 
 // Assemble viewer-scoped history and active mutes once per statement. Their
 // restricted-role reads retain RLS and the same generation/revision/time fences.
+// Materialize the selected references before hashing their published bodies;
+// matching inventory can be much larger than the 2,000-candidate budget.
 const recommendationCandidates = `
 WITH recent_interests AS MATERIALIZED (
  SELECT DISTINCT previous.community_id,previous.author_id
@@ -136,7 +138,6 @@ WITH recent_interests AS MATERIALIZED (
  WHERE profile_id=$1 AND (expires_at IS NULL OR expires_at>statement_timestamp())
 ), eligible AS (
  SELECT p.id,p.published_revision,p.author_id,p.published_at,
- 'body:'||md5(r.body) AS dedup_key,
  coalesce(p.source_post_id,p.id)::text AS conversation_key,
  CASE WHEN c.slug::text=ANY($2::text[]) OR EXISTS(
  SELECT FROM recent_interests previous
@@ -164,9 +165,14 @@ WITH recent_interests AS MATERIALIZED (
  (SELECT id FROM eligible WHERE relationship>0 ORDER BY published_at DESC,id LIMIT 500)
  UNION (SELECT id FROM eligible WHERE interest>0 OR locality>0 ORDER BY published_at DESC,id LIMIT 500)
  UNION (SELECT id FROM eligible ORDER BY published_at DESC,id LIMIT 1000)
+), selected AS MATERIALIZED (
+ SELECT * FROM eligible WHERE id IN (SELECT id FROM sources)
+ ORDER BY published_at DESC,id LIMIT 2000
 )
-SELECT id,published_revision,author_id,dedup_key,conversation_key,interest,locality,relationship,freshness,usefulness FROM eligible
-WHERE id IN (SELECT id FROM sources) ORDER BY published_at DESC,id LIMIT 2000`
+SELECT e.id,e.published_revision,e.author_id,'body:'||md5(r.body) AS dedup_key,
+ e.conversation_key,e.interest,e.locality,e.relationship,e.freshness,e.usefulness
+FROM selected e JOIN social.post_revision r ON r.post_id=e.id AND r.revision=e.published_revision
+ORDER BY e.published_at DESC,e.id`
 
 func stickyRecommendation(viewer string, percentage int) bool {
 	h := sha256.Sum256([]byte("recommendation-v1|" + viewer))
