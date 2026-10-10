@@ -60,6 +60,10 @@ func TestRecommendationCandidateHashingAfterSelection(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		// Deferred delete triggers run at commit. Remove only this fixture's
+		// content envelopes afterward, leaving later stream proofs bounded.
+		exec(`DELETE FROM rec_stream.outbox WHERE event_type='CONTENT'
+ AND payload->>'postId' IN (SELECT id::text FROM unnest($1::uuid[]) AS id)`, ids)
 	})
 	for _, author := range authors {
 		exec(`INSERT INTO social.profile(id,handle,display_name,state) VALUES($1,$2,'Hashing fixture','ACTIVE')`, author, "hash_"+author.String()[:12])
