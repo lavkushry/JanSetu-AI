@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type Schema } from '@/lib/api';
 import { ErrorState, FormError, Loading, useSession } from './ui';
@@ -148,29 +148,49 @@ const reasons: Record<Schema['RecommendationExplanation']['explanation'], string
   RECENT_PUBLIC_POST: 'A recent published conversation available to you.',
   CIVIC_URGENCY: 'Public service updates are ordered by urgency, then age.',
 };
+type FeedbackKind = 'MORE' | 'LESS' | 'SATISFIED' | 'DISSATISFIED';
 export function RecommendationControl({ value }: { value: Schema['RecommendationExplanation'] }) {
+  return <RecommendationControlBody key={value.exposureId ?? value.explanation} value={value} />;
+}
+function RecommendationControlBody({ value }: { value: Schema['RecommendationExplanation'] }) {
   const qc = useQueryClient();
   const { notify } = useSession();
   const [choice, setChoice] = useState('');
+  const [satisfaction, setSatisfaction] = useState('');
+  const satisfactionAttempt = useRef<'SATISFIED' | 'DISSATISFIED' | null>(null);
+  const eventIds = useRef<Partial<Record<FeedbackKind, string>>>({});
   const feedback = useMutation({
-    mutationFn: ({ kind, eventId }: { kind: 'MORE' | 'LESS'; eventId: string }) =>
+    mutationFn: ({ kind, eventId }: { kind: FeedbackKind; eventId: string }) =>
       api('me/recommendation-events', {
         method: 'POST',
         body: { eventId, exposureId: value.exposureId, kind },
       }),
     onSuccess: async (_, { kind }) => {
-      setChoice(kind);
-      notify(
-        kind === 'MORE'
-          ? 'Preference recorded for future recommendations'
-          : 'This post will be hidden from recommendations',
-      );
+      if (kind === 'SATISFIED' || kind === 'DISSATISFIED') {
+        setSatisfaction(kind);
+        notify('Thanks — your usefulness feedback was recorded');
+      } else {
+        setChoice(kind);
+        notify(
+          kind === 'MORE'
+            ? 'Preference recorded for future recommendations'
+            : 'This post will be hidden from recommendations',
+        );
+      }
       if (kind === 'LESS') {
         await qc.cancelQueries({ queryKey: ['feed'] });
         await qc.resetQueries({ queryKey: ['feed'] });
       }
     },
   });
+  const submit = (kind: FeedbackKind) => {
+    if (kind === 'SATISFIED' || kind === 'DISSATISFIED') {
+      if (satisfactionAttempt.current && satisfactionAttempt.current !== kind) return;
+      satisfactionAttempt.current = kind;
+    }
+    const eventId = (eventIds.current[kind] ??= crypto.randomUUID());
+    feedback.mutate({ kind, eventId });
+  };
   return (
     <details className="recommendation-control">
       <summary>Why this?</summary>
@@ -180,17 +200,50 @@ export function RecommendationControl({ value }: { value: Schema['Recommendation
           <button
             className="text-button"
             disabled={feedback.isPending || choice === 'MORE'}
-            onClick={() => feedback.mutate({ kind: 'MORE', eventId: crypto.randomUUID() })}
+            onClick={() => submit('MORE')}
           >
             More like this
           </button>{' '}
           <button
             className="text-button"
             disabled={feedback.isPending || choice === 'LESS'}
-            onClick={() => feedback.mutate({ kind: 'LESS', eventId: crypto.randomUUID() })}
+            onClick={() => submit('LESS')}
           >
             Less like this
           </button>
+          <div role="group" aria-label="Was this recommendation useful?">
+            <p>Was this recommendation useful?</p>
+            <button
+              type="button"
+              className="text-button"
+              aria-pressed={satisfaction === 'SATISFIED'}
+              disabled={
+                feedback.isPending ||
+                satisfaction !== '' ||
+                satisfactionAttempt.current === 'DISSATISFIED'
+              }
+              onClick={() => submit('SATISFIED')}
+            >
+              Helpful
+            </button>{' '}
+            <button
+              type="button"
+              className="text-button"
+              aria-pressed={satisfaction === 'DISSATISFIED'}
+              disabled={
+                feedback.isPending ||
+                satisfaction !== '' ||
+                satisfactionAttempt.current === 'SATISFIED'
+              }
+              onClick={() => submit('DISSATISFIED')}
+            >
+              Not helpful
+            </button>
+            {satisfaction && <p role="status">Usefulness feedback recorded.</p>}
+            {feedback.isError && satisfactionAttempt.current && !satisfaction && (
+              <p>Retry your original answer to confirm it was recorded.</p>
+            )}
+          </div>
           <FormError error={feedback.error} />
         </>
       ) : null}

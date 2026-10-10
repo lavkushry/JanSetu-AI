@@ -32,6 +32,8 @@ test('recommendation consent, explanations, feedback, reset and following', asyn
     .getByText('Why this?', { exact: true })
     .click();
   await expect(page.getByRole('button', { name: 'More like this', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Helpful', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Not helpful', exact: true })).toHaveCount(0);
   await page.goto('/account');
   const settings = page.locator('#recommendation-settings');
   await expect(settings.getByRole('switch')).not.toBeChecked();
@@ -55,6 +57,59 @@ test('recommendation consent, explanations, feedback, reset and following', asyn
   await control.getByRole('button', { name: 'More like this', exact: true }).click();
   expect((await eventResponse).status()).toBe(200);
   await expect(control.getByRole('button', { name: 'More like this', exact: true })).toBeDisabled();
+  // Save on the server but lose the acknowledgement; retry must reuse the event ID.
+  const helpfulEvents: string[] = [];
+  await page.route('**/api/me/recommendation-events', async (route) => {
+    const body = route.request().postDataJSON();
+    if (body.kind !== 'SATISFIED') {
+      await route.continue();
+      return;
+    }
+    helpfulEvents.push(body.eventId);
+    const response = await route.fetch();
+    if (helpfulEvents.length === 1) {
+      expect(response.status()).toBe(200);
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Simulated lost acknowledgement' }),
+      });
+    } else {
+      await route.fulfill({ response });
+    }
+  });
+  const helpful = control.getByRole('button', { name: 'Helpful', exact: true });
+  const lostResponse = page.waitForResponse(
+    (r) => r.url().includes('/api/me/recommendation-events') && r.status() === 503,
+  );
+  await helpful.click();
+  await lostResponse;
+  await expect(helpful).toBeEnabled();
+  await expect(control.getByRole('button', { name: 'Not helpful', exact: true })).toBeDisabled();
+  await expect(helpful).toHaveAttribute('aria-pressed', 'false');
+  await helpful.click();
+  await expect(helpful).toHaveAttribute('aria-pressed', 'true');
+  await expect(helpful).toBeDisabled();
+  await expect(control.getByRole('button', { name: 'Not helpful', exact: true })).toBeDisabled();
+  await expect(control.getByRole('button', { name: 'More like this', exact: true })).toBeDisabled();
+  expect(helpfulEvents).toHaveLength(2);
+  expect(helpfulEvents[0]).toBe(helpfulEvents[1]);
+  await page.unroute('**/api/me/recommendation-events');
+  const second = page.locator('.recommendation-control:has(button)').nth(1);
+  await second.getByText('Why this?', { exact: true }).click();
+  const unhelpfulResponse = page.waitForResponse(
+    (r) =>
+      r.url().includes('/api/me/recommendation-events') &&
+      r.request().postDataJSON()?.kind === 'DISSATISFIED',
+  );
+  await second.getByRole('button', { name: 'Not helpful', exact: true }).click();
+  expect((await unhelpfulResponse).status()).toBe(200);
+  await expect(second.getByRole('button', { name: 'Not helpful', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(second.getByRole('button', { name: 'More like this', exact: true })).toBeEnabled();
+  await expect(second.getByRole('status')).toHaveText('Usefulness feedback recorded.');
   const snapshot = await (await page.request.get('/api/feed?sort=recommended')).json();
   expect(snapshot.nextCursor).toBeTruthy();
   await page.goto('/account');
