@@ -922,6 +922,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/recommendation-feedback-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Private counts of explicit feedback in the current history generation and last 30 days. Consent off returns zero counts. No post or exposure identifiers are returned. */
+        get: operations["get_recommendation_feedback_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/recommendation-history/reset": {
         parameters: {
             query?: never;
@@ -947,7 +964,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Requires current behavioral consent and a viewer-bound served published revision. Stable eventId deduplicates retries; one event per exposure and kind. Video actions are unavailable. READ duration must be foreground active time. */
+        /** @description Requires current behavioral consent and a viewer-bound served published revision. Stable eventId deduplicates retries; one event per exposure and kind, with at most one usefulness answer across SATISFIED and DISSATISFIED. A new event ID for an already answered exposure conflicts; an identical stored-event retry remains accepted. Video actions are unavailable. READ duration must be foreground active time. */
         post: operations["record_recommendation_event"];
         delete?: never;
         options?: never;
@@ -1814,6 +1831,13 @@ export interface components {
         RecommendationPreference: components["schemas"]["RecommendationPreferenceInput"] & {
             generation: number;
             version: number;
+        };
+        RecommendationFeedbackSummary: {
+            generation: number;
+            more: number;
+            less: number;
+            helpful: number;
+            notHelpful: number;
         };
         RecommendationEvent: {
             /** Format: uuid */
@@ -4402,6 +4426,27 @@ export interface operations {
             };
             412: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+        };
+    };
+    get_recommendation_feedback_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Owner-scoped feedback counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommendationFeedbackSummary"];
+                };
+            };
+            401: components["responses"]["Problem"];
         };
     };
     reset_recommendation_history: {

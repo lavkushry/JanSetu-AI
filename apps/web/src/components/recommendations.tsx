@@ -28,8 +28,48 @@ export function RecommendationSettings() {
       ) : q.error ? (
         <ErrorState error={q.error} retry={() => void q.refetch()} />
       ) : (
-        <RecommendationForm key={`${me?.profile.id}:${q.data.version}`} value={q.data} />
+        <>
+          <RecommendationForm key={`${me?.profile.id}:${q.data.version}`} value={q.data} />
+          <RecommendationFeedbackSummary generation={q.data.generation} />
+        </>
       )}
+    </section>
+  );
+}
+function RecommendationFeedbackSummary({ generation }: { generation: number }) {
+  const { me } = useSession();
+  const q = useQuery({
+    queryKey: ['recommendation-feedback-summary', me?.profile.id, generation],
+    queryFn: () =>
+      api<Schema['RecommendationFeedbackSummary']>('me/recommendation-feedback-summary'),
+    enabled: !!me,
+  });
+  return (
+    <section aria-label="Your recommendation feedback">
+      <h3>Your recommendation feedback</h3>
+      <p className="muted">
+        Your explicit feedback from the last 30 days, since your latest history reset or preference
+        change.
+      </p>
+      {q.isPending ? (
+        <Loading />
+      ) : q.error ? (
+        <ErrorState error={q.error} retry={() => void q.refetch()} />
+      ) : (
+        <dl>
+          <dt>More like this</dt>
+          <dd>{q.data.more}</dd>
+          <dt>Less like this</dt>
+          <dd>{q.data.less}</dd>
+          <dt>Helpful</dt>
+          <dd>{q.data.helpful}</dd>
+          <dt>Not helpful</dt>
+          <dd>{q.data.notHelpful}</dd>
+        </dl>
+      )}
+      <p className="muted">
+        Resetting recommendation history clears these counts. This summary is private to you.
+      </p>
     </section>
   );
 }
