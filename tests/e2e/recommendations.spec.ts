@@ -47,7 +47,10 @@ test('recommendation consent, explanations, feedback, reset and following', asyn
           .personalizationEnabled,
     )
     .toBe(true);
-  await page.goto('/');
+  const summary = page.getByRole('region', { name: 'Your recommendation feedback' });
+  await expect(summary.locator('dd')).toHaveText(['0', '0', '0', '0']);
+  // Keep the account summary in the client cache while recording feedback.
+  await page.getByRole('link', { name: 'JanSetu home', exact: true }).click();
   await page.getByRole('combobox', { name: 'Sort feed' }).selectOption('recommended');
   const control = page.locator('.recommendation-control:has(button)').first();
   await control.getByText('Why this?', { exact: true }).click();
@@ -112,8 +115,11 @@ test('recommendation consent, explanations, feedback, reset and following', asyn
   await expect(second.getByRole('status')).toHaveText('Usefulness feedback recorded.');
   const snapshot = await (await page.request.get('/api/feed?sort=recommended')).json();
   expect(snapshot.nextCursor).toBeTruthy();
-  await page.goto('/account');
-  const summary = page.getByRole('region', { name: 'Your recommendation feedback' });
+  const refreshedSummary = page.waitForResponse(
+    (r) => r.url().includes('/api/me/recommendation-feedback-summary') && r.status() === 200,
+  );
+  await control.getByRole('link', { name: 'Manage recommendation preferences' }).click();
+  await refreshedSummary;
   await expect(summary.locator('dd')).toHaveText(['1', '0', '1', '1']);
   const before = await (await page.request.get('/api/me/recommendation-preferences')).json();
   await settings.getByRole('button', { name: 'Reset recommendation history' }).click();

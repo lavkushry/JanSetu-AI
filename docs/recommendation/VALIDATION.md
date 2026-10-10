@@ -78,6 +78,13 @@
 - Both paired 500-request, eight-worker complete-feed runs passed with zero HTTP, content and RPC errors. API p95 was 688.620 ms for the existing query and 467.770 ms with statement-local viewer relations. Continuation/RPC p95 increased in the latter run; [the retrieval record](RETRIEVAL.md) includes those results and the shared-host/three-viewer limitations.
 - Dataset and fixture-generator digests match, source trees were clean, and each artifact records its independent release Rust binary digest and environment. No production load, recommendation-quality or million-user capacity conclusion follows from these smoke runs.
 
+## Feedback release integration
+
+- `make check` passed Rust formatting/Clippy/tests, Python evaluation tests, specification validation, Go vet/unit tests, TypeScript and the production web build. Regenerating the OpenAPI TypeScript contract produced no drift.
+- The isolated PostgreSQL feedback summary, retention and cross-session usefulness tests passed with the race detector (5.427 seconds). They verify owner isolation, current-generation counts, identical retries, reset/withdrawal, retention measured from event creation and exactly one usefulness answer when sessions race.
+- `make recommendation-browser-proof` passed with the real browser/BFF/Go/Rust/PostgreSQL path (5.3 seconds for Playwright). It exercises a previously cached account summary, refresh after feedback, lost acknowledgement with the same event ID, independent topic/usefulness controls and zero counts after reset.
+- The release combines the completed feedback branches with selective hydration. It restores summary invalidation and the summary/retention documentation lost in an earlier feature-branch merge. Migration 35 is applied only to disposable proof databases during local verification; existing installations require the ordinary migration step.
+
 ## Measured limits
 
 Typed hydration metadata passed full Go vet/unit checks, reproducible SQL generation and the isolated PostgreSQL regression suite with the race detector and a real Rust target (76.500 seconds for the application package). Four 500-request/96-viewer observations have zero HTTP/content/RPC errors; one existing-query repetition includes an authorized fallback. Separate CPU profiles show the removed feed JSON decoding, while repeated API latencies do not establish an improvement. [The hydration record](HYDRATION.md) includes all artifacts and interpretation limits.

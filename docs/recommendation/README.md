@@ -6,7 +6,7 @@ JanSetu optimizes discovery for useful local conversations and creators, with sa
 
 - [Algorithm PRD](PRD.md): behavior, controls, measurement and release gates.
 - [Architecture](ARCHITECTURE.md): implemented service boundary and phased distributed design.
-- [Events and privacy](EVENTS.md): current authenticated event API, generation fencing and retention.
+- [Events and privacy](EVENTS.md): authenticated feedback, private account summary, one usefulness answer per exposure, generation fencing and retention.
 - [Replayable event and feature foundation](STREAMS.md): dedicated outbox, Kafka delivery, Redis projections and isolated replay proof.
 - [Behavioral feature shadow parity](FEATURES.md): bounded revision-aware Redis observations compared with the consented ledger, live authority and isolated parity proof.
 - [Initial content backfill](BACKFILL.md): bounded public-reference bootstrap with durable checkpoints and ordered live updates.
