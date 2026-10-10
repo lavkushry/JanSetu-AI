@@ -37,4 +37,6 @@ python3 scripts/recommendation_api_benchmark.py --requests 50 --concurrency 4 --
 
 An initial baseline fixture with 64 authors and 64 posts each returned valid ranked pages without continuation cursors and was rejected by the harness's warmup requirement. It is not a measurement of scrolling under creator concentration. An additional untraced 100-request/eight-worker/default-inventory attempt returned a warmup fallback; the harness rejected it and wrote no timed artifact. Its exact fallback cause was not captured by the harness's discarded logs. Neither attempt is reported as a successful capacity result.
 
+A separate [untraced four-worker default-fixture run](benchmark-api-candidate-hashing-default-local.json) returned 100 ranked feeds with zero errors and 20 continuations, using 24 viewers and 1,024 generated posts. It confirms the uninstrumented path at that workload; it does not resolve the eight-worker warmup observation or validate capacity.
+
 The [release gate](BENCHMARKS.md#full-api-release-workload) still requires representative inventory/graphs, arrival-rate loads, authorization changes, memory/spill/resource measurements and cost accounting. Real satisfaction studies remain separate. The deployed pilot is unchanged.
