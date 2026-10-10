@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -89,6 +90,92 @@ func TestRecommendationFeedbackSummary(t *testing.T) {
 	off := consentRecommendation(t, owner, false)
 	if got := read(owner); got != (recommendationFeedbackSummary{Generation: off.Generation}) {
 		t.Fatal("disabled consent summary", got)
+	}
+}
+
+func TestRecommendationFeedbackRetentionSkipsLockedExposure(t *testing.T) {
+	base := testApp(t)
+	cfg := base.Config
+	cfg.RecommendationTarget = ""
+	cfg.RecommendationMode, cfg.RecommendationRollout = "serve", 100
+	a := cloneTestApp(t, cfg)
+	a.Ranker = testRanker(goldenRanker)
+	owner := login(t, a, 0)
+	viewer := myProfileID(t, owner)
+	t.Cleanup(func() {
+		integrationAdmin.Exec(context.Background(), `DELETE FROM social.recommendation_snapshot WHERE viewer_id=$1`, viewer)
+		integrationAdmin.Exec(context.Background(), `DELETE FROM social.recommendation_exposure WHERE profile_id=$1`, viewer)
+		integrationAdmin.Exec(context.Background(), `DELETE FROM social.recommendation_preference WHERE profile_id=$1`, viewer)
+	})
+	recommendationFixture(t, a)
+	p := consentRecommendation(t, owner, true)
+	var exposures []uuid.UUID
+	for _, item := range recommendedPage(t, owner, "").Items {
+		if item.Recommendation.ExposureID != uuid.Nil {
+			exposures = append(exposures, item.Recommendation.ExposureID)
+		}
+	}
+	if len(exposures) < 2 {
+		t.Fatal("insufficient fixture exposures")
+	}
+	exposures = exposures[:2]
+	for _, id := range exposures {
+		mustStatus(t, owner.request("POST", "me/recommendation-events", map[string]any{
+			"eventId": uuid.New(), "exposureId": id, "kind": "MORE",
+		}, 0, ""), 200)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, sql := range []string{
+		`UPDATE social.recommendation_exposure SET created_at=now()-interval '31 days',expires_at=now()-interval '31 days'+interval '5 minutes' WHERE id=ANY($1)`,
+		`UPDATE social.recommendation_event SET created_at=now()-interval '31 days'+interval '1 minute' WHERE exposure_id=ANY($1)`,
+	} {
+		if _, err := integrationAdmin.Exec(ctx, sql, exposures); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Hold the parent lock that an owner reset/deactivation takes before its cascade.
+	gate, err := integrationAdmin.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gate.Rollback(context.Background())
+	var locked uuid.UUID
+	if err = gate.QueryRow(ctx, `SELECT id FROM social.recommendation_exposure WHERE id=$1 FOR UPDATE`, exposures[0]).Scan(&locked); err != nil {
+		t.Fatal(err)
+	}
+	janitor, err := a.Worker.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer janitor.Rollback(context.Background())
+	if _, err = janitor.Exec(ctx, `SET LOCAL lock_timeout='500ms'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = janitor.Exec(ctx, `SELECT social.expire_recommendations()`); err != nil {
+		t.Fatal("janitor waited for the owner's parent lock", err)
+	}
+	if err = janitor.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for i, id := range exposures {
+		var parents, children int
+		if err = integrationAdmin.QueryRow(ctx, `SELECT
+          (SELECT count(*) FROM social.recommendation_exposure WHERE id=$1),
+          (SELECT count(*) FROM social.recommendation_event WHERE exposure_id=$1)`, id).Scan(&parents, &children); err != nil {
+			t.Fatal(err)
+		}
+		want := 1 - i
+		if parents != want || children != want {
+			t.Fatal("cleanup must skip the locked parent and its child, but expire the unlocked pair", i, parents, children)
+		}
+	}
+	if err = gate.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mustStatus(t, owner.request("POST", "me/recommendation-history/reset", nil, p.Version, ""), 200)
+	if _, err = a.Worker.Exec(ctx, `SELECT social.expire_recommendations()`); err != nil {
+		t.Fatal(err)
 	}
 }
 
