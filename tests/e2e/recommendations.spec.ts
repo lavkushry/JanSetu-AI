@@ -113,6 +113,56 @@ test('recommendation consent, explanations, feedback, reset and following', asyn
   );
   await expect(second.getByRole('button', { name: 'More like this', exact: true })).toBeEnabled();
   await expect(second.getByRole('status')).toHaveText('Usefulness feedback recorded.');
+  // A separate authenticated session wins before this tab's answer reaches the API.
+  const otherSession = await page.context().browser()!.newContext();
+  try {
+    const origin = new URL(page.url()).origin;
+    const otherLogin = await otherSession.request.post(`${origin}/api/dev/session`, {
+      headers: { 'x-jansetu-csrf': '1', origin },
+      data: { principalId: '10000000-0000-4000-8000-000000000001' },
+    });
+    expect(otherLogin.status()).toBe(200);
+    await page.route('**/api/me/recommendation-events', async (route) => {
+      const body = route.request().postDataJSON();
+      expect(body.kind).toBe('DISSATISFIED');
+      const winner = await otherSession.request.post(route.request().url(), {
+        headers: { 'x-jansetu-csrf': '1', origin },
+        data: { eventId: crypto.randomUUID(), exposureId: body.exposureId, kind: 'SATISFIED' },
+      });
+      expect(winner.status()).toBe(200);
+      await route.continue();
+    });
+    const third = page.locator('.recommendation-control:has(button)').nth(2);
+    await third.getByText('Why this?', { exact: true }).click();
+    const conflictResponse = page.waitForResponse(
+      (r) => r.url().includes('/api/me/recommendation-events') && r.status() === 409,
+    );
+    await third.getByRole('button', { name: 'Not helpful', exact: true }).click();
+    expect((await (await conflictResponse).json()).code).toBe('USEFULNESS_ALREADY_RECORDED');
+    await expect(third.getByRole('status')).toContainText('already recorded');
+    await expect(
+      third.getByText('Retry your original answer to confirm it was recorded.'),
+    ).toHaveCount(0);
+    for (const name of ['Helpful', 'Not helpful']) {
+      const button = third.getByRole('button', { name, exact: true });
+      await expect(button).toBeDisabled();
+      await expect(button).toHaveAttribute('aria-pressed', 'false');
+    }
+    await expect(third.getByRole('button', { name: 'More like this', exact: true })).toBeEnabled();
+  } finally {
+    await page.unroute('**/api/me/recommendation-events');
+    await otherSession.close();
+  }
+  const third = page.locator('.recommendation-control:has(button)').nth(2);
+  const topicResponse = page.waitForResponse(
+    (r) =>
+      r.url().includes('/api/me/recommendation-events') &&
+      r.request().postDataJSON()?.kind === 'MORE',
+  );
+  await third.getByRole('button', { name: 'More like this', exact: true }).click();
+  expect((await topicResponse).status()).toBe(200);
+  await expect(third.getByRole('button', { name: 'More like this', exact: true })).toBeDisabled();
+  await expect(third.getByRole('button', { name: 'Not helpful', exact: true })).toBeDisabled();
   const snapshot = await (await page.request.get('/api/feed?sort=recommended')).json();
   expect(snapshot.nextCursor).toBeTruthy();
   const refreshedSummary = page.waitForResponse(
@@ -120,7 +170,7 @@ test('recommendation consent, explanations, feedback, reset and following', asyn
   );
   await control.getByRole('link', { name: 'Manage recommendation preferences' }).click();
   await refreshedSummary;
-  await expect(summary.locator('dd')).toHaveText(['1', '0', '1', '1']);
+  await expect(summary.locator('dd')).toHaveText(['2', '0', '2', '1']);
   const before = await (await page.request.get('/api/me/recommendation-preferences')).json();
   await settings.getByRole('button', { name: 'Reset recommendation history' }).click();
   await expect

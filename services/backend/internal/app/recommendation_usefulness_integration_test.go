@@ -34,6 +34,14 @@ func TestRecommendationUsefulnessOneAnswerAcrossSessions(t *testing.T) {
 		t.Fatal("insufficient fixture exposures")
 	}
 	const path = "me/recommendation-events"
+	answered := func(c client, body map[string]any) {
+		t.Helper()
+		w := c.request("POST", path, body, 0, "")
+		mustStatus(t, w, 409)
+		if got := parsed[Problem](t, w).Code; got != "USEFULNESS_ALREADY_RECORDED" {
+			t.Fatal("missing recoverable usefulness conflict code", got)
+		}
+	}
 	event := func(exposure uuid.UUID, kind string) map[string]any {
 		return map[string]any{"eventId": uuid.New(), "exposureId": exposure, "kind": kind}
 	}
@@ -44,16 +52,22 @@ func TestRecommendationUsefulnessOneAnswerAcrossSessions(t *testing.T) {
 		if kind == opposite {
 			opposite = "DISSATISFIED"
 		}
-		mustStatus(t, secondSession.request("POST", path, event(exposures[i], opposite), 0, ""), 409)
-		mustStatus(t, secondSession.request("POST", path, event(exposures[i], kind), 0, ""), 409)
+		answered(secondSession, event(exposures[i], opposite))
+		answered(secondSession, event(exposures[i], kind))
+		changed := map[string]any{"eventId": original["eventId"], "exposureId": exposures[i], "kind": opposite}
+		w := secondSession.request("POST", path, changed, 0, "")
+		mustStatus(t, w, 409)
+		if got := parsed[Problem](t, w).Code; got != "EVENT_CONFLICT" {
+			t.Fatal("changed retry body must retain generic conflict code", got)
+		}
 		mustStatus(t, secondSession.request("POST", path, original, 0, ""), 200)
 		mustStatus(t, owner.request("POST", path, event(exposures[i], "MORE"), 0, ""), 200)
 		if _, err := integrationAdmin.Exec(context.Background(), `UPDATE social.recommendation_exposure SET expires_at=now()-interval '1 second' WHERE id=$1`, exposures[i]); err != nil {
 			t.Fatal(err)
 		}
 		mustStatus(t, secondSession.request("POST", path, original, 0, ""), 200)
-		mustStatus(t, secondSession.request("POST", path, event(exposures[i], opposite), 0, ""), 409)
-		mustStatus(t, secondSession.request("POST", path, event(exposures[i], kind), 0, ""), 409)
+		answered(secondSession, event(exposures[i], opposite))
+		answered(secondSession, event(exposures[i], kind))
 	}
 	type outcome struct {
 		code int

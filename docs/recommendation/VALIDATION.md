@@ -85,6 +85,7 @@
 - `make recommendation-browser-proof` passed with the real browser/BFF/Go/Rust/PostgreSQL path (5.3 seconds for Playwright). It exercises a previously cached account summary, refresh after feedback, lost acknowledgement with the same event ID, independent topic/usefulness controls and zero counts after reset.
 - The release combines the completed feedback branches with selective hydration. It restores summary invalidation and the summary/retention documentation lost in an earlier feature-branch merge. Migration 35 is applied only to disposable proof databases during local verification; existing installations require the ordinary migration step.
 - A deterministic restricted-worker concurrency regression holds an exposure parent lock while cleanup runs with a 500 ms lock budget. Cleanup skips both that parent and its event, expires an unlocked pair, and lets a subsequent real owner history reset succeed. Parent-first `SKIP LOCKED` avoids the child/parent inversion identified during PR review.
+- The follow-up conflict-recovery browser proof passed (5.9 seconds for Playwright). A separately authenticated browser context records Helpful before the original tab submits Not helpful; the original tab receives `USEFULNESS_ALREADY_RECORDED`, disables both usefulness choices without marking its rejected answer as selected, and can still record More. The summary includes the winning answer exactly once. The existing lost-acknowledgement retry and history-reset scenarios remain covered.
 
 ## Measured limits
 
