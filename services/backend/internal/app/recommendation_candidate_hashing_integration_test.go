@@ -131,6 +131,7 @@ func TestRecommendationCandidateHashingAfterSelection(t *testing.T) {
 	for _, query := range []string{recommendationCandidatesBeforeHashing, recommendationCandidates} {
 		exec("ALTER SEQUENCE " + schema + ".calls RESTART WITH 1")
 		query = strings.ReplaceAll(query, "md5(r.body)", schema+".counted_md5(r.body)")
+		query = strings.ReplaceAll(query, "md5(e.published_body)", schema+".counted_md5(e.published_body)")
 		rows, err := a.store(scope).Query(scope, query, profile, []string{slug}, "", uuid.Nil, []string{}, int64(1), false)
 		if err != nil {
 			t.Fatal(err)

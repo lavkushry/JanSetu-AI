@@ -136,8 +136,9 @@ WITH recent_interests AS MATERIALIZED (
 ), viewer_mutes AS MATERIALIZED (
  SELECT muted_profile_id,muted_community_id FROM social.mute
  WHERE profile_id=$1 AND (expires_at IS NULL OR expires_at>statement_timestamp())
-), eligible AS (
+), eligible AS NOT MATERIALIZED (
  SELECT p.id,p.published_revision,p.author_id,p.published_at,
+ r.body AS published_body,
  coalesce(p.source_post_id,p.id)::text AS conversation_key,
  CASE WHEN c.slug::text=ANY($2::text[]) OR EXISTS(
  SELECT FROM recent_interests previous
@@ -169,9 +170,9 @@ WITH recent_interests AS MATERIALIZED (
  SELECT * FROM eligible WHERE id IN (SELECT id FROM sources)
  ORDER BY published_at DESC,id LIMIT 2000
 )
-SELECT e.id,e.published_revision,e.author_id,'body:'||md5(r.body) AS dedup_key,
+SELECT e.id,e.published_revision,e.author_id,'body:'||md5(e.published_body) AS dedup_key,
  e.conversation_key,e.interest,e.locality,e.relationship,e.freshness,e.usefulness
-FROM selected e JOIN social.post_revision r ON r.post_id=e.id AND r.revision=e.published_revision
+FROM selected e
 ORDER BY e.published_at DESC,e.id`
 
 func stickyRecommendation(viewer string, percentage int) bool {
