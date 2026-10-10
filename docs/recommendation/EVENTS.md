@@ -43,6 +43,6 @@ Recommendation settings display the summary and reload it after new feedback or 
 
 ## One usefulness answer per exposure
 
-New SATISFIED or DISSATISFIED events conflict with HTTP 409 if either usefulness kind is already recorded for the same viewer, generation and exposure. The recommendation transaction serializes concurrent sessions for that viewer, so opposite answers racing from different tabs cannot both be accepted. More/Less remain independent topic controls; a different exposure can receive its own usefulness answer.
+New SATISFIED or DISSATISFIED events conflict with HTTP 409 and `USEFULNESS_ALREADY_RECORDED` if either usefulness kind is already recorded for the same viewer, generation and exposure. The recommendation transaction serializes concurrent sessions for that viewer, so opposite answers racing from different tabs cannot both be accepted. The losing UI disables both usefulness choices, displays an already-recorded status and refreshes the private summary without claiming its attempted answer was accepted. More/Less remain independent topic controls; a different exposure can receive its own usefulness answer. Other event-ID/body or exposure-action conflicts retain `EVENT_CONFLICT`.
 
 An identical event-ID/body retry still succeeds, including after exposure expiry, subject to current owner, session, consent and generation checks. Clients must retain the first attempted answer and event ID across ambiguous failures. This rule does not rewrite historical events or alter ranking weights.

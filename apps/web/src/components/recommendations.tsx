@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Schema } from '@/lib/api';
+import { api, APIError, type Schema } from '@/lib/api';
 import { ErrorState, FormError, Loading, useSession } from './ui';
 
 export function RecommendationSettings() {
@@ -197,6 +197,7 @@ function RecommendationControlBody({ value }: { value: Schema['RecommendationExp
   const { notify } = useSession();
   const [choice, setChoice] = useState('');
   const [satisfaction, setSatisfaction] = useState('');
+  const [satisfactionConflict, setSatisfactionConflict] = useState(false);
   const satisfactionAttempt = useRef<'SATISFIED' | 'DISSATISFIED' | null>(null);
   const eventIds = useRef<Partial<Record<FeedbackKind, string>>>({});
   const feedback = useMutation({
@@ -223,9 +224,21 @@ function RecommendationControlBody({ value }: { value: Schema['RecommendationExp
         await qc.resetQueries({ queryKey: ['feed'] });
       }
     },
+    onError: (error, { kind }) => {
+      if (
+        (kind === 'SATISFIED' || kind === 'DISSATISFIED') &&
+        error instanceof APIError &&
+        error.status === 409 &&
+        error.code === 'USEFULNESS_ALREADY_RECORDED'
+      ) {
+        setSatisfactionConflict(true);
+        void qc.invalidateQueries({ queryKey: ['recommendation-feedback-summary'] });
+      }
+    },
   });
   const submit = (kind: FeedbackKind) => {
     if (kind === 'SATISFIED' || kind === 'DISSATISFIED') {
+      if (satisfactionConflict) return;
       if (satisfactionAttempt.current && satisfactionAttempt.current !== kind) return;
       satisfactionAttempt.current = kind;
     }
@@ -260,6 +273,7 @@ function RecommendationControlBody({ value }: { value: Schema['RecommendationExp
               aria-pressed={satisfaction === 'SATISFIED'}
               disabled={
                 feedback.isPending ||
+                satisfactionConflict ||
                 satisfaction !== '' ||
                 satisfactionAttempt.current === 'DISSATISFIED'
               }
@@ -273,6 +287,7 @@ function RecommendationControlBody({ value }: { value: Schema['RecommendationExp
               aria-pressed={satisfaction === 'DISSATISFIED'}
               disabled={
                 feedback.isPending ||
+                satisfactionConflict ||
                 satisfaction !== '' ||
                 satisfactionAttempt.current === 'SATISFIED'
               }
@@ -281,11 +296,28 @@ function RecommendationControlBody({ value }: { value: Schema['RecommendationExp
               Not helpful
             </button>
             {satisfaction && <p role="status">Usefulness feedback recorded.</p>}
-            {feedback.isError && satisfactionAttempt.current && !satisfaction && (
-              <p>Retry your original answer to confirm it was recorded.</p>
+            {satisfactionConflict && (
+              <p role="status">
+                Usefulness feedback was already recorded for this recommendation. You can answer a
+                new recommendation when you refresh the feed.
+              </p>
             )}
+            {feedback.isError &&
+              satisfactionAttempt.current &&
+              !satisfaction &&
+              !satisfactionConflict && (
+                <p>Retry your original answer to confirm it was recorded.</p>
+              )}
           </div>
-          <FormError error={feedback.error} />
+          <FormError
+            error={
+              satisfactionConflict &&
+              feedback.variables?.kind !== 'MORE' &&
+              feedback.variables?.kind !== 'LESS'
+                ? null
+                : feedback.error
+            }
+          />
         </>
       ) : null}
       <p>

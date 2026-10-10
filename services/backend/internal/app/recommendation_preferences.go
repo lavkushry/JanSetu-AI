@@ -235,7 +235,7 @@ func (a *App) recommendationEvent(w http.ResponseWriter, r *http.Request, actor 
 				return e
 			}
 			if answered {
-				return failure(409, "EVENT_CONFLICT", "Usefulness feedback was already recorded for this recommendation")
+				return failure(409, "USEFULNESS_ALREADY_RECORDED", "Usefulness feedback was already recorded for this recommendation")
 			}
 		}
 		var post uuid.UUID
