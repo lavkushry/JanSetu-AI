@@ -473,6 +473,7 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 		groups := queryTimings["groups"].(map[string]any)
 		for label, expected := range map[string]int{
 			"candidateRetrieval": requests - continuations,
+			"postEligibility":    requests,
 			"postHydration":      requests, "principalLock": requests, "profileLock": requests,
 			"preferenceRead": requests * 2, "snapshotRead": continuations,
 		} {
@@ -483,6 +484,9 @@ func TestRecommendationAPIBenchmark(t *testing.T) {
 			if calls != expected {
 				t.Fatalf("query tracer %s: got %d calls, expected %d", label, calls, expected)
 			}
+		}
+		if groups["postHydration"].(map[string]any)["maximumReferences"].(int) > 20 {
+			t.Fatal("payload hydration exceeded the page budget")
 		}
 	}
 	t.Logf("%d successful complete feeds, %.2f requests/s; all-response latency %v", success, float64(success)/elapsed, stats["allResponseLatency"])

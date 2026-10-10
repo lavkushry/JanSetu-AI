@@ -376,14 +376,12 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 		if e != nil {
 			return e
 		}
-		bodies := map[uuid.UUID]json.RawMessage{}
 		revisions := map[uuid.UUID]int32{}
 		authors := map[uuid.UUID]uuid.UUID{}
 		for _, post := range posts {
 			if post.AuthorID != nil {
 				authors[post.ID] = *post.AuthorID
 			}
-			bodies[post.ID] = post.Data
 			revisions[post.ID] = post.PublishedRevision
 		}
 		if a.FeatureShadow != nil && p.PersonalizationEnabled {
@@ -449,14 +447,45 @@ func (a *App) recommendedFeed(w http.ResponseWriter, r *http.Request, actor *Act
 			}
 		}
 		counts := map[uuid.UUID]int{}
+		selected := []recommendationRef{}
+		for s.PostOffset < len(s.Posts) && len(items)+len(selected) < 20 {
+			ref := s.Posts[s.PostOffset]
+			s.PostOffset++
+			revision, ok := revisions[ref.ID]
+			if !ok || hidden[ref.ID] || revision != ref.Revision || counts[authors[ref.ID]] >= 2 {
+				continue
+			}
+			counts[authors[ref.ID]]++
+			selected = append(selected, ref)
+		}
+		// Build public payloads only for this page, using the same eligibility
+		// query again so state changes during selection cannot expose stale posts.
+		bodies := map[uuid.UUID]json.RawMessage{}
+		if len(selected) != 0 {
+			ids = []uuid.UUID{}
+			for _, ref := range selected {
+				ids = append(ids, ref.ID)
+			}
+			posts, e = dbgen.New(tx).RecommendationPosts(r.Context(), dbgen.RecommendationPostsParams{ViewerID: viewer, PostIds: ids, IncludeData: true})
+			if e != nil {
+				return e
+			}
+			for _, post := range posts {
+				bodies[post.ID] = post.Data
+				revisions[post.ID] = post.PublishedRevision
+				authors[post.ID] = uuid.Nil
+				if post.AuthorID != nil {
+					authors[post.ID] = *post.AuthorID
+				}
+			}
+		}
+		counts = map[uuid.UUID]int{}
 		exposureIDs := []uuid.UUID{}
 		exposurePosts := []uuid.UUID{}
 		exposureRevisions := []int32{}
-		for s.PostOffset < len(s.Posts) && len(items) < 20 {
-			ref := s.Posts[s.PostOffset]
-			s.PostOffset++
+		for _, ref := range selected {
 			data, ok := bodies[ref.ID]
-			if !ok || hidden[ref.ID] || counts[authors[ref.ID]] >= 2 {
+			if !ok || counts[authors[ref.ID]] >= 2 {
 				continue
 			}
 			if revisions[ref.ID] != ref.Revision {

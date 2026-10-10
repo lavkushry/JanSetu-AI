@@ -1,0 +1,294 @@
+{
+  "allResponseLatency": {
+    "p50Ms": 56.928,
+    "p95Ms": 85.845,
+    "p99Ms": 91.769
+  },
+  "apiReplicas": 1,
+  "authors": 64,
+  "behavioralShadow": false,
+  "completeFeedCapacityValidated": false,
+  "concurrency": 4,
+  "consentedLatency": {
+    "p50Ms": 59.394,
+    "p95Ms": 85.845,
+    "p99Ms": 90.86
+  },
+  "consentingViewers": 8,
+  "continuationLatency": {
+    "p50Ms": 41.781,
+    "p95Ms": 63.55,
+    "p99Ms": 63.55
+  },
+  "continuations": 10,
+  "costPerMillionEvents": null,
+  "costPerThousandFeeds": null,
+  "crossPagePostValidation": true,
+  "cursorOwnershipChecks": 1,
+  "databasePools": {
+    "auth": {
+      "acquiredConnectionsAfter": 0,
+      "acquiredConnectionsBefore": 0,
+      "canceledAcquires": 0,
+      "emptyAcquireWaitMs": 0,
+      "emptyAcquires": 0,
+      "maxConnections": 15,
+      "newConnections": 0,
+      "successfulAcquireMs": 0.13432,
+      "successfulAcquires": 250,
+      "totalConnectionsAfter": 4,
+      "totalConnectionsBefore": 4
+    },
+    "operations": {
+      "acquiredConnectionsAfter": 0,
+      "acquiredConnectionsBefore": 0,
+      "canceledAcquires": 0,
+      "emptyAcquireWaitMs": 0,
+      "emptyAcquires": 0,
+      "maxConnections": 15,
+      "newConnections": 0,
+      "successfulAcquireMs": 0,
+      "successfulAcquires": 0,
+      "totalConnectionsAfter": 2,
+      "totalConnectionsBefore": 2
+    },
+    "publication": {
+      "acquiredConnectionsAfter": 0,
+      "acquiredConnectionsBefore": 0,
+      "canceledAcquires": 0,
+      "emptyAcquireWaitMs": 0,
+      "emptyAcquires": 0,
+      "maxConnections": 15,
+      "newConnections": 0,
+      "successfulAcquireMs": 0,
+      "successfulAcquires": 0,
+      "totalConnectionsAfter": 2,
+      "totalConnectionsBefore": 2
+    },
+    "social": {
+      "acquiredConnectionsAfter": 0,
+      "acquiredConnectionsBefore": 0,
+      "canceledAcquires": 0,
+      "emptyAcquireWaitMs": 0,
+      "emptyAcquires": 0,
+      "maxConnections": 15,
+      "newConnections": 0,
+      "successfulAcquireMs": 0.136,
+      "successfulAcquires": 230,
+      "totalConnectionsAfter": 4,
+      "totalConnectionsBefore": 4
+    },
+    "vault": {
+      "acquiredConnectionsAfter": 0,
+      "acquiredConnectionsBefore": 0,
+      "canceledAcquires": 0,
+      "emptyAcquireWaitMs": 0,
+      "emptyAcquires": 0,
+      "maxConnections": 15,
+      "newConnections": 0,
+      "successfulAcquireMs": 0,
+      "successfulAcquires": 0,
+      "totalConnectionsAfter": 2,
+      "totalConnectionsBefore": 2
+    },
+    "vaultAuth": {
+      "acquiredConnectionsAfter": 0,
+      "acquiredConnectionsBefore": 0,
+      "canceledAcquires": 0,
+      "emptyAcquireWaitMs": 0,
+      "emptyAcquires": 0,
+      "maxConnections": 15,
+      "newConnections": 0,
+      "successfulAcquireMs": 0,
+      "successfulAcquires": 0,
+      "totalConnectionsAfter": 2,
+      "totalConnectionsBefore": 2
+    }
+  },
+  "databaseQueryTimings": {
+    "enabled": true,
+    "groups": {
+      "candidateRetrieval": {
+        "calls": 40,
+        "failedCalls": 0,
+        "latency": {
+          "p50Ms": 6.590638,
+          "p95Ms": 10.630797,
+          "p99Ms": 11.769758
+        },
+        "totalMs": 274.3060969999999
+      },
+      "exposureWrite": {
+        "calls": 35,
+        "failedCalls": 0,
+        "latency": {
+          "p50Ms": 2.06228,
+          "p95Ms": 4.694479,
+          "p99Ms": 4.863319
+        },
+        "totalMs": 85.42177800000002
+      },
+      "other": {
+        "calls": 865,
+        "failedCalls": 0,
+        "latency": {
+          "p50Ms": 0.29472,
+          "p95Ms": 1.39236,
+          "p99Ms": 2.208999
+        },
+        "totalMs": 411.19182300000074
+      },
+      "postHydration": {
+        "calls": 50,
+        "failedCalls": 0,
+        "latency": {
+          "p50Ms": 28.329354,
+          "p95Ms": 47.667789,
+          "p99Ms": 59.048866
+        },
+        "maximumReferences": 200,
+        "totalMs": 1601.8323489999996,
+        "totalReferences": 9680
+      },
+      "preferenceRead": {
+        "calls": 100,
+        "failedCalls": 0,
+        "latency": {
+          "p50Ms": 0.45472,
+          "p95Ms": 1.104959,
+          "p99Ms": 1.71408
+        },
+        "totalMs": 56.094629999999974
+      },
+      "principalLock": {
+        "calls": 50,
+        "failedCalls": 0,
+        "latency": {
+          "p50Ms": 0.41204,
+          "p95Ms": 0.6398,
+          "p99Ms": 0.659799
+        },
+        "totalMs": 21.006236000000005
+      },
+      "profileLock": {
+        "calls": 50,
+        "failedCalls": 0,
+        "latency": {
+          "p50Ms": 0.528919,
+          "p95Ms": 1.26664,
+          "p99Ms": 2.49596
+        },
+        "totalMs": 33.586429
+      },
+      "servingControl": {
+        "calls": 90,
+        "failedCalls": 0,
+        "latency": {
+          "p50Ms": 0.28772,
+          "p95Ms": 1.139599,
+          "p99Ms": 2.46544
+        },
+        "totalMs": 38.514264000000004
+      },
+      "snapshotRead": {
+        "calls": 10,
+        "failedCalls": 0,
+        "latency": {
+          "p50Ms": 1.12328,
+          "p95Ms": 1.762199,
+          "p99Ms": 1.762199
+        },
+        "totalMs": 11.106637
+      },
+      "snapshotWrite": {
+        "calls": 50,
+        "failedCalls": 0,
+        "latency": {
+          "p50Ms": 1.38492,
+          "p95Ms": 2.5438,
+          "p99Ms": 5.462838
+        },
+        "totalMs": 77.625105
+      }
+    },
+    "pool": "social",
+    "scope": "measured HTTP workers only; pgx query start through Exec completion or Rows close, including row iteration; excludes pool acquisition"
+  },
+  "datasetSHA256": "385e0fe997006f24dc4a2b79087280da432930374cd71e6c827c5f771eef104c",
+  "elapsedSeconds": 0.766926943,
+  "errorCounts": {},
+  "errors": 0,
+  "firstPageLatency": {
+    "p50Ms": 60.229,
+    "p95Ms": 85.845,
+    "p99Ms": 91.769
+  },
+  "fixture": "api-smoke-v2",
+  "fixtureContentSHA256": "5f07c93452d2369fb796cc1d4be717168c783bddbe381026ab828ae3f3b3fa64",
+  "fixtureEligiblePosts": 237,
+  "fixtureExcludedPosts": 19,
+  "generatorSHA256": "b5f10fd2ac70cbdb93e2933415c1aefc44aae60372d51819b038b9f4b1731522",
+  "gitRevision": "8e2144730b17e9348c437b0ea72f6ec54749a6f5",
+  "goMaxProcs": 4,
+  "goProfiling": {
+    "artifacts": {},
+    "blockRateNanoseconds": null,
+    "enabled": false,
+    "mutexSampleFraction": null,
+    "scope": null
+  },
+  "goRaceDetector": false,
+  "goVersion": "go1.26.0",
+  "hostArchitecture": "aarch64",
+  "hostLogicalCPUs": 4,
+  "hostMemoryBytes": 25136467968,
+  "maximumRequestsPerViewer": 5,
+  "measuredAt": "2026-10-10T03:54:44.560139583Z",
+  "measuredViewers": 12,
+  "modeCounts": {
+    "ranked": 50
+  },
+  "nonconsentingLatency": {
+    "p50Ms": 52.245,
+    "p95Ms": 91.769,
+    "p99Ms": 91.769
+  },
+  "nonconsentingRequests": 15,
+  "nonconsentingViewers": 4,
+  "paginationPolicy": "advance-on-success-v2",
+  "postgresVersion": "PostgreSQL 18.6 (Debian 18.6-1.pgdg13+2) on aarch64-unknown-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+  "postsPerAuthor": 4,
+  "qualityValidated": false,
+  "queryTimingTracerSHA256": "910ae27876410b4e915832f043e555ab235ee9243497fbfaf3d6d832de67e9d7",
+  "recommendationRPC": {
+    "calls": 40,
+    "errors": 0,
+    "latency": {
+      "p50Ms": 1.693,
+      "p95Ms": 5.633,
+      "p99Ms": 11.241
+    },
+    "maximumCandidates": 241
+  },
+  "requests": 50,
+  "responseBytes": 911798,
+  "runtimeRole": "js_social",
+  "rustBinarySHA256": "8cd2ff34ea12af8c00fe6160900fe2ce7fb2c8df658b41a3573a361dc823ebbb",
+  "rustBuild": "cargo build --locked --release, host process without a CPU or memory limit",
+  "rustMaxInFlight": 8,
+  "rustReplicas": 1,
+  "rustVersion": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "scope": "closed-loop loopback HTTP Go API / restricted PostgreSQL / Rust RPC, configurable independent synthetic viewers; excludes BFF, production TLS, cache and background event workers",
+  "seededViewers": 12,
+  "snapshotCache": false,
+  "socialPoolMaxConns": 15,
+  "statusCounts": {
+    "200": 50
+  },
+  "successfulFeeds": 50,
+  "successfulRequestsPerSecond": 65.19525810948072,
+  "testTimeoutSeconds": 770,
+  "tls": false,
+  "warmupRequests": 12,
+  "worktreeDirty": false
+}

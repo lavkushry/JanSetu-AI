@@ -4324,7 +4324,7 @@ func (q *Queries) Receipts(ctx context.Context, searchText string) ([]SocialCase
 }
 
 const recommendationPosts = `-- name: RecommendationPosts :many
-SELECT p.id, COALESCE(p.published_revision,0)::integer AS published_revision, a.id AS author_id, jsonb_build_object(
+SELECT p.id, COALESCE(p.published_revision,0)::integer AS published_revision, a.id AS author_id, CASE WHEN $1::boolean THEN jsonb_build_object(
   'id',p.id,'kind',p.kind,'state',p.state,'version',p.version,'currentRevision',p.current_revision,'publishedRevision',p.published_revision,
   'title',CASE WHEN p.state='DELETED' THEN NULL WHEN pub.post_id IS NOT NULL THEN pub.title ELSE cur.title END,
   'body',CASE WHEN p.state='DELETED' THEN NULL ELSE COALESCE(pub.body,'') END,
@@ -4337,20 +4337,20 @@ SELECT p.id, COALESCE(p.published_revision,0)::integer AS published_revision, a.
     'selectedBy',CASE WHEN s.selected_by=p.author_id THEN 'AUTHOR' ELSE 'COMMUNITY_MODERATOR' END)
     FROM social.selected_response s JOIN social.eligible_question_response e ON e.post_id=s.post_id AND e.comment_id=s.comment_id
     AND e.post_revision=s.post_revision AND e.comment_revision=s.comment_revision WHERE s.post_id=p.id
-    AND NOT EXISTS(SELECT FROM social.profile_block b WHERE (b.blocker_id=$1 AND b.blocked_id=e.author_id) OR (b.blocked_id=$1 AND b.blocker_id=e.author_id))),
+    AND NOT EXISTS(SELECT FROM social.profile_block b WHERE (b.blocker_id=$2 AND b.blocked_id=e.author_id) OR (b.blocked_id=$2 AND b.blocker_id=e.author_id))),
   'stats',jsonb_build_object('score',COALESCE(st.up_count-st.down_count,0),'comments',COALESCE(st.comment_count,0),'reposts',COALESCE(st.repost_count,0),'asOf',COALESCE(st.as_of,p.created_at)),
-  'viewer',jsonb_build_object('vote',COALESCE((SELECT value FROM social.post_vote v WHERE v.profile_id=$1 AND v.post_id=p.id),0),
-    'bookmarked',EXISTS(SELECT 1 FROM social.bookmark b WHERE b.profile_id=$1 AND b.post_id=p.id),
-    'reposted',EXISTS(SELECT 1 FROM social.repost r WHERE r.profile_id=$1 AND r.post_id=p.id),
-    'canEdit',p.author_id=$1 AND (p.state IN ('PENDING','PUBLISHED') OR (p.state='HIDDEN' AND p.published_revision IS NULL AND cur.review_state='REJECTED')),
-    'canDelete',p.author_id=$1 AND p.state NOT IN ('DELETED'),
-    'canReply',p.state='PUBLISHED' AND $1::uuid <> '00000000-0000-0000-0000-000000000000'::uuid,
-    'canSelectResponse',COALESCE(p.kind='QUESTION' AND p.state='PUBLISHED' AND (p.author_id=$1
-      OR EXISTS(SELECT FROM social.community_member m WHERE m.community_id=p.community_id AND m.profile_id=$1 AND m.state='ACTIVE' AND m.role IN ('MODERATOR','OWNER'))),false),
-    'mutedAuthor',CASE WHEN p.state='DELETED' THEN false ELSE EXISTS(SELECT FROM social.mute m WHERE m.profile_id=$1 AND m.muted_profile_id=p.author_id AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) END),
-  'candidate',CASE WHEN p.author_id=$1 OR $2::boolean THEN
+  'viewer',jsonb_build_object('vote',COALESCE((SELECT value FROM social.post_vote v WHERE v.profile_id=$2 AND v.post_id=p.id),0),
+    'bookmarked',EXISTS(SELECT 1 FROM social.bookmark b WHERE b.profile_id=$2 AND b.post_id=p.id),
+    'reposted',EXISTS(SELECT 1 FROM social.repost r WHERE r.profile_id=$2 AND r.post_id=p.id),
+    'canEdit',p.author_id=$2 AND (p.state IN ('PENDING','PUBLISHED') OR (p.state='HIDDEN' AND p.published_revision IS NULL AND cur.review_state='REJECTED')),
+    'canDelete',p.author_id=$2 AND p.state NOT IN ('DELETED'),
+    'canReply',p.state='PUBLISHED' AND $2::uuid <> '00000000-0000-0000-0000-000000000000'::uuid,
+    'canSelectResponse',COALESCE(p.kind='QUESTION' AND p.state='PUBLISHED' AND (p.author_id=$2
+      OR EXISTS(SELECT FROM social.community_member m WHERE m.community_id=p.community_id AND m.profile_id=$2 AND m.state='ACTIVE' AND m.role IN ('MODERATOR','OWNER'))),false),
+    'mutedAuthor',CASE WHEN p.state='DELETED' THEN false ELSE EXISTS(SELECT FROM social.mute m WHERE m.profile_id=$2 AND m.muted_profile_id=p.author_id AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) END),
+  'candidate',CASE WHEN p.author_id=$2 OR $3::boolean THEN
     jsonb_build_object('title',cur.title,'body',cur.body,'revision',cur.revision,'reviewState',cur.review_state) ELSE NULL END
-) AS data
+) ELSE NULL::jsonb END AS data
 FROM social.post p JOIN social.post_revision cur ON cur.post_id=p.id AND cur.revision=p.current_revision
 LEFT JOIN social.post_revision pub ON pub.post_id=p.id AND pub.revision=p.published_revision
 LEFT JOIN social.profile a ON a.id=p.author_id LEFT JOIN social.community c ON c.id=p.community_id
@@ -4358,14 +4358,15 @@ LEFT JOIN social.post_stats st ON st.post_id=p.id
 WHERE (p.source_post_id IS NULL OR EXISTS(SELECT FROM social.post root JOIN social.profile root_author ON root_author.id=root.author_id LEFT JOIN social.community root_community ON root_community.id=root.community_id
  WHERE root.id=p.source_post_id AND root.state='PUBLISHED' AND root_author.state='ACTIVE'
  AND (root_community.id IS NULL OR (root_community.state='ACTIVE' AND root_community.visibility IN ('PUBLIC','RESTRICTED')))
- AND NOT EXISTS(SELECT FROM social.profile_block b WHERE (b.blocker_id=$1 AND b.blocked_id=root.author_id) OR (b.blocked_id=$1 AND b.blocker_id=root.author_id)))) AND p.state='PUBLISHED' AND NOT EXISTS(SELECT FROM social.mute m WHERE m.profile_id=$1 AND (m.muted_profile_id=p.author_id OR m.muted_community_id=p.community_id) AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) AND p.id=ANY($3::uuid[]) AND (c.id IS NULL OR c.visibility IN ('PUBLIC','RESTRICTED'))
+ AND NOT EXISTS(SELECT FROM social.profile_block b WHERE (b.blocker_id=$2 AND b.blocked_id=root.author_id) OR (b.blocked_id=$2 AND b.blocker_id=root.author_id)))) AND p.state='PUBLISHED' AND NOT EXISTS(SELECT FROM social.mute m WHERE m.profile_id=$2 AND (m.muted_profile_id=p.author_id OR m.muted_community_id=p.community_id) AND (m.expires_at IS NULL OR m.expires_at>statement_timestamp())) AND p.id=ANY($4::uuid[]) AND (c.id IS NULL OR c.visibility IN ('PUBLIC','RESTRICTED'))
 AND (c.id IS NULL OR c.state='ACTIVE') AND (p.state='DELETED' OR p.author_id IS NULL OR a.state='ACTIVE')
-AND (p.state IN ('PUBLISHED','DELETED') OR p.author_id=$1 OR $2::boolean)
-AND ($2::boolean OR NOT EXISTS(SELECT 1 FROM social.profile_block b WHERE
-  (b.blocker_id=$1 AND b.blocked_id=p.author_id) OR (b.blocked_id=$1 AND b.blocker_id=p.author_id)))
+AND (p.state IN ('PUBLISHED','DELETED') OR p.author_id=$2 OR $3::boolean)
+AND ($3::boolean OR NOT EXISTS(SELECT 1 FROM social.profile_block b WHERE
+  (b.blocker_id=$2 AND b.blocked_id=p.author_id) OR (b.blocked_id=$2 AND b.blocker_id=p.author_id)))
 `
 
 type RecommendationPostsParams struct {
+	IncludeData  bool        `json:"include_data"`
 	ViewerID     uuid.UUID   `json:"viewer_id"`
 	ReviewAccess bool        `json:"review_access"`
 	PostIds      []uuid.UUID `json:"post_ids"`
@@ -4379,7 +4380,12 @@ type RecommendationPostsRow struct {
 }
 
 func (q *Queries) RecommendationPosts(ctx context.Context, arg RecommendationPostsParams) ([]RecommendationPostsRow, error) {
-	rows, err := q.db.Query(ctx, recommendationPosts, arg.ViewerID, arg.ReviewAccess, arg.PostIds)
+	rows, err := q.db.Query(ctx, recommendationPosts,
+		arg.IncludeData,
+		arg.ViewerID,
+		arg.ReviewAccess,
+		arg.PostIds,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -232,7 +232,7 @@ func (a *App) recommendationEvent(w http.ResponseWriter, r *http.Request, actor 
 		if e != nil {
 			return e
 		}
-		data, e := dbgen.New(tx).RecommendationPosts(r.Context(), dbgen.RecommendationPostsParams{PostIds: []uuid.UUID{post}, ViewerID: actor.ProfileID})
+		data, e := dbgen.New(tx).RecommendationPosts(r.Context(), dbgen.RecommendationPostsParams{PostIds: []uuid.UUID{post}, ViewerID: actor.ProfileID, IncludeData: b.Kind == "READ"})
 		if e != nil {
 			return e
 		}
