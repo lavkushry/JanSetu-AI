@@ -24,3 +24,5 @@ The overall and first-page p95 improve in this short run. Continuation and RPC p
 The eligible relation still spans matching public inventory before source limits. Indexed/distributed retrieval, realistic graphs and independent viewers, arrival-rate load tests, revocations under load and cost accounting remain part of the [capacity gate](BENCHMARKS.md#full-api-release-workload). The artifacts keep `completeFeedCapacityValidated` and `qualityValidated` false.
 
 The subsequent [candidate hash budget](CANDIDATE-HASHING.md) defers deduplication hashing until after source selection. It preserves the features and source order above, while the eligible relation now carries published body values. Its larger-inventory observations and temporary-storage tradeoff are recorded separately; the inventory scan remains an open scaling prerequisite.
+
+[Active author membership](AUTHOR-ELIGIBILITY.md) also avoids a measured inventory/profile nested loop. It retains the author-state gate and records its query-plan evidence and operating limits separately.

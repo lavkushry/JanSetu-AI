@@ -123,6 +123,8 @@ func (a *App) saveRecommendationSnapshot(ctx context.Context, scope snapshotcach
 
 // Assemble viewer-scoped history and active mutes once per statement. Their
 // restricted-role reads retain RLS and the same generation/revision/time fences.
+// Test active-author membership without flattening it into an inventory/profile
+// join; skewed eligibility estimates otherwise produce a large nested loop.
 // Materialize the selected references before hashing their published bodies;
 // matching inventory can be much larger than the 2,000-candidate budget.
 const recommendationCandidates = `
@@ -150,8 +152,9 @@ WITH recent_interests AS MATERIALIZED (
  (1.0/(1.0+GREATEST(0,extract(epoch FROM (statement_timestamp()-p.published_at))/86400)))::double precision AS freshness,
  LEAST(1.0,GREATEST(0,coalesce(s.up_count-s.down_count,0))/20.0)::double precision AS usefulness
  FROM social.post p JOIN social.post_revision r ON r.post_id=p.id AND r.revision=p.published_revision
- JOIN social.profile a ON a.id=p.author_id LEFT JOIN social.community c ON c.id=p.community_id LEFT JOIN social.post_stats s ON s.post_id=p.id
- WHERE p.state='PUBLISHED' AND a.state='ACTIVE' AND r.review_state='APPROVED'
+ LEFT JOIN social.community c ON c.id=p.community_id LEFT JOIN social.post_stats s ON s.post_id=p.id
+ WHERE p.state='PUBLISHED' AND r.review_state='APPROVED'
+ AND (p.author_id IN (SELECT a.id FROM social.profile a WHERE a.state='ACTIVE')) IS TRUE
  AND (p.source_post_id IS NULL OR EXISTS(
  SELECT FROM social.post original JOIN social.profile oa ON oa.id=original.author_id LEFT JOIN social.community oc ON oc.id=original.community_id
  WHERE original.id=p.source_post_id AND original.state='PUBLISHED' AND oa.state='ACTIVE'
